@@ -75,24 +75,26 @@ class StoryOrchestrator:
         characters: list[str],
         previous_acts: list[Act],
         story_state: Optional[Dict] = None,
+        prev_act_blueprint: Optional[ActBlueprint] = None,
     ) -> Act:
         act = Act(id=str(uuid.uuid4()), act_number=act_blueprint.act_number)
-        previous_summary = self._summarize_previous_acts(previous_acts)
+        prev_act_bridge = self._build_act_bridge(prev_act_blueprint)
 
-        for i, scene_blueprint in enumerate(act_blueprint.scenes):
+        for scene_index, scene_blueprint in enumerate(act_blueprint.scenes):
             scene, _ = self.generate_scene_with_writing(
-                scene_blueprint,
-                act_blueprint.act_number,
-                characters,
-                previous_summary,
-                story_state,
+                scene_blueprint=scene_blueprint,
+                act_number=act_blueprint.act_number,
+                scene_index=scene_index,
+                characters=characters,
+                act_blueprint=act_blueprint,
+                prev_act_bridge=prev_act_bridge,
+                story_state=story_state,
             )
             act.scenes.append(scene)
-            previous_summary = scene.full_content[:200] if scene.full_content else ""
 
         if len(act.scenes) > 1:
             act.act_transition = self.transition_agent.generate_act_transition(
-                current_act_summary=previous_summary,
+                current_act_summary=act.scenes[-1].full_content[:200] if act.scenes[-1].full_content else "",
                 next_act_arc="continuation",
                 is_cliffhanger=True,
             )
@@ -103,8 +105,10 @@ class StoryOrchestrator:
         self,
         scene_blueprint: SceneBlueprint,
         act_number: int,
+        scene_index: int,
         characters: list[str],
-        previous_summary: str,
+        act_blueprint: ActBlueprint,
+        prev_act_bridge: Optional[str] = None,
         story_state: Optional[Dict] = None,
     ) -> Tuple[Scene, dict]:
         char_profiles = {}
@@ -119,15 +123,21 @@ class StoryOrchestrator:
                 char_profiles[name] = ctx["profile"]
                 char_states[name] = ctx["current_state"]
 
+        prior = [
+            f"{s.scene_description}{' [' + s.creative_element + ']' if s.creative_element and s.creative_element.strip() and s.creative_element != 'N/A' else ''}"
+            for s in act_blueprint.scenes[:scene_index]
+        ]
+        if scene_index == 0 and prev_act_bridge:
+            prior = [prev_act_bridge] + prior
+
         scene_context = StoryContext(
             chapter_title="",
             act_number=act_number,
             scene_number=scene_blueprint.scene_number,
-            arc=scene_blueprint.scene_description or "",
             background=scene_blueprint.suggested_setting,
             characters=scene_blueprint.characters or characters,
             setting=scene_blueprint.suggested_setting,
-            previous_scene_summary=previous_summary,
+            prior_scenes_context=prior,
             character_profiles=char_profiles,
             character_states=char_states,
             scene_description=scene_blueprint.scene_description or "",
@@ -174,9 +184,11 @@ class StoryOrchestrator:
         self,
         scene_blueprint: SceneBlueprint,
         act_number: int,
+        scene_index: int,
         characters: list[str],
-        previous_summary: str,
-        feedback: str,
+        act_blueprint: ActBlueprint,
+        prev_act_bridge: Optional[str] = None,
+        feedback: str = "",
         story_state: Optional[Dict] = None,
         setting_draft: str = None,
         dialogue_draft: str = None,
@@ -193,15 +205,21 @@ class StoryOrchestrator:
                 char_profiles[name] = ctx["profile"]
                 char_states[name] = ctx["current_state"]
 
+        prior = [
+            f"{s.scene_description}{' [' + s.creative_element + ']' if s.creative_element and s.creative_element.strip() and s.creative_element != 'N/A' else ''}"
+            for s in act_blueprint.scenes[:scene_index]
+        ]
+        if scene_index == 0 and prev_act_bridge:
+            prior = [prev_act_bridge] + prior
+
         scene_context = StoryContext(
             chapter_title="",
             act_number=act_number,
             scene_number=scene_blueprint.scene_number,
-            arc=scene_blueprint.scene_description or "",
             background=scene_blueprint.suggested_setting,
             characters=scene_blueprint.characters or characters,
             setting=scene_blueprint.suggested_setting,
-            previous_scene_summary=previous_summary,
+            prior_scenes_context=prior,
             character_profiles=char_profiles,
             character_states=char_states,
             scene_description=scene_blueprint.scene_description or "",
@@ -274,11 +292,11 @@ class StoryOrchestrator:
 
         print(f"\n{'─'*60}")
 
-    def _summarize_previous_acts(self, previous_acts: list[Act]) -> str:
-        if not previous_acts:
-            return ""
-        summaries = []
-        for act in previous_acts:
-            for scene in act.scenes:
-                summaries.append(scene.scene_description)
-        return " | ".join(summaries)
+    def _build_act_bridge(self, prev_act_blueprint: Optional[ActBlueprint]) -> Optional[str]:
+        if prev_act_blueprint and prev_act_blueprint.scenes:
+            last = prev_act_blueprint.scenes[-1]
+            bridge = last.scene_description
+            if last.creative_element and last.creative_element.strip() and last.creative_element != "N/A":
+                bridge += f" [{last.creative_element}]"
+            return bridge
+        return None

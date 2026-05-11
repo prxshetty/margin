@@ -13,13 +13,10 @@ class StoryContext:
     chapter_title: str
     act_number: int
     scene_number: int
-    arc: str = ""
-    arcs: List[str] = field(default_factory=list)
     background: str = ""
     characters: List[str] = field(default_factory=list)
     setting: str = ""
-    tone: str = "neutral"
-    previous_scene_summary: str = ""
+    prior_scenes_context: List[str] = field(default_factory=list)
     generated_content: Dict[str, str] = field(default_factory=dict)
     character_profiles: Dict[str, Dict] = field(default_factory=dict)
     character_states: Dict[str, str] = field(default_factory=dict)

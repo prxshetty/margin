@@ -57,8 +57,10 @@ class WriterAgent:
             f"\nSCENE DESCRIPTION:\n{context.scene_description}",
         ]
 
-        if context.previous_scene_summary:
-            parts.append(f"\nPREVIOUS SCENE:\n{context.previous_scene_summary}")
+        if context.prior_scenes_context:
+            parts.append("\nPRIOR SCENES IN THIS ACT:")
+            for i, desc in enumerate(context.prior_scenes_context, 1):
+                parts.append(f" {i}. {desc}")
 
         parts.append(f"\n--- SETTING (from SceneAgent) ---\n{setting_draft}")
 

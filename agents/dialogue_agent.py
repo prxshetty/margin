@@ -51,7 +51,9 @@ class DialogueAgent:
                 if current_state:
                     parts.append(f"    Current state: {current_state}")
 
-        if context.previous_scene_summary:
-            parts.append(f"\nPREVIOUS SCENE:\n{context.previous_scene_summary}")
+        if context.prior_scenes_context:
+            parts.append("\nPRIOR SCENES IN THIS ACT:")
+            for i, desc in enumerate(context.prior_scenes_context, 1):
+                parts.append(f" {i}. {desc}")
 
         return "\n".join(parts)

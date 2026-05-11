@@ -126,13 +126,15 @@ def main():
 
     orchestrator = StoryOrchestrator(state_manager=state_manager)
     story_state = state_manager.read_story_state()
-    previous_summary = ""
 
     for act_index, act_blueprint in enumerate(blueprint.acts):
         print(f"\n{'='*60}")
         print(f"ACT {act_blueprint.act_number}: {act_blueprint.act_theme}")
         print(f"Scenes: {len(act_blueprint.scenes)}")
         print(f"{'='*60}")
+
+        prev_act_blueprint = blueprint.acts[act_index - 1] if act_index > 0 else None
+        prev_act_bridge = orchestrator._build_act_bridge(prev_act_blueprint)
 
         act_scenes = []
 
@@ -144,8 +146,10 @@ def main():
                 scene, agent_logs = orchestrator.generate_scene_with_writing(
                     scene_blueprint=scene_blueprint,
                     act_number=act_blueprint.act_number,
+                    scene_index=scene_index,
                     characters=characters,
-                    previous_summary=previous_summary,
+                    act_blueprint=act_blueprint,
+                    prev_act_bridge=prev_act_bridge,
                     story_state=story_state,
                 )
             except Exception as e:
@@ -173,8 +177,10 @@ def main():
                     scene, agent_logs = orchestrator.regenerate_scene_with_feedback(
                         scene_blueprint=scene_blueprint,
                         act_number=act_blueprint.act_number,
+                        scene_index=scene_index,
                         characters=characters,
-                        previous_summary=previous_summary,
+                        act_blueprint=act_blueprint,
+                        prev_act_bridge=prev_act_bridge,
                         feedback=feedback,
                         story_state=story_state,
                         setting_draft=scene.setting,
@@ -195,13 +201,10 @@ def main():
 
             if scene_approval == "y":
                 act_scenes.append(scene)
-                previous_summary = scene.full_content[:200] if scene.full_content else previous_summary
                 _save_scene_drafts(scene, agent_logs, act_blueprint.act_number)
                 print(f"Scene {scene.scene_number} approved.")
             else:
                 print(f"Scene {scene.scene_number} skipped.")
-                if act_scenes:
-                    previous_summary = act_scenes[-1].full_content[:200] if act_scenes[-1].full_content else previous_summary
 
         if len(act_blueprint.scenes) > 1 and len(act_scenes) > 1:
             act_transition = orchestrator.transition_agent.generate_act_transition(

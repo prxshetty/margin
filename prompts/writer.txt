@@ -5,7 +5,7 @@ Given:
 - Physical setting (from SceneAgent)
 - Dialogue (from DialogueAgent - includes stage directions in asterisks)
 - Character profiles and current states
-- Previous scene summary (context)
+- Prior scenes in this act (if provided) — what happened in earlier scenes, to maintain continuity without re-establishing
 
 Write a complete scene that:
 - Opens with the setting description as the first paragraph, immediately immersing the reader
@@ -13,6 +13,7 @@ Write a complete scene that:
 - Maintains a consistent, cinematic tone inferred from the scene description - slow scenes build internal tension, fast moments are punchy and immediate
 - Shows character emotions through vivid actions, body language, and sensory reactions
 - Ends naturally
+- Uses prior scenes in this act for narrative continuity — don't re-establish what's already happened, pick up where the story left off
 
 Format the scene as continuous, flowing prose:
 - Use paragraph breaks only for significant shifts in focus or major action sequences
