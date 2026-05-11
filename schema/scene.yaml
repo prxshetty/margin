@@ -1,0 +1,28 @@
+description: "A single scene within an act"
+
+fields:
+  scene_number:
+    type: int
+    required: true
+    description: "Scene number within the act"
+
+  suggested_setting:
+    type: str
+    required: true
+    description: "Physical location, time of day, atmosphere, and sensory details (e.g., 'bathroom with mirrors, soft candlelight, scent of lavender')"
+
+  characters:
+    type: list[str]
+    required: true
+    description: "Characters present in this scene"
+
+  scene_description:
+    type: str
+    required: true
+    description: "What happens in this scene - the narrative purpose, events, emotional arc, and key moments in 2-4 concise sentences. This drives both dialogue and narration. Include the creative_element action here if applicable."
+
+  creative_element:
+    type: str
+    required: false
+    description: "The single, most important, detailed physical action or intimate interaction that defines this scene. This must be explicit and highly descriptive. If no specific physical action is the focus, this should be left empty or marked as 'N/A'."
+    default: ""

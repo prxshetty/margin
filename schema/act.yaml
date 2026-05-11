@@ -1,0 +1,18 @@
+description: "An act containing multiple scenes"
+
+fields:
+  act_number:
+    type: int
+    required: true
+    description: "Act number in the chapter"
+
+  act_theme:
+    type: str
+    required: true
+    description: "Theme or name of this act"
+
+  act_transition_hint:
+    type: str
+    required: false
+    description: "How this act ends and what transitions to the next act"
+    default: ""

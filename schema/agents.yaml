@@ -1,0 +1,16 @@
+description: "Agent-specific field relevance mappings - used to include relevant fields in each agent's prompt"
+
+scene_agent:
+  - scene_description
+  - suggested_setting
+  - creative_element
+  - characters
+
+dialogue_agent:
+  - scene_description
+  - suggested_setting
+  - characters
+
+writer_agent:
+  - scene_description
+  - characters

@@ -1,0 +1,20 @@
+name: Kaelen Rhys
+description: A charming, charismatic rogue who operates in the shadows of high society. He is outwardly playful but harbors a deep, cynical loneliness.
+traits:
+  - Witty and manipulative
+  - Charismatic and magnetic
+  - Deeply lonely beneath the surface
+relationships:
+  - Vivienne Sterling: A wealthy, demanding socialite.
+  - Silas: A shadowy informant/ally.
+goals:
+  - To navigate the treacherous social landscape for personal gain.
+  - To find a connection that is genuine, not transactional.
+flaws:
+  - Relies too heavily on charm to mask insecurity
+  - Avoids true commitment
+arc:
+  starting_point: "Using charm as a shield to deflect genuine emotional intimacy."
+  desired_end: "Successfully navigating a high-stakes situation while realizing the true cost of his isolation."
+  progress: 0.3 # Placeholder for tracking progress
+  current_state: "Feeling the pressure of his carefully constructed persona beginning to crack."
