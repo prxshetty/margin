@@ -8,6 +8,8 @@ A local-first, multi-agent story generation framework designed for SLMs (Small L
 - **Agent customization**: Add/modify agents via YAML schema
 - **Feedback loops**: Approve or regenerate scenes with natural language feedback
 - **Schema-driven**: Customize fields without touching code
+- **Genre-aware**: Set genre and tone guidelines in your chapter file — the writer agent calibrates emotional depth and pacing accordingly
+- **Scene-level control**: Emotional register is inferred from each scene's description, so even within a genre individual scenes can deviate
 - **Debug drafts**: Per-scene agent inputs/outputs saved for inspection
 
 ## Quick Start
@@ -89,6 +91,14 @@ slm-writing-engine/
 
 ## Background
 (Optional context about setting, time period, etc.)
+
+## Genre
+Crime / Thriller
+
+## Tone Guidelines
+- Prioritize physical environment over character emotion
+- Show detective competence through action, not feeling
+- Emotion only when plot-relevant
 
 ## Outline
 A detailed description of what happens in this chapter. Include emotional beats, character interactions, and key moments. This drives the entire generation.
