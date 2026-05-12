@@ -70,10 +70,17 @@ class WriterAgent:
             parts.append(f"CHAPTER BACKGROUND:\n{context.chapter_background}")
         if context.writing_focus:
             parts.append(f"WRITING FOCUS:\n{context.writing_focus}")
+        if context.extra.get("scene_type"):
+            parts.append(f"\nSCENE TYPE: {context.extra['scene_type']}")
+
         if context.extra.get("scene_events"):
             parts.append("\nSCENE EVENTS (must be covered in order):")
             for i, event in enumerate(context.extra["scene_events"], 1):
                 parts.append(f"  {i}. {event}")
+
+        active_style = context.writing_style.get("active", "")
+        if active_style:
+            parts.append(f"\nWRITING STYLE GUIDELINES:\n{active_style}")
 
         parts.append(f"\n--- SETTING (from SceneAgent) ---\n{setting_draft}")
 

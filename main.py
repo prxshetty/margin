@@ -70,6 +70,7 @@ def main():
     genre = chapter_info.get("genre", "")
     tone_guidelines = chapter_info.get("tone_guidelines", "")
     writing_focus = chapter_info.get("writing_focus", "")
+    writing_style = chapter_info.get("writing_style", {})
     chapter_background = chapter_info.get("background", "")
 
     if not user_outline.strip():
@@ -189,8 +190,11 @@ def main():
         act_scenes = []
 
         for scene_index, scene_blueprint in enumerate(act_blueprint.scenes):
+            scene_type = scene_blueprint.extra.get("scene_type", "dialogue")
+            scene_events = scene_blueprint.extra.get("scene_events", [])
             print(f"\n{'─'*40}")
             print(f"Generating Scene {scene_blueprint.scene_number} of {act_blueprint.act_theme}...")
+            print(f"  Type: {scene_type}  |  Events: {len(scene_events)}")
 
             try:
                 scene, agent_logs = orchestrator.generate_scene_with_writing(
@@ -205,6 +209,7 @@ def main():
                     writing_focus=writing_focus,
                     chapter_background=chapter_background,
                     story_state=story_state,
+                    writing_style=writing_style,
                 )
             except Exception as e:
                 print(f"Error generating scene: {e}")
@@ -241,6 +246,7 @@ def main():
                         story_state=story_state,
                         setting_draft=scene.setting,
                         dialogue_draft=scene.dialogue,
+                        writing_style=writing_style,
                     )
                 except Exception as e:
                     print(f"Error regenerating scene: {e}")

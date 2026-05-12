@@ -30,4 +30,13 @@ class SceneAgent:
             f"SCENE DESCRIPTION:\n{context.scene_description}",
             f"\nSUGGESTED SETTING:\n{context.setting or context.background}",
         ]
+
+        if context.extra.get("scene_type"):
+            parts.append(f"\nSCENE TYPE: {context.extra['scene_type']}")
+
+        if context.extra.get("scene_events"):
+            parts.append("\nSCENE EVENTS (ordered beats):")
+            for i, event in enumerate(context.extra["scene_events"], 1):
+                parts.append(f"  {i}. {event}")
+
         return "\n".join(parts)

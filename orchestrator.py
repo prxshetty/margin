@@ -3,7 +3,7 @@ Story Orchestrator — coordinates all agents to generate chapters.
 """
 
 import uuid
-from typing import Optional, Dict, List, Callable, Tuple
+from typing import Optional, Dict, List, Callable, Tuple, Any
 from models import (
     StoryContext,
     Scene,
@@ -37,13 +37,14 @@ class StoryOrchestrator:
         act_index: int,
         characters: list[str],
         story_state: Optional[Dict] = None,
+        writing_style: Optional[Dict[str, str]] = None,
     ) -> Act:
         """Generate a single act from blueprint."""
         if act_index >= len(blueprint.acts):
             raise ValueError(f"Act index {act_index} out of range")
 
         act_blueprint = blueprint.acts[act_index]
-        return self._generate_act(act_blueprint, characters, [], story_state)
+        return self._generate_act(act_blueprint, characters, [], story_state, writing_style=writing_style)
 
     def regenerate_act_with_feedback(
         self,
@@ -52,6 +53,7 @@ class StoryOrchestrator:
         characters: list[str],
         feedback: str,
         story_state: Optional[Dict] = None,
+        writing_style: Optional[Dict[str, str]] = None,
     ) -> Act:
         """Regenerate a specific act with user feedback."""
         if act_index >= len(blueprint.acts):
@@ -65,9 +67,9 @@ class StoryOrchestrator:
 
         if revised_act_blueprint and revised_act_blueprint.scenes:
             blueprint.acts[act_index] = revised_act_blueprint
-            return self._generate_act(revised_act_blueprint, characters, [], story_state)
+            return self._generate_act(revised_act_blueprint, characters, [], story_state, writing_style=writing_style)
 
-        return self._generate_act(act_blueprint, characters, [], story_state)
+        return self._generate_act(act_blueprint, characters, [], story_state, writing_style=writing_style)
 
     def _generate_act(
         self,
@@ -76,6 +78,7 @@ class StoryOrchestrator:
         previous_acts: list[Act],
         story_state: Optional[Dict] = None,
         prev_act_blueprint: Optional[ActBlueprint] = None,
+        writing_style: Optional[Dict[str, str]] = None,
     ) -> Act:
         act = Act(id=str(uuid.uuid4()), act_number=act_blueprint.act_number)
         prev_act_bridge = self._build_act_bridge(prev_act_blueprint)
@@ -89,6 +92,7 @@ class StoryOrchestrator:
                 act_blueprint=act_blueprint,
                 prev_act_bridge=prev_act_bridge,
                 story_state=story_state,
+                writing_style=writing_style,
             )
             act.scenes.append(scene)
 
@@ -116,6 +120,7 @@ class StoryOrchestrator:
         writing_focus: str = "",
         chapter_background: str = "",
         story_state: Optional[Dict] = None,
+        writing_style: Optional[Dict[str, str]] = None,
     ) -> Tuple[Scene, dict]:
         char_profiles = {}
         char_states = {}
@@ -133,6 +138,11 @@ class StoryOrchestrator:
         if scene_index == 0 and prev_act_bridge:
             prior = [prev_act_bridge] + prior
 
+        scene_type = scene_blueprint.extra.get("scene_type", "dialogue")
+        style_block = ""
+        if writing_style:
+            style_block = writing_style.get(scene_type) or writing_style.get("general", "")
+
         scene_context = StoryContext(
             chapter_title="",
             act_number=act_number,
@@ -148,6 +158,7 @@ class StoryOrchestrator:
             character_profiles=char_profiles,
             character_states=char_states,
             scene_description=scene_blueprint.scene_description or "",
+            writing_style={"active": style_block},
             extra=scene_blueprint.extra,
         )
 
@@ -155,9 +166,13 @@ class StoryOrchestrator:
         setting_input = self.scene_agent._build_prompt(scene_context)
         setting_draft = self.scene_agent.generate(scene_context)
 
-        print("  Generating dialogue...")
-        dialogue_input = self.dialogue_agent._build_prompt(scene_context)
-        dialogue_draft = self.dialogue_agent.generate(scene_context)
+        if scene_type in ("action", "ambient", "dream"):
+            dialogue_input = "(skipped — non-dialogue scene)"
+            dialogue_draft = ""
+        else:
+            print("  Generating dialogue...")
+            dialogue_input = self.dialogue_agent._build_prompt(scene_context)
+            dialogue_draft = self.dialogue_agent.generate(scene_context)
 
         print("  Writing final scene...")
         writer_input = self.writer_agent._build_prompt(
@@ -185,6 +200,7 @@ class StoryOrchestrator:
                 "character_profiles": scene_context.character_profiles,
                 "character_states": scene_context.character_states,
                 "scene_description": scene_context.scene_description,
+                "writing_style": scene_context.writing_style,
                 "extra": scene_context.extra,
             },
             "scene_agent": {"system_prompt": self.scene_agent.system_prompt, "input": setting_input, "output": setting_draft},
@@ -220,6 +236,7 @@ class StoryOrchestrator:
         story_state: Optional[Dict] = None,
         setting_draft: str = None,
         dialogue_draft: str = None,
+        writing_style: Optional[Dict[str, str]] = None,
     ) -> Tuple[Scene, dict]:
         char_profiles = {}
         char_states = {}
@@ -237,6 +254,11 @@ class StoryOrchestrator:
         if scene_index == 0 and prev_act_bridge:
             prior = [prev_act_bridge] + prior
 
+        scene_type = scene_blueprint.extra.get("scene_type", "dialogue")
+        style_block = ""
+        if writing_style:
+            style_block = writing_style.get(scene_type) or writing_style.get("general", "")
+
         scene_context = StoryContext(
             chapter_title="",
             act_number=act_number,
@@ -252,6 +274,7 @@ class StoryOrchestrator:
             character_profiles=char_profiles,
             character_states=char_states,
             scene_description=scene_blueprint.scene_description or "",
+            writing_style={"active": style_block},
             extra=scene_blueprint.extra,
         )
 
@@ -262,7 +285,10 @@ class StoryOrchestrator:
         else:
             setting_input = "(reused from previous)"
 
-        if not dialogue_draft:
+        if scene_type in ("action", "ambient", "dream"):
+            dialogue_input = "(skipped — non-dialogue scene)"
+            dialogue_draft = ""
+        elif not dialogue_draft:
             print("  Regenerating dialogue...")
             dialogue_input = self.dialogue_agent._build_prompt(scene_context)
             dialogue_draft = self.dialogue_agent.generate(scene_context)
@@ -297,6 +323,7 @@ class StoryOrchestrator:
                 "character_profiles": scene_context.character_profiles,
                 "character_states": scene_context.character_states,
                 "scene_description": scene_context.scene_description,
+                "writing_style": scene_context.writing_style,
                 "extra": scene_context.extra,
             },
             "scene_agent": {"system_prompt": self.scene_agent.system_prompt, "input": setting_input, "output": setting_draft},
