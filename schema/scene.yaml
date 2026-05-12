@@ -26,3 +26,15 @@ fields:
     required: false
     default: []
     description: "Ordered beat-by-beat structural checklist. Unlike scene_description (narrative purpose / WHY), this is the WHAT-HAPPENS-NEXT sequence the agents must follow. Simple scenes: 2-4 events. Complex scenes: 4-6 events."
+
+  scene_type:
+    type: str
+    required: false
+    default: "dialogue"
+    description: "Type of scene - controls writing style and agent routing. Options: dialogue, action, ambient, dream, mixed"
+    options:
+      - dialogue
+      - action
+      - ambient
+      - dream
+      - mixed
