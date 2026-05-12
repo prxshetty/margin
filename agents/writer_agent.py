@@ -66,6 +66,12 @@ class WriterAgent:
             parts.append(f"\nGENRE: {context.genre}")
         if context.tone_guidelines:
             parts.append(f"TONE GUIDELINES: {context.tone_guidelines}")
+        if context.chapter_background:
+            parts.append(f"CHAPTER BACKGROUND:\n{context.chapter_background}")
+        if context.creative_element:
+            parts.append(f"CREATIVE ELEMENT: {context.creative_element}")
+        if context.writing_focus:
+            parts.append(f"WRITING FOCUS:\n{context.writing_focus}")
 
         parts.append(f"\n--- SETTING (from SceneAgent) ---\n{setting_draft}")
 

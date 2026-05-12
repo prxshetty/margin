@@ -113,6 +113,8 @@ class StoryOrchestrator:
         prev_act_bridge: Optional[str] = None,
         genre: str = "",
         tone_guidelines: str = "",
+        writing_focus: str = "",
+        chapter_background: str = "",
         story_state: Optional[Dict] = None,
     ) -> Tuple[Scene, dict]:
         char_profiles = {}
@@ -138,11 +140,14 @@ class StoryOrchestrator:
             chapter_title="",
             act_number=act_number,
             scene_number=scene_blueprint.scene_number,
-            background=scene_blueprint.suggested_setting,
+            background=scene_blueprint.scene_setting,
+            chapter_background=chapter_background,
             characters=scene_blueprint.characters or characters,
-            setting=scene_blueprint.suggested_setting,
+            setting=scene_blueprint.scene_setting,
             genre=genre,
             tone_guidelines=tone_guidelines,
+            writing_focus=writing_focus,
+            creative_element=scene_blueprint.creative_element,
             prior_scenes_context=prior,
             character_profiles=char_profiles,
             character_states=char_states,
@@ -169,9 +174,27 @@ class StoryOrchestrator:
         )
 
         agent_logs = {
-            "scene_agent": {"input": setting_input, "output": setting_draft},
-            "dialogue_agent": {"input": dialogue_input, "output": dialogue_draft},
-            "writer_agent": {"input": writer_input, "output": full_content},
+            "scene_context": {
+                "chapter_title": scene_context.chapter_title,
+                "act_number": scene_context.act_number,
+                "scene_number": scene_context.scene_number,
+                "background": scene_context.background,
+                "chapter_background": scene_context.chapter_background,
+                "characters": scene_context.characters,
+                "setting": scene_context.setting,
+                "genre": scene_context.genre,
+                "tone_guidelines": scene_context.tone_guidelines,
+                "writing_focus": scene_context.writing_focus,
+                "creative_element": scene_context.creative_element,
+                "prior_scenes_context": scene_context.prior_scenes_context,
+                "character_profiles": scene_context.character_profiles,
+                "character_states": scene_context.character_states,
+                "scene_description": scene_context.scene_description,
+                "extra": scene_context.extra,
+            },
+            "scene_agent": {"system_prompt": self.scene_agent.system_prompt, "input": setting_input, "output": setting_draft},
+            "dialogue_agent": {"system_prompt": self.dialogue_agent.system_prompt, "input": dialogue_input, "output": dialogue_draft},
+            "writer_agent": {"system_prompt": self.writer_agent.system_prompt, "input": writer_input, "output": full_content},
         }
 
         scene = Scene(
@@ -196,6 +219,8 @@ class StoryOrchestrator:
         prev_act_bridge: Optional[str] = None,
         genre: str = "",
         tone_guidelines: str = "",
+        writing_focus: str = "",
+        chapter_background: str = "",
         feedback: str = "",
         story_state: Optional[Dict] = None,
         setting_draft: str = None,
@@ -224,11 +249,14 @@ class StoryOrchestrator:
             chapter_title="",
             act_number=act_number,
             scene_number=scene_blueprint.scene_number,
-            background=scene_blueprint.suggested_setting,
+            background=scene_blueprint.scene_setting,
+            chapter_background=chapter_background,
             characters=scene_blueprint.characters or characters,
-            setting=scene_blueprint.suggested_setting,
+            setting=scene_blueprint.scene_setting,
             genre=genre,
             tone_guidelines=tone_guidelines,
+            writing_focus=writing_focus,
+            creative_element=scene_blueprint.creative_element,
             prior_scenes_context=prior,
             character_profiles=char_profiles,
             character_states=char_states,
@@ -263,9 +291,27 @@ class StoryOrchestrator:
         )
 
         agent_logs = {
-            "scene_agent": {"input": setting_input, "output": setting_draft},
-            "dialogue_agent": {"input": dialogue_input, "output": dialogue_draft},
-            "writer_agent": {"input": writer_input, "output": full_content},
+            "scene_context": {
+                "chapter_title": scene_context.chapter_title,
+                "act_number": scene_context.act_number,
+                "scene_number": scene_context.scene_number,
+                "background": scene_context.background,
+                "chapter_background": scene_context.chapter_background,
+                "characters": scene_context.characters,
+                "setting": scene_context.setting,
+                "genre": scene_context.genre,
+                "tone_guidelines": scene_context.tone_guidelines,
+                "writing_focus": scene_context.writing_focus,
+                "creative_element": scene_context.creative_element,
+                "prior_scenes_context": scene_context.prior_scenes_context,
+                "character_profiles": scene_context.character_profiles,
+                "character_states": scene_context.character_states,
+                "scene_description": scene_context.scene_description,
+                "extra": scene_context.extra,
+            },
+            "scene_agent": {"system_prompt": self.scene_agent.system_prompt, "input": setting_input, "output": setting_draft},
+            "dialogue_agent": {"system_prompt": self.dialogue_agent.system_prompt, "input": dialogue_input, "output": dialogue_draft},
+            "writer_agent": {"system_prompt": self.writer_agent.system_prompt, "input": writer_input, "output": full_content},
         }
 
         scene = Scene(

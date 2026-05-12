@@ -14,10 +14,13 @@ class StoryContext:
     act_number: int
     scene_number: int
     background: str = ""
+    chapter_background: str = ""
     characters: List[str] = field(default_factory=list)
     setting: str = ""
     genre: str = ""
     tone_guidelines: str = ""
+    writing_focus: str = ""
+    creative_element: str = ""
     prior_scenes_context: List[str] = field(default_factory=list)
     generated_content: Dict[str, str] = field(default_factory=dict)
     character_profiles: Dict[str, Dict] = field(default_factory=dict)
@@ -34,7 +37,7 @@ class SceneBlueprint:
     in `extra` dict for flexibility.
     """
     scene_number: int
-    suggested_setting: str
+    scene_setting: str
     characters: List[str] = field(default_factory=list)
     scene_description: str = ""
     creative_element: str = ""
@@ -54,7 +57,7 @@ class SceneBlueprint:
     def to_dict(self) -> dict:
         result = {
             "scene_number": self.scene_number,
-            "suggested_setting": self.suggested_setting,
+            "scene_setting": self.scene_setting,
             "characters": self.characters,
             "scene_description": self.scene_description,
             "creative_element": self.creative_element,
@@ -65,7 +68,7 @@ class SceneBlueprint:
     @classmethod
     def from_dict(cls, data: dict) -> "SceneBlueprint":
         known_fields = {
-            "scene_number", "suggested_setting", "characters",
+            "scene_number",             "scene_setting", "characters",
             "scene_description", "creative_element"
         }
         kwargs = {}

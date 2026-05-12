@@ -6,10 +6,10 @@ fields:
     required: true
     description: "Scene number within the act"
 
-  suggested_setting:
+  scene_setting:
     type: str
     required: true
-    description: "Short canonical location tag only (e.g. 'kitchen', 'gym', 'police station'). No atmosphere, no detail — the Scene Agent handles that."
+    description: "Short canonical location tag only (e.g. 'kitchen', 'gym', 'police station'). No atmosphere, no detail"
 
   characters:
     type: list[str]
@@ -19,7 +19,7 @@ fields:
   scene_description:
     type: str
     required: true
-    description: "What happens in this scene - the narrative purpose, events, emotional arc, and key moments in 2-4 concise sentences. This drives both dialogue and narration. Include the creative_element action here if applicable."
+    description: "What happens in this scene - the narrative purpose, events in 2-4 concise sentences. This drives both dialogue and narration."
 
   creative_element:
     type: str

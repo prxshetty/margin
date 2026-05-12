@@ -69,6 +69,8 @@ def main():
     user_outline = chapter_info["outline"]
     genre = chapter_info.get("genre", "")
     tone_guidelines = chapter_info.get("tone_guidelines", "")
+    writing_focus = chapter_info.get("writing_focus", "")
+    chapter_background = chapter_info.get("background", "")
 
     if not user_outline.strip():
         print("Error: Chapter outline cannot be empty.")
@@ -90,6 +92,7 @@ def main():
                 characters=characters,
                 background=background,
                 user_answers=user_answers,
+                writing_focus=writing_focus,
             )
         except Exception as e:
             print(f"\nError generating blueprint: {e}")
@@ -199,6 +202,8 @@ def main():
                     prev_act_bridge=prev_act_bridge,
                     genre=genre,
                     tone_guidelines=tone_guidelines,
+                    writing_focus=writing_focus,
+                    chapter_background=chapter_background,
                     story_state=story_state,
                 )
             except Exception as e:

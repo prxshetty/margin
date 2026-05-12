@@ -301,5 +301,6 @@ def parse_chapter_file(file_path: Path) -> Dict[str, Any]:
         "outline": outline,
         "genre": genre,
         "tone_guidelines": tone_guidelines,
+        "writing_focus": writing_focus,
         "file_path": str(file_path),
     }

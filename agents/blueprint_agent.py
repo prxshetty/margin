@@ -28,6 +28,7 @@ class BlueprintAgent:
         characters: list[str],
         background: str = "",
         user_answers: str = "",
+        writing_focus: str = "",
     ) -> Union[ChapterBlueprint, List[str]]:
         """Generate chapter blueprint from user input, or return clarifying questions."""
         user_prompt = self._build_prompt(
@@ -106,6 +107,7 @@ Please revise only this act's scenes based on the feedback. Output ONLY valid JS
         characters: list[str],
         background: str,
         user_answers: str = "",
+        writing_focus: str = "",
     ) -> str:
         parts = [
             f"Chapter Title: {chapter_title}",
@@ -113,6 +115,8 @@ Please revise only this act's scenes based on the feedback. Output ONLY valid JS
         ]
         if background:
             parts.append(f"Background: {background}")
+        if writing_focus:
+            parts.append(f"Writing Focus:\n{writing_focus}")
         parts.append(f"\nUser's Chapter Description:\n{user_outline}")
         if user_answers:
             parts.append(f"\nAdditional context from user:\n{user_answers}")
@@ -216,7 +220,7 @@ Please revise only this act's scenes based on the feedback. Output ONLY valid JS
             print(f"{'─'*40}")
             for scene in act.scenes:
                 print(f"  Scene {scene.scene_number}: {scene.scene_description}")
-                print(f"    Setting: {scene.suggested_setting}")
+                print(f"    Setting: {scene.scene_setting}")
                 chars = scene.characters if scene.characters else "All"
                 print(f"    Characters: {', '.join(chars)}")
                 if scene.creative_element:
@@ -246,7 +250,7 @@ Please revise only this act's scenes based on the feedback. Output ONLY valid JS
                 chars_str = ', '.join(chars) if isinstance(chars, list) else str(chars)
 
                 lines.append(f"\n  Scene {scene.scene_number}: {scene.scene_description}")
-                lines.append(f"    Setting: {scene.suggested_setting}")
+                lines.append(f"    Setting: {scene.scene_setting}")
                 lines.append(f"    Characters: {chars_str}")
 
                 if scene.creative_element:

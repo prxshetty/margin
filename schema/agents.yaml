@@ -2,13 +2,13 @@ description: "Agent-specific field relevance mappings - used to include relevant
 
 scene_agent:
   - scene_description
-  - suggested_setting
+  - scene_setting
   - creative_element
   - characters
 
 dialogue_agent:
   - scene_description
-  - suggested_setting
+  - scene_setting
   - characters
 
 writer_agent:
