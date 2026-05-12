@@ -30,19 +30,4 @@ class SceneAgent:
             f"SCENE DESCRIPTION:\n{context.scene_description}",
             f"\nSUGGESTED SETTING:\n{context.setting or context.background}",
         ]
-
-        if context.character_profiles:
-            parts.append("\nCHARACTER PROFILES:")
-            for name, profile in context.character_profiles.items():
-                traits = profile.get("traits") or []
-                goals = profile.get("goals") or []
-                current_state = context.character_states.get(name, "")
-                parts.append(f"  - {name}:")
-                if traits:
-                    parts.append(f"    Traits: {', '.join(traits)}")
-                if goals:
-                    parts.append(f"    Goals: {', '.join(goals)}")
-                if current_state:
-                    parts.append(f"    State: {current_state}")
-
         return "\n".join(parts)

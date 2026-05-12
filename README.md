@@ -127,11 +127,7 @@ goals:
 flaws:
   - Trust issues
   - Impulsive
-arc:
-  starting_point: "Suspicious of everyone"
-  desired_end: "Finds closure"
-  progress: 0.0
-  current_state: ""
+current_state: ""
 ```
 
 ## Schema Architecture

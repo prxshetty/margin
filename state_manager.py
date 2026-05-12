@@ -74,8 +74,8 @@ class StateManager:
     def _get_default_state_from_profile(self, character_name: str) -> str:
         """Get current_state from character profile if story_state doesn't have it."""
         profile = self.get_character_profile(character_name)
-        if profile and "arc" in profile:
-            return profile["arc"].get("current_state") or ""
+        if profile:
+            return profile.get("current_state") or ""
         return ""
 
     def read_story_state(self) -> Dict:
@@ -124,9 +124,9 @@ class StateManager:
 
         for name in character_names:
             profile = self.get_character_profile(name)
-            if profile and "arc" in profile:
+            if profile:
                 state["characters"][name.lower()] = {
-                    "current_state": profile["arc"].get("current_state") or ""
+                    "current_state": profile.get("current_state") or ""
                 }
 
         self.write_story_state(state)
@@ -160,7 +160,6 @@ class StateManager:
                 story_state["characters"][char_lower]["current_state"] = summary
 
         self.write_story_state(story_state)
-        self._update_character_yamls(character_summaries)
 
     def _summarize_character_changes(
         self,
@@ -182,32 +181,6 @@ class StateManager:
                     summaries[char] = clean_summary
 
         return summaries
-
-    def _update_character_yamls(self, character_summaries: Dict[str, str]) -> None:
-        """Update character YAML arc.progress fields after approved acts."""
-        for name, summary in character_summaries.items():
-            if not summary:
-                continue
-
-            yaml_path = self.characters_dir / f"{name.lower()}.yaml"
-            if not yaml_path.exists():
-                continue
-
-            try:
-                with open(yaml_path, "r", encoding="utf-8") as f:
-                    profile = yaml.safe_load(f)
-            except yaml.YAMLError:
-                continue
-
-            if profile and "arc" in profile:
-                current_progress = float(profile["arc"].get("progress") or 0.0)
-                new_progress = min(1.0, current_progress + 0.1)
-
-                profile["arc"]["current_state"] = summary
-                profile["arc"]["progress"] = new_progress
-
-                with open(yaml_path, "w", encoding="utf-8") as f:
-                    yaml.dump(profile, f, default_flow_style=False, sort_keys=False)
 
     def append_to_results(
         self,

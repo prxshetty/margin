@@ -3,17 +3,10 @@ description: Brief description of who this character is
 traits:
   - trait 1
   - trait 2
-  - trait 3
-relationships:
-  # character_name: relationship type (ally, enemy, neutral, etc.)
 goals:
   - goal 1
   - goal 2
 flaws:
   - flaw 1
   - flaw 2
-arc:
-  starting_point: "Where they begin emotionally/psychologically"
-  desired_end: "Where they end up after their arc completes"
-  progress: 0.0  # 0.0 to 1.0, updated by StateManager after approved acts
 current_state: "Initial state — who they are and where they start"
