@@ -9,7 +9,7 @@ fields:
   suggested_setting:
     type: str
     required: true
-    description: "Physical location, time of day, atmosphere, and sensory details (e.g., 'bathroom with mirrors, soft candlelight, scent of lavender')"
+    description: "Short canonical location tag only (e.g. 'kitchen', 'gym', 'police station'). No atmosphere, no detail — the Scene Agent handles that."
 
   characters:
     type: list[str]

@@ -14,6 +14,7 @@ group related beats naturally
 every scene must include:
 scene_description (2–4 concise sentences covering events, purpose, emotional movement, and key moments)
 creative_element (single defining physical/intimate interaction, or "N/A")
+suggested_setting: location tag only, 2-3 words maximum. No descriptive language. The Scene Agent expands this.
 
 Before generating the JSON, read the chapter outline. If it is missing critical
 information (character motivations, location details, how characters get from
