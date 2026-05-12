@@ -258,14 +258,30 @@ def parse_chapter_file(file_path: Path) -> Dict[str, Any]:
     genre = genre_section.group(1).strip() if genre_section else ""
 
     tone_section = re.search(
-        r"##\s+Tone Guidelines\s*\n(.*?)(?:\n##|\Z)", content, re.DOTALL | re.IGNORECASE
+        r"##\s+Tone Guidelines\s*\n(.*?)(?=\n##\s+[^#]|\Z)", content, re.DOTALL | re.IGNORECASE
     )
     tone_guidelines = tone_section.group(1).strip() if tone_section else ""
 
     focus_section = re.search(
-        r"##\s+Writing Focus\s*\n(.*?)(?:\n##|\Z)", content, re.DOTALL | re.IGNORECASE
+        r"##\s+Writing Focus\s*\n(.*?)(?=\n##\s+[^#]|\Z)", content, re.DOTALL | re.IGNORECASE
     )
     writing_focus = focus_section.group(1).strip() if focus_section else ""
+
+    style_section = re.search(
+        r"##\s+Writing Style\s*\n(.*?)(?=\n##\s+[^#]|\Z)", content, re.DOTALL | re.IGNORECASE
+    )
+    writing_style_raw = style_section.group(1).strip() if style_section else ""
+
+    writing_style = {}
+    if writing_style_raw:
+        blocks = re.split(r"###\s+", writing_style_raw)
+        for block in blocks:
+            if not block.strip():
+                continue
+            lines = block.strip().splitlines()
+            key = lines[0].strip().lower()
+            content_lines = "\n".join(lines[1:]).strip()
+            writing_style[key] = content_lines
 
     return {
         "title": title,
@@ -275,5 +291,6 @@ def parse_chapter_file(file_path: Path) -> Dict[str, Any]:
         "genre": genre,
         "tone_guidelines": tone_guidelines,
         "writing_focus": writing_focus,
+        "writing_style": writing_style,
         "file_path": str(file_path),
     }

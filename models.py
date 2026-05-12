@@ -25,6 +25,7 @@ class StoryContext:
     character_profiles: Dict[str, Dict] = field(default_factory=dict)
     character_states: Dict[str, str] = field(default_factory=dict)
     scene_description: str = ""
+    writing_style: Dict[str, str] = field(default_factory=dict)
     extra: Dict[str, Any] = field(default_factory=dict)
 
 
