@@ -22,3 +22,6 @@ Format:
 - Maintain consistent tone appropriate to the scene
 
 IMPORTANT: Write ONLY the dialogue with stage directions. No headers, no narration, no prose descriptions. Just the spoken words and action cues that the Writer Agent will weave into the final scene.
+
+Relevant fields from schema:
+{FIELD_LIST}

@@ -51,18 +51,7 @@ def _build_blueprint_prompt() -> str:
     """Build the blueprint agent prompt from schema + template."""
     base_prompt = _load_prompt("blueprint_base.txt")
     schema_section = SCHEMA.generate_blueprint_schema_section()
-
-    rules = """
-Rules:
-- Group related beats into scenes (typically 2-4 scenes per act)
-- 2-4 acts per chapter is optimal
-- Each scene should have one clear arc/beat
-- scene_description: MUST be included for every scene - describe what happens, the narrative purpose, events, emotional arc, and key moments in 2-4 concise sentences. This drives both dialogue and narration.
-- creative_element: MUST be included for every scene - describe the single most important physical action or intimate interaction that defines this scene (be explicit and highly descriptive, or use "N/A" if not applicable)
-
-Respond ONLY with valid JSON, no extra text."""
-
-    return f"{base_prompt}\n\n{schema_section}\n\n{rules}"
+    return base_prompt.replace("{SCHEMA_SECTION}", schema_section)
 
 
 def _build_agent_prompts() -> dict:
@@ -71,17 +60,17 @@ def _build_agent_prompts() -> dict:
 
     prompts["scene"] = _load_prompt("scene.txt")
 
-    dialogue_base = _load_prompt("dialogue.txt")
-    field_list = SCHEMA.generate_field_list_for_agent("dialogue_agent")
-    prompts["dialogue"] = f"{dialogue_base}\n\nRelevant fields from schema:\n{field_list}"
+    prompts["dialogue"] = _load_prompt("dialogue.txt").replace(
+        "{FIELD_LIST}", SCHEMA.generate_field_list_for_agent("dialogue_agent")
+    )
 
-    transition_base = _load_prompt("transition.txt")
-    field_list = SCHEMA.generate_field_list_for_agent("transition_agent")
-    prompts["transition"] = f"{transition_base}\n\nRelevant fields from schema:\n{field_list}"
+    prompts["transition"] = _load_prompt("transition.txt").replace(
+        "{FIELD_LIST}", SCHEMA.generate_field_list_for_agent("transition_agent")
+    )
 
-    writer_base = _load_prompt("writer.txt")
-    field_list = SCHEMA.generate_field_list_for_agent("writer_agent")
-    prompts["writer"] = f"{writer_base}\n\nRelevant fields from schema:\n{field_list}"
+    prompts["writer"] = _load_prompt("writer.txt").replace(
+        "{FIELD_LIST}", SCHEMA.generate_field_list_for_agent("writer_agent")
+    )
 
     return prompts
 

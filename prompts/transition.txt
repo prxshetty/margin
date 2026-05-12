@@ -13,3 +13,6 @@ Write a 1-3 sentence bridge that:
 
 For act-ending transitions, create a hook or cliffhanger that makes the reader want to continue.
 For scene transitions, provide smooth continuity.
+
+Relevant fields from schema:
+{FIELD_LIST}

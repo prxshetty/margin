@@ -27,3 +27,6 @@ CRITICAL:
 - The dialogue may include *stage directions* in asterisks - weave these naturally into the prose
 - Output the complete, polished scene ready for reading
 - Infer the tone and pacing from the scene description - do not ask for clarification
+
+Relevant fields from schema:
+{FIELD_LIST}

@@ -94,7 +94,9 @@ class StoryOrchestrator:
 
         if len(act.scenes) > 1:
             act.act_transition = self.transition_agent.generate_act_transition(
-                current_act_summary=act.scenes[-1].full_content[:200] if act.scenes[-1].full_content else "",
+                current_act_summary=act_blueprint.act_transition_hint if act_blueprint.act_transition_hint else (
+                    act.scenes[-1].full_content[:200] if act.scenes[-1].full_content else ""
+                ),
                 next_act_arc="continuation",
                 is_cliffhanger=True,
             )
