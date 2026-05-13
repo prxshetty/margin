@@ -1,6 +1,5 @@
 ---
 description: "General-purpose scene writing with balanced narration and action"
-required_agents: []
 ---
 
 ## Writer Guidelines

@@ -1,11 +1,11 @@
 """
-Writer Agent — writes one beat of a scene at a time.
+Writer Agent — merges sub-agent drafts into a single polished beat.
 Three modes: opening (first beat), continuation (middle beats), closing (final beat).
 The system prompt (writer.txt) defines the role; mode instructions are
 injected inline into the user prompt per beat.
 """
 
-from typing import Optional
+from typing import Optional, Dict
 import llm
 import config
 from models import StoryContext
@@ -34,7 +34,7 @@ MODE_CLOSING_NOTES = {
 
 
 class WriterAgent:
-    """Writes a single beat of a scene in three modes."""
+    """Merges sub-agent drafts into a single polished beat."""
 
     def __init__(self):
         self.client = llm.LLMClient()
@@ -49,13 +49,13 @@ class WriterAgent:
         total_beats: int,
         prev_tail: str,
         setting_draft: str,
-        dialogue_for_beat: str,
+        drafts: Dict[str, str],
         writer_guidelines: str,
         mode: str,
         feedback: str = "",
         token_limit: Optional[int] = None,
     ) -> str:
-        """Generate a single beat of the scene."""
+        """Merge sub-agent drafts into a single polished beat."""
         beat_desc = beat.get("beat", "") if isinstance(beat, dict) else str(beat)
         beat_style = beat.get("style", "general") if isinstance(beat, dict) else "general"
 
@@ -63,15 +63,27 @@ class WriterAgent:
         intro = MODE_INTROS[mode].format(setting_draft=setting_draft, prev_tail=prev_tail)
         closing_note = MODE_CLOSING_NOTES[mode]
 
+        drafts_block = ""
+        if drafts:
+            drafts_lines = []
+            for agent_name, draft_text in drafts.items():
+                if draft_text.strip():
+                    drafts_lines.append(f"--- {agent_name.upper()} DRAFT ---\n{draft_text.strip()}")
+            if drafts_lines:
+                drafts_block = "\n\n".join(drafts_lines)
+
         user_prompt = (
             f"{intro}\n\n"
             f"BEAT DESCRIPTION:\n{beat_desc}\n\n"
             f"STYLE: {beat_style}\n"
-            f"STYLE GUIDELINES:\n{writer_guidelines}\n\n"
-            f"DIALOGUE FOR THIS BEAT:\n{dialogue_for_beat}\n\n"
-            f"{closing_note}\n"
-            f"Output polished prose only, no headers or meta commentary."
+            f"STYLE GUIDELINES:\n{writer_guidelines}\n"
         )
+
+        if drafts_block:
+            user_prompt += f"\nSUB-AGENT DRAFTS TO MERGE:\n{drafts_block}\n"
+
+        user_prompt += f"\n{closing_note}\n"
+        user_prompt += "Output polished prose only, no headers or meta commentary."
 
         if feedback:
             user_prompt += f"\n\nUSER FEEDBACK:\n{feedback}\n\nIncorporate this feedback into the beat."

@@ -1,6 +1,5 @@
 ---
 description: "Heroic, inspirational tone — characters rising to meet impossible odds with dramatic, cinematic prose"
-required_agents: [dialogue]
 output_size: expansive
 ---
 

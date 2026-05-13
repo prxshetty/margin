@@ -138,19 +138,15 @@ def _parse_style_file(path: Path) -> Dict[str, Any]:
     frontmatter = yaml.safe_load(fm_match.group(1)) if fm_match else {}
     body = content[fm_match.end():] if fm_match else content
 
-    writer_match = re.search(
-        r"## Writer Guidelines\s*\n(.*?)(?=\n##|\Z)", body, re.DOTALL
+    sections = re.findall(
+        r"##\s+(\w+)\s+Guidelines\s*\n(.*?)(?=\n##|\Z)", body, re.DOTALL
     )
-    dialogue_match = re.search(
-        r"## Dialogue Guidelines\s*\n(.*?)(?=\n##|\Z)", body, re.DOTALL
-    )
+    agent_sections = {name.lower(): text.strip() for name, text in sections}
 
     raw_output_size = frontmatter.get("output_size")
 
     return {
         "description": frontmatter.get("description", ""),
-        "required_agents": frontmatter.get("required_agents", []),
         "output_size": resolve_output_size(raw_output_size),
-        "writer_guidelines": writer_match.group(1).strip() if writer_match else "",
-        "dialogue_guidelines": dialogue_match.group(1).strip() if dialogue_match else "",
+        "agent_sections": agent_sections,
     }

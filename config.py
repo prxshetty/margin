@@ -25,6 +25,7 @@ AGENT_CONFIG = {
     "blueprint": {"max_tokens": int(os.getenv("TOKENS_BLUEPRINT", 2000)), "temperature": 0.9},
     "scene": {"max_tokens": int(os.getenv("TOKENS_SCENE", 600)), "temperature": 0.8},
     "dialogue": {"max_tokens": int(os.getenv("TOKENS_DIALOGUE", 800)), "temperature": 0.85},
+    "narration": {"max_tokens": int(os.getenv("TOKENS_NARRATION", 800)), "temperature": 0.8},
     "transition": {"max_tokens": int(os.getenv("TOKENS_TRANSITION", 400)), "temperature": 0.7},
     "writer": {"max_tokens": int(os.getenv("TOKENS_WRITER", 500)), "temperature": 0.85},
     "compiler": {"max_tokens": int(os.getenv("TOKENS_COMPILER", 300)), "temperature": 0.35},
@@ -60,6 +61,7 @@ def _build_agent_prompts() -> dict:
     return {
         "scene": _load_prompt("scene.txt"),
         "dialogue": _load_prompt("dialogue.txt"),
+        "narration": _load_prompt("narration.txt"),
         "transition": _load_prompt("transition.txt"),
         "writer": _load_prompt("writer.txt"),
         "compiler": _load_prompt("compiler.txt"),

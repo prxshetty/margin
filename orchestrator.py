@@ -17,6 +17,7 @@ from models import (
 from agents.blueprint_agent import BlueprintAgent
 from agents.scene_agent import SceneAgent
 from agents.dialogue_agent import DialogueAgent
+from agents.narration_agent import NarrationAgent
 from agents.transition_agent import TransitionAgent
 from agents.writer_agent import WriterAgent
 from agents.compiler_agent import CompilerAgent
@@ -44,6 +45,7 @@ class StoryOrchestrator:
         self.blueprint_agent = BlueprintAgent()
         self.scene_agent = SceneAgent()
         self.dialogue_agent = DialogueAgent()
+        self.narration_agent = NarrationAgent()
         self.transition_agent = TransitionAgent()
         self.writer_agent = WriterAgent()
         self.compiler_agent = CompilerAgent()
@@ -210,37 +212,54 @@ class StoryOrchestrator:
         # -- Per-beat generation --
         beat_outputs = []
         prev_tail = setting_draft
+        narration_per_beat_logs = []
         dialogue_per_beat_logs = []
         writer_per_beat_logs = []
 
         for i, event in enumerate(events):
             beat_style = event.get("style", "general") if isinstance(event, dict) else "general"
             style_data = (loaded_styles or {}).get(beat_style, {})
-            required_agents = style_data.get("required_agents", [])
-            writer_guidelines = style_data.get("writer_guidelines", "")
-            dialogue_guidelines = style_data.get("dialogue_guidelines", "")
+            agent_sections = style_data.get("agent_sections", {})
+            writer_guidelines = agent_sections.get("writer", "")
             beat_token_limit = style_data.get("output_size")
 
             mode = "opening" if i == 0 else "closing" if i == len(events) - 1 else "continuation"
             beat_desc = event.get("beat", str(event)) if isinstance(event, dict) else str(event)
             print(f"  Beat {i+1}/{len(events)} ({beat_style}, {mode})...")
 
-            # Dialogue for this beat (if required)
-            dialogue_for_beat = ""
-            if "dialogue" in required_agents:
-                d_input = self.dialogue_agent._build_prompt(
-                    scene_context, beat_desc, dialogue_guidelines
-                )
-                dialogue_for_beat = self.dialogue_agent.generate(
-                    scene_context, beat_desc, dialogue_guidelines
-                )
-                dialogue_per_beat_logs.append({
-                    "beat": i, "style": beat_style,
-                    "input": d_input, "output": dialogue_for_beat,
-                })
+            # Run sub-agents based on style's ## sections
+            drafts = {}
+            for agent_name, guidelines in agent_sections.items():
+                if agent_name == "writer":
+                    continue
+                if agent_name == "narration":
+                    n_input = self.narration_agent._build_prompt(
+                        scene_context, beat_desc, guidelines
+                    )
+                    draft = self.narration_agent.generate(
+                        scene_context, beat_desc, guidelines
+                    )
+                    drafts["narration"] = draft
+                    narration_per_beat_logs.append({
+                        "beat": i, "style": beat_style,
+                        "input": n_input, "output": draft,
+                    })
+                    print(f"    narration draft ({len(draft)} chars)")
+                elif agent_name == "dialogue":
+                    d_input = self.dialogue_agent._build_prompt(
+                        scene_context, beat_desc, guidelines
+                    )
+                    draft = self.dialogue_agent.generate(
+                        scene_context, beat_desc, guidelines
+                    )
+                    drafts["dialogue"] = draft
+                    dialogue_per_beat_logs.append({
+                        "beat": i, "style": beat_style,
+                        "input": d_input, "output": draft,
+                    })
+                    print(f"    dialogue draft ({len(draft)} chars)")
 
-            # Writer for this beat
-            w_input = ""  # prompt built inside generate_beat
+            # Writer merges all drafts
             beat_text = self.writer_agent.generate_beat(
                 context=scene_context,
                 beat=event,
@@ -248,7 +267,7 @@ class StoryOrchestrator:
                 total_beats=len(events),
                 prev_tail=prev_tail,
                 setting_draft=setting_draft if i == 0 else "",
-                dialogue_for_beat=dialogue_for_beat,
+                drafts=drafts,
                 writer_guidelines=writer_guidelines,
                 mode=mode,
                 token_limit=beat_token_limit,
@@ -256,6 +275,7 @@ class StoryOrchestrator:
             beat_outputs.append(beat_text)
             writer_per_beat_logs.append({
                 "beat": i, "mode": mode, "style": beat_style,
+                "drafts": drafts,
                 "output": beat_text,
             })
 
@@ -279,6 +299,10 @@ class StoryOrchestrator:
         else:
             full_content = ""
 
+        agent_logs["narration_agent"] = {
+            "system_prompt": self.narration_agent.system_prompt,
+            "per_beat": narration_per_beat_logs,
+        }
         agent_logs["dialogue_agent"] = {
             "system_prompt": self.dialogue_agent.system_prompt,
             "per_beat": dialogue_per_beat_logs,
@@ -396,33 +420,50 @@ class StoryOrchestrator:
         # -- Per-beat generation with feedback --
         beat_outputs = []
         prev_tail = setting_draft
+        narration_per_beat_logs = []
         dialogue_per_beat_logs = []
         writer_per_beat_logs = []
 
         for i, event in enumerate(events):
             beat_style = event.get("style", "general") if isinstance(event, dict) else "general"
             style_data = (loaded_styles or {}).get(beat_style, {})
-            required_agents = style_data.get("required_agents", [])
-            writer_guidelines = style_data.get("writer_guidelines", "")
-            dialogue_guidelines = style_data.get("dialogue_guidelines", "")
+            agent_sections = style_data.get("agent_sections", {})
+            writer_guidelines = agent_sections.get("writer", "")
             beat_token_limit = style_data.get("output_size")
 
             mode = "opening" if i == 0 else "closing" if i == len(events) - 1 else "continuation"
             beat_desc = event.get("beat", str(event)) if isinstance(event, dict) else str(event)
             print(f"  Beat {i+1}/{len(events)} ({beat_style}, {mode})...")
 
-            dialogue_for_beat = ""
-            if "dialogue" in required_agents:
-                d_input = self.dialogue_agent._build_prompt(
-                    scene_context, beat_desc, dialogue_guidelines
-                )
-                dialogue_for_beat = self.dialogue_agent.generate(
-                    scene_context, beat_desc, dialogue_guidelines
-                )
-                dialogue_per_beat_logs.append({
-                    "beat": i, "style": beat_style,
-                    "input": d_input, "output": dialogue_for_beat,
-                })
+            # Run sub-agents based on style's ## sections
+            drafts = {}
+            for agent_name, guidelines in agent_sections.items():
+                if agent_name == "writer":
+                    continue
+                if agent_name == "narration":
+                    n_input = self.narration_agent._build_prompt(
+                        scene_context, beat_desc, guidelines
+                    )
+                    draft = self.narration_agent.generate(
+                        scene_context, beat_desc, guidelines
+                    )
+                    drafts["narration"] = draft
+                    narration_per_beat_logs.append({
+                        "beat": i, "style": beat_style,
+                        "input": n_input, "output": draft,
+                    })
+                elif agent_name == "dialogue":
+                    d_input = self.dialogue_agent._build_prompt(
+                        scene_context, beat_desc, guidelines
+                    )
+                    draft = self.dialogue_agent.generate(
+                        scene_context, beat_desc, guidelines
+                    )
+                    drafts["dialogue"] = draft
+                    dialogue_per_beat_logs.append({
+                        "beat": i, "style": beat_style,
+                        "input": d_input, "output": draft,
+                    })
 
             beat_text = self.writer_agent.generate_beat(
                 context=scene_context,
@@ -431,7 +472,7 @@ class StoryOrchestrator:
                 total_beats=len(events),
                 prev_tail=prev_tail,
                 setting_draft=setting_draft if i == 0 else "",
-                dialogue_for_beat=dialogue_for_beat,
+                drafts=drafts,
                 writer_guidelines=writer_guidelines,
                 mode=mode,
                 feedback=feedback,
@@ -440,6 +481,7 @@ class StoryOrchestrator:
             beat_outputs.append(beat_text)
             writer_per_beat_logs.append({
                 "beat": i, "mode": mode, "style": beat_style,
+                "drafts": drafts,
                 "output": beat_text,
             })
 
@@ -463,6 +505,10 @@ class StoryOrchestrator:
         else:
             full_content = ""
 
+        agent_logs["narration_agent"] = {
+            "system_prompt": self.narration_agent.system_prompt,
+            "per_beat": narration_per_beat_logs,
+        }
         agent_logs["dialogue_agent"] = {
             "system_prompt": self.dialogue_agent.system_prompt,
             "per_beat": dialogue_per_beat_logs,
