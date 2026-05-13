@@ -28,7 +28,6 @@ AGENT_CONFIG = {
     "narration": {"max_tokens": int(os.getenv("TOKENS_NARRATION", 800)), "temperature": 0.8},
     "transition": {"max_tokens": int(os.getenv("TOKENS_TRANSITION", 400)), "temperature": 0.7},
     "writer": {"max_tokens": int(os.getenv("TOKENS_WRITER", 500)), "temperature": 0.85},
-    "compiler": {"max_tokens": int(os.getenv("TOKENS_COMPILER", 300)), "temperature": 0.35},
 }
 
 TOKEN_LIMITS = {key: cfg["max_tokens"] for key, cfg in AGENT_CONFIG.items()}
@@ -64,7 +63,6 @@ def _build_agent_prompts() -> dict:
         "narration": _load_prompt("narration.txt"),
         "transition": _load_prompt("transition.txt"),
         "writer": _load_prompt("writer.txt"),
-        "compiler": _load_prompt("compiler.txt"),
     }
 
 

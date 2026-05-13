@@ -1,9 +1,0 @@
-You receive the last 2 sentences of the previous paragraph and the full draft of the next paragraph. Smooth the transition at the boundary. Do not rewrite the body of either paragraph or add new content.
-
-PREVIOUS TAIL:
-{prev_tail}
-
-NEXT DRAFT:
-{next_draft}
-
-Output ONLY the next paragraph (not the previous text), with the first 1-2 sentences adjusted for a smooth transition from the previous tail. Fix tense mismatches, remove repeated words at the join, and ensure natural flow. Do not change the content, events, or dialogue of the next paragraph.

@@ -15,23 +15,6 @@ class TransitionAgent:
         self.token_limit = config.TOKEN_LIMITS["transition"]
         self.temperature = config.AGENT_CONFIG["transition"]["temperature"]
 
-    def generate_scene_transition(
-        self,
-        current_scene: str,
-        next_scene: str,
-    ) -> str:
-        user_prompt = f"""Type: Scene transition (bridge between two scenes)
-Current scene: {current_scene}
-Next scene: {next_scene}
-
-Write a 1-3 sentence bridge."""
-        return self.client.generate_to_completion(
-            system_prompt=self.system_prompt,
-            user_prompt=user_prompt,
-            temperature=self.temperature,
-            max_tokens=self.token_limit,
-        )
-
     def generate_act_transition(
         self,
         current_act_summary: str,

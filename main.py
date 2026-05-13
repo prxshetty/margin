@@ -83,17 +83,6 @@ def _save_scene_drafts(scene, agent_logs, act_number):
         json.dump(context_log, f, indent=2)
     print(f"  context saved to: {context_file}")
 
-    # Save compiler pass
-    compiler_beats = (agent_logs.get("compiler_agent") or {}).get("per_beat", [])
-    if compiler_beats:
-        compiler_file = act_dir / f"scene-{scene_num}-compiler.json"
-        with open(compiler_file, "w") as f:
-            json.dump({
-                "system_prompt": agent_logs.get("compiler_agent", {}).get("system_prompt", ""),
-                "per_beat": compiler_beats,
-            }, f, indent=2)
-        print(f"  compiler log saved to: {compiler_file}")
-
     # Save final scene
     final_file = act_dir / f"scene-{scene_num}-final.json"
     final_data = {
@@ -145,6 +134,21 @@ def main():
     blueprint_descriptions = read_styles_md()
     chapter_background = chapter_info.get("background", "")
 
+    import yaml
+    available_chars = []
+    for p in Path("inputs/characters").glob("*.yaml"):
+        if p.stem == "character_template":
+            continue
+        try:
+            with open(p) as f:
+                data = yaml.safe_load(f)
+            if data and data.get("name"):
+                available_chars.append(data["name"])
+            else:
+                available_chars.append(p.stem)
+        except Exception:
+            available_chars.append(p.stem)
+
     if not user_outline.strip():
         print("Error: Chapter outline cannot be empty.")
         return
@@ -162,7 +166,7 @@ def main():
             result = blueprint_agent.generate(
                 chapter_title=chapter_title,
                 user_outline=user_outline.strip(),
-                characters=characters,
+                characters=available_chars,
                 background=background,
                 user_answers=user_answers,
                 writing_focus=writing_focus,
@@ -216,6 +220,15 @@ def main():
     elif approval != "y":
         print("Invalid input. Exiting.")
         return
+
+    # Extract characters inferred by the blueprint
+    inferred_chars = set()
+    for act in blueprint.acts:
+        for scene in act.scenes:
+            inferred_chars.update(scene.characters)
+    characters = list(inferred_chars)
+    if characters:
+        print(f"  Inferred characters: {', '.join(characters)}")
 
     blueprint_path = Path(f"outputs/results/chapter_{chapter_number}_blueprint.json")
     blueprint_path.parent.mkdir(parents=True, exist_ok=True)
@@ -336,13 +349,6 @@ def main():
                 act_scenes.append(scene)
                 _save_scene_drafts(scene, agent_logs, act_blueprint.act_number)
                 print(f"Scene {scene.scene_number} approved.")
-
-                if scene_index < len(act_blueprint.scenes) - 1:
-                    next_scene = act_blueprint.scenes[scene_index + 1]
-                    scene.transition = orchestrator.transition_agent.generate_scene_transition(
-                        current_scene=scene_blueprint.scene_description,
-                        next_scene=next_scene.scene_description,
-                    )
             else:
                 print(f"Scene {scene.scene_number} skipped.")
 

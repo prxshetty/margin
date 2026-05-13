@@ -10,6 +10,6 @@ prior scenes (optional)
 
 Requirements:
 
-Keep each character's voice consistent using character profiles
+Keep each character's voice consistent using their character profile and current emotional state
 Progress the scene's goals through this beat
 Write dialogue ONLY — no narration, headers, or prose outside dialogue/action cues

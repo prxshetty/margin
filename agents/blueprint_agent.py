@@ -113,14 +113,13 @@ Please revise only this act's scenes based on the feedback. Output ONLY valid JS
         writing_focus: str = "",
         writing_style_descriptions: Optional[Dict[str, str]] = None,
     ) -> str:
+        char_line = ", ".join(characters) if characters else "(infer from chapter description)"
         parts = [
             f"Chapter Title: {chapter_title}",
-            f"Characters: {', '.join(characters)}",
+            f"Characters: {char_line}",
         ]
         if background:
             parts.append(f"Background: {background}")
-        if writing_focus:
-            parts.append(f"Writing Focus:\n{writing_focus}")
         parts.append(f"\nUser's Chapter Description:\n{user_outline}")
         if user_answers:
             parts.append(f"\nAdditional context from user:\n{user_answers}")

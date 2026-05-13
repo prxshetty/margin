@@ -45,7 +45,6 @@ TOKENS_DIALOGUE=800
 TOKENS_NARRATION=800
 TOKENS_WRITER=500
 TOKENS_TRANSITION=400
-TOKENS_COMPILER=300
 ```
 
 ## Project Structure
@@ -58,8 +57,7 @@ slm-writing-engine/
 │   ├── narration_agent.py     # Generates narration prose (per-beat, optional)
 │   ├── dialogue_agent.py      # Generates character dialogue (per-beat, optional)
 │   ├── writer_agent.py        # Merges sub-agent drafts into polished beats
-│   ├── compiler_agent.py      # Smooths transitions between adjacent beats
-│   └── transition_agent.py    # Generates scene/act bridges
+│   └── transition_agent.py    # Generates act bridges
 ├── schema/                    # Schema definitions (scene.yaml, act.yaml, agents.yaml)
 ├── prompts/                   # Agent prompt templates
 │   ├── blueprint_base.txt
@@ -67,7 +65,7 @@ slm-writing-engine/
 │   ├── narration.txt
 │   ├── dialogue.txt
 │   ├── writer.txt
-│   ├── compiler.txt
+
 │   └── transition.txt
 ├── inputs/
 │   ├── characters/            # Character profiles (YAML)
@@ -239,8 +237,6 @@ current_state: ""
 │  │ └── WriterAgent merges all drafts → beat text   │        │
 │  └─────────────────────────────────────────────────┘        │
 │                                                             │
-│  CompilerAgent smooths boundaries between beats             │
-│                                                             │
 │  User reviews scene                                         │
 │  → y = approve, save to drafts/, move to next               │
 │  → n = provide feedback (scene regenerates)                 │
@@ -262,7 +258,6 @@ For debugging. Each scene generates:
 |------|---------|
 | `scene-N-context.json` | Scene context + scene agent setting input/output |
 | `scene-N-beat-M.json` | Full per-beat log — style, mode, and every agent's system prompt + user prompt + output for that beat |
-| `scene-N-compiler.json` | Boundary smoothing between beats |
 | `scene-N-final.json` | Final approved scene content |
 
 ### Results (`outputs/results/`)

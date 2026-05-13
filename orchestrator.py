@@ -20,7 +20,6 @@ from agents.dialogue_agent import DialogueAgent
 from agents.narration_agent import NarrationAgent
 from agents.transition_agent import TransitionAgent
 from agents.writer_agent import WriterAgent
-from agents.compiler_agent import CompilerAgent
 
 
 def _extract_tail(text: str, n_sentences: int = 2) -> str:
@@ -48,7 +47,6 @@ class StoryOrchestrator:
         self.narration_agent = NarrationAgent()
         self.transition_agent = TransitionAgent()
         self.writer_agent = WriterAgent()
-        self.compiler_agent = CompilerAgent()
         self.state_manager = state_manager
 
     def generate_act(
@@ -284,23 +282,8 @@ class StoryOrchestrator:
 
             prev_tail = _extract_tail(beat_text, 2)
 
-        # -- Compiler pass (smooth boundaries) --
-        compiler_logs = []
-        if len(beat_outputs) > 1:
-            compiled = [beat_outputs[0]]
-            for i in range(1, len(beat_outputs)):
-                tail = _extract_tail(compiled[-1], 2)
-                smoothed = self.compiler_agent.smooth_next(tail, beat_outputs[i])
-                compiled.append(smoothed)
-                compiler_logs.append({
-                    "beat": i, "input_tail": tail,
-                    "input_draft": beat_outputs[i], "output": smoothed,
-                })
-            full_content = '\n\n'.join(compiled)
-        elif beat_outputs:
-            full_content = beat_outputs[0]
-        else:
-            full_content = ""
+        # -- Assemble beat outputs --
+        full_content = '\n\n'.join(beat_outputs) if beat_outputs else ""
 
         agent_logs["narration_agent"] = {
             "system_prompt": self.narration_agent.system_prompt,
@@ -312,10 +295,6 @@ class StoryOrchestrator:
         }
         agent_logs["writer_agent"] = {
             "per_beat": writer_per_beat_logs,
-        }
-        agent_logs["compiler_agent"] = {
-            "system_prompt": self.compiler_agent.template,
-            "per_beat": compiler_logs,
         }
 
         scene = Scene(
@@ -492,23 +471,8 @@ class StoryOrchestrator:
 
             prev_tail = _extract_tail(beat_text, 2)
 
-        # -- Compiler pass --
-        compiler_logs = []
-        if len(beat_outputs) > 1:
-            compiled = [beat_outputs[0]]
-            for i in range(1, len(beat_outputs)):
-                tail = _extract_tail(compiled[-1], 2)
-                smoothed = self.compiler_agent.smooth_next(tail, beat_outputs[i])
-                compiled.append(smoothed)
-                compiler_logs.append({
-                    "beat": i, "input_tail": tail,
-                    "input_draft": beat_outputs[i], "output": smoothed,
-                })
-            full_content = '\n\n'.join(compiled)
-        elif beat_outputs:
-            full_content = beat_outputs[0]
-        else:
-            full_content = ""
+        # -- Assemble beat outputs --
+        full_content = '\n\n'.join(beat_outputs) if beat_outputs else ""
 
         agent_logs["narration_agent"] = {
             "system_prompt": self.narration_agent.system_prompt,
@@ -521,10 +485,6 @@ class StoryOrchestrator:
         agent_logs["writer_agent"] = {
             "per_beat": writer_per_beat_logs,
         }
-        agent_logs["compiler_agent"] = {
-            "system_prompt": self.compiler_agent.template,
-            "per_beat": compiler_logs,
-        }
 
         scene = Scene(
             id=str(uuid.uuid4()),
@@ -534,6 +494,7 @@ class StoryOrchestrator:
             dialogue="",
             characters_present=scene_blueprint.characters or characters,
             full_content=full_content,
+
         )
 
         return scene, agent_logs

@@ -15,6 +15,11 @@ every scene must include:
 - scene_description: 2–4 concise sentences covering narrative purpose.
 - scene_events: 2–6 ordered beat-level events that break the scene into a step-by-step sequence. Simple scenes: 2–4 events. Complex scenes: 4–6 events. Every scene needs this — it's the Writer and Dialogue agents' structural checklist.
 
+The characters list may be empty or contain hints. Infer which characters
+appear from the chapter description text. Use their full names in the
+blueprint. Infer chapter title, background/setting, and tone from the raw
+text if not explicitly provided.
+
 Before generating the JSON, read the chapter outline. If it is missing critical
 information (character motivations, location details, how characters get from
 one place to another), list up to 3 clarifying questions. If the outline is

@@ -13,3 +13,4 @@ Requirements:
 Write narration ONLY — no dialogue, headers, or prose outside action/sensory description
 Progress the scene's goals through this beat
 Maintain consistent voice matching the narration guidelines
+Use character profiles and current emotional state to inform physical reactions and body language
