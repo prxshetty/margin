@@ -22,12 +22,12 @@ LMSTUDIO = {
 }
 
 AGENT_CONFIG = {
-    "blueprint": {"max_tokens": 2000, "temperature": 0.9},
-    "scene": {"max_tokens": 600, "temperature": 0.8},
-    "dialogue": {"max_tokens": 800, "temperature": 0.85},
-    "transition": {"max_tokens": 400, "temperature": 0.7},
-    "writer": {"max_tokens": 1500, "temperature": 0.85},
-    "compiler": {"max_tokens": 300, "temperature": 0.35},
+    "blueprint": {"max_tokens": int(os.getenv("TOKENS_BLUEPRINT", 2000)), "temperature": 0.9},
+    "scene": {"max_tokens": int(os.getenv("TOKENS_SCENE", 600)), "temperature": 0.8},
+    "dialogue": {"max_tokens": int(os.getenv("TOKENS_DIALOGUE", 800)), "temperature": 0.85},
+    "transition": {"max_tokens": int(os.getenv("TOKENS_TRANSITION", 400)), "temperature": 0.7},
+    "writer": {"max_tokens": int(os.getenv("TOKENS_WRITER", 500)), "temperature": 0.85},
+    "compiler": {"max_tokens": int(os.getenv("TOKENS_COMPILER", 300)), "temperature": 0.35},
 }
 
 TOKEN_LIMITS = {key: cfg["max_tokens"] for key, cfg in AGENT_CONFIG.items()}

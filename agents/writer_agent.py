@@ -26,8 +26,6 @@ MODE_INTROS = {
     ),
 }
 
-DEFAULT_TOKEN_LIMIT = 500
-
 MODE_CLOSING_NOTES = {
     "opening": "Do NOT conclude or summarize — the scene continues after this beat.",
     "continuation": "Do NOT conclude or summarize — the scene continues after this beat.",
@@ -61,7 +59,7 @@ class WriterAgent:
         beat_desc = beat.get("beat", "") if isinstance(beat, dict) else str(beat)
         beat_style = beat.get("style", "general") if isinstance(beat, dict) else "general"
 
-        token_limit = token_limit or DEFAULT_TOKEN_LIMIT
+        token_limit = token_limit or config.TOKEN_LIMITS["writer"]
         intro = MODE_INTROS[mode].format(setting_draft=setting_draft, prev_tail=prev_tail)
         closing_note = MODE_CLOSING_NOTES[mode]
 
