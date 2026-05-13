@@ -227,71 +227,18 @@ def parse_chapter_file(file_path: Path) -> Dict[str, Any]:
     title_match = re.search(r"^#\s+(.+)$", content, re.MULTILINE)
     title = title_match.group(1).strip() if title_match else "Untitled Chapter"
 
-    chars_section = re.search(
-        r"##\s+Characters\s*\n(.*?)(?:\n##|\Z)", content, re.DOTALL | re.IGNORECASE
-    )
-    characters = []
-    if chars_section:
-        char_lines = re.findall(
-            r"^\s*[-*]\s+([^:\n]+)(?:\s*:.*)?$",
-            chars_section.group(1),
-            re.MULTILINE,
-        )
-        characters = [c.strip() for c in char_lines if c.strip()]
-        characters = [re.sub(r"\s*\([^)]*\)", "", c).strip() for c in characters]
-
-    bg_section = re.search(
-        r"##\s+Background(?:/Setting)?\s*\n(.*?)(?:\n##|\Z)",
-        content,
-        re.DOTALL | re.IGNORECASE,
-    )
-    background = bg_section.group(1).strip() if bg_section else ""
-
     outline_section = re.search(
         r"##\s+Chapter Outline\s*\n(.*?)(?:\n##|\Z)", content, re.DOTALL | re.IGNORECASE
     )
-    outline = outline_section.group(1).strip() if outline_section else ""
-
-    genre_section = re.search(
-        r"##\s+Genre\s*\n(.*?)(?:\n##|\Z)", content, re.DOTALL | re.IGNORECASE
-    )
-    genre = genre_section.group(1).strip() if genre_section else ""
-
-    tone_section = re.search(
-        r"##\s+Tone Guidelines\s*\n(.*?)(?=\n##\s+[^#]|\Z)", content, re.DOTALL | re.IGNORECASE
-    )
-    tone_guidelines = tone_section.group(1).strip() if tone_section else ""
-
-    focus_section = re.search(
-        r"##\s+Writing Focus\s*\n(.*?)(?=\n##\s+[^#]|\Z)", content, re.DOTALL | re.IGNORECASE
-    )
-    writing_focus = focus_section.group(1).strip() if focus_section else ""
-
-    style_section = re.search(
-        r"##\s+Writing Style\s*\n(.*?)(?=\n##\s+[^#]|\Z)", content, re.DOTALL | re.IGNORECASE
-    )
-    writing_style_raw = style_section.group(1).strip() if style_section else ""
-
-    writing_style_names = []
-    if writing_style_raw:
-        bullets = re.findall(r"^\s*[-*]\s+(\S+)", writing_style_raw, re.MULTILINE)
-        if bullets:
-            writing_style_names = [b.strip().lower() for b in bullets if b.strip()]
-        else:
-            blocks = re.split(r"###\s+", writing_style_raw)
-            for block in blocks:
-                if block.strip():
-                    key = block.strip().splitlines()[0].strip().lower()
-                    writing_style_names.append(key)
+    outline = outline_section.group(1).strip() if outline_section else content
 
     return {
         "title": title,
-        "characters": characters,
-        "background": background,
+        "characters": [],
+        "background": "",
         "outline": outline,
-        "genre": genre,
-        "tone_guidelines": tone_guidelines,
-        "writing_focus": writing_focus,
-        "writing_style_names": writing_style_names,
+        "genre": "",
+        "tone_guidelines": "",
+        "writing_focus": "",
         "file_path": str(file_path),
     }

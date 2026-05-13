@@ -277,6 +277,9 @@ class StoryOrchestrator:
                 "beat": i, "mode": mode, "style": beat_style,
                 "drafts": drafts,
                 "output": beat_text,
+                "system_prompt": self.writer_agent.system_prompt,
+                "user_prompt": getattr(self.writer_agent, "last_user_prompt", ""),
+                "token_limit": getattr(self.writer_agent, "last_token_limit", 0),
             })
 
             prev_tail = _extract_tail(beat_text, 2)
@@ -308,7 +311,6 @@ class StoryOrchestrator:
             "per_beat": dialogue_per_beat_logs,
         }
         agent_logs["writer_agent"] = {
-            "system_prompt": self.writer_agent.system_prompt,
             "per_beat": writer_per_beat_logs,
         }
         agent_logs["compiler_agent"] = {
@@ -483,6 +485,9 @@ class StoryOrchestrator:
                 "beat": i, "mode": mode, "style": beat_style,
                 "drafts": drafts,
                 "output": beat_text,
+                "system_prompt": self.writer_agent.system_prompt,
+                "user_prompt": getattr(self.writer_agent, "last_user_prompt", ""),
+                "token_limit": getattr(self.writer_agent, "last_token_limit", 0),
             })
 
             prev_tail = _extract_tail(beat_text, 2)
@@ -514,7 +519,6 @@ class StoryOrchestrator:
             "per_beat": dialogue_per_beat_logs,
         }
         agent_logs["writer_agent"] = {
-            "system_prompt": self.writer_agent.system_prompt,
             "per_beat": writer_per_beat_logs,
         }
         agent_logs["compiler_agent"] = {

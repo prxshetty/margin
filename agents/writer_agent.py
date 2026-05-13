@@ -59,7 +59,7 @@ class WriterAgent:
         beat_desc = beat.get("beat", "") if isinstance(beat, dict) else str(beat)
         beat_style = beat.get("style", "general") if isinstance(beat, dict) else "general"
 
-        token_limit = token_limit or config.TOKEN_LIMITS["writer"]
+        self.last_token_limit = token_limit or config.TOKEN_LIMITS["writer"]
         intro = MODE_INTROS[mode].format(setting_draft=setting_draft, prev_tail=prev_tail)
         closing_note = MODE_CLOSING_NOTES[mode]
 
@@ -72,7 +72,7 @@ class WriterAgent:
             if drafts_lines:
                 drafts_block = "\n\n".join(drafts_lines)
 
-        user_prompt = (
+        self.last_user_prompt = (
             f"{intro}\n\n"
             f"BEAT DESCRIPTION:\n{beat_desc}\n\n"
             f"STYLE: {beat_style}\n"
@@ -80,17 +80,17 @@ class WriterAgent:
         )
 
         if drafts_block:
-            user_prompt += f"\nSUB-AGENT DRAFTS TO MERGE:\n{drafts_block}\n"
+            self.last_user_prompt += f"\nSUB-AGENT DRAFTS TO MERGE:\n{drafts_block}\n"
 
-        user_prompt += f"\n{closing_note}\n"
-        user_prompt += "Output polished prose only, no headers or meta commentary."
+        self.last_user_prompt += f"\n{closing_note}\n"
+        self.last_user_prompt += "Output polished prose only, no headers or meta commentary."
 
         if feedback:
-            user_prompt += f"\n\nUSER FEEDBACK:\n{feedback}\n\nIncorporate this feedback into the beat."
+            self.last_user_prompt += f"\n\nUSER FEEDBACK:\n{feedback}\n\nIncorporate this feedback into the beat."
 
         return self.client.generate_to_completion(
             system_prompt=self.system_prompt,
-            user_prompt=user_prompt,
+            user_prompt=self.last_user_prompt,
             temperature=self.temperature,
-            max_tokens=token_limit,
+            max_tokens=self.last_token_limit,
         )

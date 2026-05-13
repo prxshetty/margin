@@ -162,35 +162,27 @@ Style override + `.env` floor = the writer gets the larger of the two. This keep
 
 ## Input Files
 
-### Chapter Outline (`inputs/chapters/chapter-N.md`)
+### Chapter File (`inputs/chapters/chapter-N.md`)
+
+No enforced structure. Write whatever you want — raw thoughts, scene descriptions, character notes. The blueprint agent infers structure from your text.
 
 ```markdown
-# Chapter Title
+# Chapter 1: The Weight of the Canvas
 
-## Characters
-- Elara
-- Kaelen
-- Lena
+Elara Vance sits before a vast, blank canvas in her cluttered studio late at
+night, paralyzed by the pressure of expectation. The air is thick with
+turpentine and aged canvas. Moonlight cuts through the dusty window.
 
-## Background/Setting
-(Optional context about setting, time period, etc.)
+Kaelen Rhys visits, challenging her self-doubt head-on. After his confrontation,
+Elara has a quiet turning point — she rises, faces the canvas, and declares
+she'll paint not what's expected, but what demands to be born.
 
-## Genre
-Crime / Thriller
-
-## Tone Guidelines
-- Prioritize physical environment over character emotion
-- Show detective competence through action, not feeling
-- Emotion only when plot-relevant
-
-## Writing Focus
-- Crime scene: maximum detail, forensic and sensory
-- Interrogation: character voice priority
-- Travel/transition: functional, one paragraph maximum
-
-## Chapter Outline
-A detailed description of what happens in this chapter.
+Dr. Lena Hayes arrives later. Kaelen suggests dinner outside to clear the air.
+Lena is skeptical but agrees. The chapter ends with the three of them leaving.
 ```
+
+Characters are detected by matching names against YAML files in `inputs/characters/`.
+If the blueprint gets anything wrong, the feedback loop at approval time lets you correct it.
 
 ### Character Profile (`inputs/characters/name.yaml`)
 
@@ -268,12 +260,9 @@ For debugging. Each scene generates:
 
 | File | Content |
 |------|---------|
-| `scene-N-scene_context.json` | Full context sent to agents |
-| `scene-N-scene_agent.json` | Setting generation input/output |
-| `scene-N-narration_agent.json` | Per-beat narration drafts |
-| `scene-N-dialogue_agent.json` | Per-beat dialogue drafts |
-| `scene-N-writer_agent.json` | Per-beat writer outputs (including sub-agent drafts) |
-| `scene-N-compiler_agent.json` | Boundary smoothing between beats |
+| `scene-N-context.json` | Scene context + scene agent setting input/output |
+| `scene-N-beat-M.json` | Full per-beat log — style, mode, and every agent's system prompt + user prompt + output for that beat |
+| `scene-N-compiler.json` | Boundary smoothing between beats |
 | `scene-N-final.json` | Final approved scene content |
 
 ### Results (`outputs/results/`)

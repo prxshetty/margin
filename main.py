@@ -20,15 +20,84 @@ def _save_scene_drafts(scene, agent_logs, act_number):
     act_dir = drafts_dir / f"act-{act_number}"
     act_dir.mkdir(exist_ok=True)
 
-    for agent_name, log in agent_logs.items():
-        agent_file = act_dir / f"scene-{scene.scene_number}-{agent_name}.json"
-        with open(agent_file, "w") as f:
-            json.dump(log, f, indent=2)
-        print(f"  {agent_name} log saved to: {agent_file}")
+    scene_num = scene.scene_number
 
-    final_file = act_dir / f"scene-{scene.scene_number}-final.json"
+    # Collect per-beat data from agent logs
+    writer_beats = (agent_logs.get("writer_agent") or {}).get("per_beat", [])
+    narration_beats = (agent_logs.get("narration_agent") or {}).get("per_beat", [])
+    dialogue_beats = (agent_logs.get("dialogue_agent") or {}).get("per_beat", [])
+
+    # Build lookup dicts by beat index
+    narration_map = {b["beat"]: b for b in narration_beats}
+    dialogue_map = {b["beat"]: b for b in dialogue_beats}
+
+    for wb in writer_beats:
+        bi = wb["beat"]
+        beat_log = {
+            "scene_number": scene_num,
+            "beat_number": bi,
+            "style": wb.get("style", ""),
+            "mode": wb.get("mode", ""),
+            "token_limit": wb.get("token_limit", 0),
+            "agents": {},
+        }
+
+        # Add narration agent data for this beat
+        if bi in narration_map:
+            nb = narration_map[bi]
+            beat_log["agents"]["narration"] = {
+                "system_prompt": agent_logs.get("narration_agent", {}).get("system_prompt", ""),
+                "user_prompt": nb.get("input", ""),
+                "output": nb.get("output", ""),
+            }
+
+        # Add dialogue agent data for this beat
+        if bi in dialogue_map:
+            db = dialogue_map[bi]
+            beat_log["agents"]["dialogue"] = {
+                "system_prompt": agent_logs.get("dialogue_agent", {}).get("system_prompt", ""),
+                "user_prompt": db.get("input", ""),
+                "output": db.get("output", ""),
+            }
+
+        # Add writer agent data for this beat
+        beat_log["agents"]["writer"] = {
+            "system_prompt": wb.get("system_prompt", ""),
+            "user_prompt": wb.get("user_prompt", ""),
+            "output": wb.get("output", ""),
+            "sub_agent_drafts": wb.get("drafts", {}),
+        }
+
+        beat_file = act_dir / f"scene-{scene_num}-beat-{bi}.json"
+        with open(beat_file, "w") as f:
+            json.dump(beat_log, f, indent=2)
+        print(f"  beat {bi} log saved to: {beat_file}")
+
+    # Save scene context + scene agent as one file
+    context_file = act_dir / f"scene-{scene_num}-context.json"
+    context_log = {
+        "scene_context": agent_logs.get("scene_context", {}),
+        "scene_agent": agent_logs.get("scene_agent", {}),
+    }
+    with open(context_file, "w") as f:
+        json.dump(context_log, f, indent=2)
+    print(f"  context saved to: {context_file}")
+
+    # Save compiler pass
+    compiler_beats = (agent_logs.get("compiler_agent") or {}).get("per_beat", [])
+    if compiler_beats:
+        compiler_file = act_dir / f"scene-{scene_num}-compiler.json"
+        with open(compiler_file, "w") as f:
+            json.dump({
+                "system_prompt": agent_logs.get("compiler_agent", {}).get("system_prompt", ""),
+                "per_beat": compiler_beats,
+            }, f, indent=2)
+        print(f"  compiler log saved to: {compiler_file}")
+
+    # Save final scene
+    final_file = act_dir / f"scene-{scene_num}-final.json"
     final_data = {
-        "scene_number": scene.scene_number,
+        "scene_number": scene_num,
         "full_content": scene.full_content,
         "characters_present": scene.characters_present,
         "setting": scene.setting,
