@@ -28,9 +28,7 @@ class DialogueAgent:
 
     def _build_prompt(self, context: StoryContext, beat_description: str, dialogue_guidelines: str) -> str:
         parts = [
-            f"SCENE DESCRIPTION:\n{context.scene_description}",
-            f"\nSUGGESTED SETTING:\n{context.setting}",
-            f"\nTHIS BEAT:\n{beat_description}",
+            f"THIS BEAT:\n{beat_description}",
         ]
 
         if dialogue_guidelines:

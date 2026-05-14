@@ -28,9 +28,7 @@ class NarrationAgent:
 
     def _build_prompt(self, context: StoryContext, beat_description: str, narration_guidelines: str) -> str:
         parts = [
-            f"SCENE DESCRIPTION:\n{context.scene_description}",
-            f"\nSUGGESTED SETTING:\n{context.setting}",
-            f"\nTHIS BEAT:\n{beat_description}",
+            f"THIS BEAT:\n{beat_description}",
         ]
 
         if narration_guidelines:
