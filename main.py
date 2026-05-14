@@ -6,6 +6,7 @@ import re
 from state_manager import StateManager, find_latest_chapter, parse_chapter_file
 from orchestrator import StoryOrchestrator
 from agents.blueprint_agent import BlueprintAgent
+from agents.decomposer_agent import DecomposerAgent
 from style_loader import load_all_styles, generate_styles_md, read_styles_md
 from pathlib import Path
 import json
@@ -158,6 +159,7 @@ def main():
     print("=" * 60)
 
     blueprint_agent = BlueprintAgent()
+    decomposer_agent = DecomposerAgent()
     state_manager = StateManager()
 
     user_answers = ""
@@ -276,7 +278,7 @@ def main():
             scene_events = scene_blueprint.extra.get("scene_events", [])
             if not scene_events:
                 print(f"\n  Generating scene events for Scene {scene_blueprint.scene_number}...")
-                scene_events = blueprint_agent.generate_scene_events(
+                scene_events = decomposer_agent.generate(
                     scene_description=scene_blueprint.scene_description,
                     style_descriptions=blueprint_descriptions,
                 )
@@ -304,7 +306,7 @@ def main():
                     print("No feedback provided. Keeping current events.")
                     break
                 print(f"  Regenerating scene events for Scene {scene_blueprint.scene_number}...")
-                scene_events = blueprint_agent.generate_scene_events(
+                scene_events = decomposer_agent.generate(
                     scene_description=scene_blueprint.scene_description,
                     style_descriptions=blueprint_descriptions,
                 )
