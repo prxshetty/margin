@@ -38,14 +38,23 @@ Copy `.env.example` to `.env` and edit:
 LM_STUDIO_BASE_URL=http://localhost:1234/v1
 LM_STUDIO_MODEL=your-model-name-here
 
+# Reasoning model toggle — set to true if using a thinking/reasoning LLM
+# (e.g. Gemma Thinking, DeepSeek R1, Qwen-2.5-Coder). Enables a thinking
+# preamble that prompts the model to reason step-by-step internally before
+# generating JSON outputs.
+REASONING_MODEL=false
+
 # Token limits — floor per beat/response
 TOKENS_BLUEPRINT=2000
 TOKENS_SCENE=600
 TOKENS_DIALOGUE=800
 TOKENS_NARRATION=800
+TOKENS_DECOMPOSER=600
 TOKENS_WRITER=500
 TOKENS_TRANSITION=400
 ```
+
+> **Important for thinking / reasoning models:** If your model supports chain-of-thought reasoning (e.g. Gemma Thinking, DeepSeek R1, Qwen-2.5-Coder), set `REASONING_MODEL=true`. This prepends a thinking preamble to every agent's system prompt, telling the model to reason step-by-step before producing its final output. The model's internal reasoning is captured via the API's `reasoning_content` field — no extra terminal output. Leave `REASONING_MODEL=false` (default) for standard instruction-tuned models.
 
 ## Project Structure
 
