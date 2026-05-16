@@ -7,7 +7,7 @@ from state_manager import StateManager, find_latest_chapter, parse_chapter_file
 from orchestrator import StoryOrchestrator
 from agents.blueprint_agent import BlueprintAgent
 from agents.decomposer_agent import DecomposerAgent
-from style_loader import load_all_styles, generate_styles_md, read_styles_md
+from style_loader import load_all_styles, generate_styles_md, read_styles_md, get_min_dialogues
 from pathlib import Path
 import json
 
@@ -83,6 +83,14 @@ def _save_scene_drafts(scene, agent_logs, act_number):
     with open(context_file, "w") as f:
         json.dump(context_log, f, indent=2)
     print(f"  context saved to: {context_file}")
+
+    # Save decomposer JSON if present
+    decomposer_file = act_dir / f"scene-{scene_num}-decomposer.json"
+    decomposer_events = agent_logs.get("decomposer_events")
+    if decomposer_events:
+        with open(decomposer_file, "w") as f:
+            json.dump(decomposer_events, f, indent=2)
+        print(f"  decomposer JSON saved to: {decomposer_file}")
 
     # Save final scene
     final_file = act_dir / f"scene-{scene_num}-final.json"
@@ -249,6 +257,11 @@ def main():
 
     orchestrator = StoryOrchestrator(state_manager=state_manager)
     story_state = state_manager.read_story_state()
+    global_min = get_min_dialogues()
+    min_dialogues = {
+        name: style.get("min_dialogues") or global_min
+        for name, style in loaded_styles.items()
+    }
 
     prev_chapter_bridge = None
     if chapter_number > 1:
@@ -281,6 +294,7 @@ def main():
                 scene_events = decomposer_agent.generate(
                     scene_description=scene_blueprint.scene_description,
                     style_descriptions=blueprint_descriptions,
+                    min_dialogues=min_dialogues,
                 )
                 scene_blueprint.extra["scene_events"] = scene_events
 
@@ -315,6 +329,7 @@ def main():
                 scene_events = decomposer_agent.generate(
                     scene_description=scene_blueprint.scene_description,
                     style_descriptions=blueprint_descriptions,
+                    min_dialogues=min_dialogues,
                 )
                 scene_blueprint.extra["scene_events"] = scene_events
 

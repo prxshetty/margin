@@ -4,7 +4,7 @@ Called once per scene to generate scene_events with style tags.
 """
 
 import re
-from typing import Optional, Dict
+from typing import Optional, Dict, Union
 import llm
 import config
 
@@ -22,15 +22,25 @@ class DecomposerAgent:
         self,
         scene_description: str,
         style_descriptions: Optional[Dict[str, str]] = None,
+        min_dialogues: Union[int, Dict[str, int]] = 2,
     ) -> list:
         """Generate scene_events with style tags for a single scene."""
         styles_block = "\n".join(
             f"- {name}: {desc}" for name, desc in sorted(style_descriptions.items())
         ) if style_descriptions else "- general"
 
+        if isinstance(min_dialogues, dict):
+            min_dialogues_block = "\n".join(
+                f"- {style}: {count}+" for style, count in sorted(min_dialogues.items())
+            )
+            min_prompt = f"MINIMUM DIALOGUES PER STYLE:\n{min_dialogues_block}"
+        else:
+            min_prompt = f"MINIMUM DIALOGUES FOR DIALOGUE-HEAVY BEATS: {min_dialogues}+"
+
         user_prompt = (
             f"SCENE DESCRIPTION:\n{scene_description}\n\n"
-            f"AVAILABLE STYLE TAGS:\n{styles_block}"
+            f"AVAILABLE STYLE TAGS:\n{styles_block}\n\n"
+            f"{min_prompt}"
         )
 
         response = self.client.generate_to_completion(

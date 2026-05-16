@@ -1,5 +1,6 @@
 ---
 description: "General-purpose scene writing with balanced narration and action"
+min_dialogues: 2
 ---
 
 ## Writer Guidelines

@@ -1,6 +1,7 @@
 ---
 description: "Heroic, inspirational tone — characters rising to meet impossible odds with dramatic, cinematic prose"
 output_size: expansive
+min_dialogues: 3
 ---
 
 ## Writer Guidelines

@@ -169,6 +169,26 @@ output_size: expansive  # concise=250, balanced=500, expansive=1000
 
 Style override + `.env` floor = the writer gets the larger of the two. This keeps the `.env` as a baseline for your hardware while style files control narrative pacing.
 
+## Minimum Dialogue Control
+
+Each style can define a `min_dialogues` frontmatter field to set the minimum number of dialogue exchanges expected for dialogue-heavy beats tagged with that style.
+
+```yaml
+---
+description: "Full cinematic scene"
+output_size: expansive
+min_dialogues: 4   # dialogue beats should have 4+ exchanges
+---
+```
+
+The decomposer agent uses per-style minima to generate beats with appropriate `expected_exchanges` values, displayed during scene review as `[style] [#+]`.
+
+### Resolution order
+
+1. **Per-style `min_dialogues`** (in the style's `.md` frontmatter) — highest priority
+2. **`Minimum Dialogues: X`** line in `STYLES.md` — global fallback for all styles
+3. **Code default of `2`** — used if neither is set
+
 ## Input Files
 
 ### Chapter File (`inputs/chapters/chapter-N.md`)
