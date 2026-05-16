@@ -12,9 +12,14 @@ from models import StoryContext
 
 
 MODE_INTROS = {
-    "opening": (
-        "This is the opening beat of the scene.\n\n"
-        "SETTING:\n{setting_draft}"
+    "opening_with_setting": (
+        "This is the opening beat of a scene in a new or significantly changed location.\n\n"
+        "SETTING:\n{setting_draft}\n\n"
+        "Establish the environment vividly using the sensory details above."
+    ),
+    "opening_without_setting": (
+        "This is the opening beat of a new scene, but it occurs in the same location as the previous scene.\n\n"
+        "Ground the scene lightly with a few brief sensory details, but do NOT provide a bulky setting description. Focus on the characters and immediate action."
     ),
     "continuation": (
         "This is a middle beat of the scene.\n\n"
@@ -27,7 +32,8 @@ MODE_INTROS = {
 }
 
 MODE_CLOSING_NOTES = {
-    "opening": "Do NOT conclude or summarize — the scene continues after this beat.",
+    "opening_with_setting": "Do NOT conclude or summarize — the scene continues after this beat.",
+    "opening_without_setting": "Do NOT conclude or summarize — the scene continues after this beat.",
     "continuation": "Do NOT conclude or summarize — the scene continues after this beat.",
     "closing": "Write this beat and close the scene naturally. Do not leave loose threads — end with a sense of completion or a pointed transition to whatever comes next.",
 }

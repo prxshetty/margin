@@ -207,6 +207,14 @@ class StoryOrchestrator:
         events = _normalize_events(scene_blueprint.extra.get("scene_events", []))
         if not events:
             events = [{"beat": scene_blueprint.scene_description, "style": "general"}]
+        agent_logs["decomposer_events"] = events
+
+        # -- Determine opening mode (with or without setting) --
+        is_new_location = True
+        if scene_index > 0:
+            prev_scene_setting = act_blueprint.scenes[scene_index - 1].scene_setting
+            if scene_blueprint.scene_setting == prev_scene_setting:
+                is_new_location = False
 
         # -- Per-beat generation --
         beat_outputs = []
@@ -222,7 +230,13 @@ class StoryOrchestrator:
             writer_guidelines = agent_sections.get("writer", "")
             beat_token_limit = None if config.DISABLE_TOKEN_LIMITS else style_data.get("output_size")
 
-            mode = "opening" if i == 0 else "closing" if i == len(events) - 1 else "continuation"
+            if i == 0:
+                mode = "opening_with_setting" if is_new_location else "opening_without_setting"
+            elif i == len(events) - 1:
+                mode = "closing"
+            else:
+                mode = "continuation"
+
             beat_desc = event.get("beat", str(event)) if isinstance(event, dict) else str(event)
             print(f"  Beat {i+1}/{len(events)} ({beat_style}, {mode})...")
 
@@ -265,7 +279,7 @@ class StoryOrchestrator:
                 beat_index=i,
                 total_beats=len(events),
                 prev_tail=prev_tail,
-                setting_draft=setting_draft if i == 0 else "",
+                setting_draft=setting_draft if (i == 0 and mode == "opening_with_setting") else "",
                 drafts=drafts,
                 writer_guidelines=writer_guidelines,
                 mode=mode,
@@ -398,6 +412,14 @@ class StoryOrchestrator:
         events = _normalize_events(scene_blueprint.extra.get("scene_events", []))
         if not events:
             events = [{"beat": scene_blueprint.scene_description, "style": "general"}]
+        agent_logs["decomposer_events"] = events
+
+        # -- Determine opening mode (with or without setting) --
+        is_new_location = True
+        if scene_index > 0:
+            prev_scene_setting = act_blueprint.scenes[scene_index - 1].scene_setting
+            if scene_blueprint.scene_setting == prev_scene_setting:
+                is_new_location = False
 
         # -- Per-beat generation with feedback --
         beat_outputs = []
@@ -413,7 +435,13 @@ class StoryOrchestrator:
             writer_guidelines = agent_sections.get("writer", "")
             beat_token_limit = None if config.DISABLE_TOKEN_LIMITS else style_data.get("output_size")
 
-            mode = "opening" if i == 0 else "closing" if i == len(events) - 1 else "continuation"
+            if i == 0:
+                mode = "opening_with_setting" if is_new_location else "opening_without_setting"
+            elif i == len(events) - 1:
+                mode = "closing"
+            else:
+                mode = "continuation"
+
             beat_desc = event.get("beat", str(event)) if isinstance(event, dict) else str(event)
             print(f"  Beat {i+1}/{len(events)} ({beat_style}, {mode})...")
 
@@ -453,7 +481,7 @@ class StoryOrchestrator:
                 beat_index=i,
                 total_beats=len(events),
                 prev_tail=prev_tail,
-                setting_draft=setting_draft if i == 0 else "",
+                setting_draft=setting_draft if (i == 0 and mode == "opening_with_setting") else "",
                 drafts=drafts,
                 writer_guidelines=writer_guidelines,
                 mode=mode,
