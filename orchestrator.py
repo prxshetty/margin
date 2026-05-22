@@ -240,37 +240,41 @@ class StoryOrchestrator:
             beat_desc = event.get("beat", str(event)) if isinstance(event, dict) else str(event)
             print(f"  Beat {i+1}/{len(events)} ({beat_style}, {mode})...")
 
-            # Run sub-agents based on style's ## sections
+            # Run sub-agents sequentially based on style's ## sections
             drafts = {}
-            for agent_name, guidelines in agent_sections.items():
-                if agent_name == "writer":
-                    continue
-                if agent_name == "narration":
-                    n_input = self.narration_agent._build_prompt(
-                        scene_context, beat_desc, guidelines
-                    )
-                    draft = self.narration_agent.generate(
-                        scene_context, beat_desc, guidelines
-                    )
-                    drafts["narration"] = draft
-                    narration_per_beat_logs.append({
-                        "beat": i, "style": beat_style,
-                        "input": n_input, "output": draft,
-                    })
-                    print(f"    narration draft ({len(draft)} chars)")
-                elif agent_name == "dialogue":
-                    d_input = self.dialogue_agent._build_prompt(
-                        scene_context, event, guidelines
-                    )
-                    draft = self.dialogue_agent.generate(
-                        scene_context, event, guidelines
-                    )
-                    drafts["dialogue"] = draft
-                    dialogue_per_beat_logs.append({
-                        "beat": i, "style": beat_style,
-                        "input": d_input, "output": draft,
-                    })
-                    print(f"    dialogue draft ({len(draft)} chars)")
+            
+            # 1. Run Narration Agent first if specified
+            narration_draft = ""
+            if "narration" in agent_sections:
+                guidelines = agent_sections["narration"]
+                n_input = self.narration_agent._build_prompt(
+                    scene_context, beat_desc, guidelines
+                )
+                narration_draft = self.narration_agent.generate(
+                    scene_context, beat_desc, guidelines
+                )
+                drafts["narration"] = narration_draft
+                narration_per_beat_logs.append({
+                    "beat": i, "style": beat_style,
+                    "input": n_input, "output": narration_draft,
+                })
+                print(f"    narration draft ({len(narration_draft)} chars)")
+
+            # 2. Run Dialogue Agent second, passing the narration draft if both exist
+            if "dialogue" in agent_sections:
+                guidelines = agent_sections["dialogue"]
+                d_input = self.dialogue_agent._build_prompt(
+                    scene_context, event, guidelines, narration_draft=narration_draft
+                )
+                draft = self.dialogue_agent.generate(
+                    scene_context, event, guidelines, narration_draft=narration_draft
+                )
+                drafts["dialogue"] = draft
+                dialogue_per_beat_logs.append({
+                    "beat": i, "style": beat_style,
+                    "input": d_input, "output": draft,
+                })
+                print(f"    dialogue draft ({len(draft)} chars)")
 
             # Writer merges all drafts
             beat_text = self.writer_agent.generate_beat(
@@ -445,35 +449,41 @@ class StoryOrchestrator:
             beat_desc = event.get("beat", str(event)) if isinstance(event, dict) else str(event)
             print(f"  Beat {i+1}/{len(events)} ({beat_style}, {mode})...")
 
-            # Run sub-agents based on style's ## sections
+            # Run sub-agents sequentially based on style's ## sections
             drafts = {}
-            for agent_name, guidelines in agent_sections.items():
-                if agent_name == "writer":
-                    continue
-                if agent_name == "narration":
-                    n_input = self.narration_agent._build_prompt(
-                        scene_context, beat_desc, guidelines
-                    )
-                    draft = self.narration_agent.generate(
-                        scene_context, beat_desc, guidelines
-                    )
-                    drafts["narration"] = draft
-                    narration_per_beat_logs.append({
-                        "beat": i, "style": beat_style,
-                        "input": n_input, "output": draft,
-                    })
-                elif agent_name == "dialogue":
-                    d_input = self.dialogue_agent._build_prompt(
-                        scene_context, event, guidelines
-                    )
-                    draft = self.dialogue_agent.generate(
-                        scene_context, event, guidelines
-                    )
-                    drafts["dialogue"] = draft
-                    dialogue_per_beat_logs.append({
-                        "beat": i, "style": beat_style,
-                        "input": d_input, "output": draft,
-                    })
+            
+            # 1. Run Narration Agent first if specified
+            narration_draft = ""
+            if "narration" in agent_sections:
+                guidelines = agent_sections["narration"]
+                n_input = self.narration_agent._build_prompt(
+                    scene_context, beat_desc, guidelines
+                )
+                narration_draft = self.narration_agent.generate(
+                    scene_context, beat_desc, guidelines
+                )
+                drafts["narration"] = narration_draft
+                narration_per_beat_logs.append({
+                    "beat": i, "style": beat_style,
+                    "input": n_input, "output": narration_draft,
+                })
+                print(f"    narration draft ({len(narration_draft)} chars)")
+
+            # 2. Run Dialogue Agent second, passing the narration draft if both exist
+            if "dialogue" in agent_sections:
+                guidelines = agent_sections["dialogue"]
+                d_input = self.dialogue_agent._build_prompt(
+                    scene_context, event, guidelines, narration_draft=narration_draft
+                )
+                draft = self.dialogue_agent.generate(
+                    scene_context, event, guidelines, narration_draft=narration_draft
+                )
+                drafts["dialogue"] = draft
+                dialogue_per_beat_logs.append({
+                    "beat": i, "style": beat_style,
+                    "input": d_input, "output": draft,
+                })
+                print(f"    dialogue draft ({len(draft)} chars)")
 
             beat_text = self.writer_agent.generate_beat(
                 context=scene_context,

@@ -17,8 +17,8 @@ class DialogueAgent:
         self.token_limit = config.TOKEN_LIMITS["dialogue"]
         self.temperature = config.AGENT_CONFIG["dialogue"]["temperature"]
 
-    def generate(self, context: StoryContext, event: dict, dialogue_guidelines: str) -> str:
-        user_prompt = self._build_prompt(context, event, dialogue_guidelines)
+    def generate(self, context: StoryContext, event: dict, dialogue_guidelines: str, narration_draft: str = "") -> str:
+        user_prompt = self._build_prompt(context, event, dialogue_guidelines, narration_draft)
         return self.client.generate_to_completion(
             system_prompt=self.system_prompt,
             user_prompt=user_prompt,
@@ -26,11 +26,14 @@ class DialogueAgent:
             max_tokens=self.token_limit,
         )
 
-    def _build_prompt(self, context: StoryContext, event: dict, dialogue_guidelines: str) -> str:
+    def _build_prompt(self, context: StoryContext, event: dict, dialogue_guidelines: str, narration_draft: str = "") -> str:
         beat_description = event.get("beat", str(event))
         parts = [
             f"THIS BEAT:\n{beat_description}",
         ]
+
+        if narration_draft:
+            parts.append(f"\nNARRATION PROSE WITH PLACEHOLDERS:\n{narration_draft}")
 
         conversation_flow = event.get("conversation_flow")
         if conversation_flow:
