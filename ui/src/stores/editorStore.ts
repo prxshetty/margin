@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { Editor } from '@tiptap/react'
 
 interface EditorState {
   content: string
@@ -9,6 +10,12 @@ interface EditorState {
   setIsApproved: (isApproved: boolean) => void
   eventSource: EventSource | null
   setEventSource: (eventSource: EventSource | null) => void
+  editor: Editor | null
+  setEditor: (editor: Editor | null) => void
+  selectedText: string
+  setSelectedText: (text: string) => void
+  selectionRange: { from: number; to: number } | null
+  setSelectionRange: (range: { from: number; to: number } | null) => void
 }
 
 export const useEditorStore = create<EditorState>((set) => ({
@@ -20,4 +27,10 @@ export const useEditorStore = create<EditorState>((set) => ({
   setIsApproved: (isApproved) => set({ isApproved }),
   eventSource: null,
   setEventSource: (eventSource) => set({ eventSource }),
+  editor: null,
+  setEditor: (editor) => set({ editor }),
+  selectedText: '',
+  setSelectedText: (selectedText) => set({ selectedText }),
+  selectionRange: null,
+  setSelectionRange: (selectionRange) => set({ selectionRange }),
 }))

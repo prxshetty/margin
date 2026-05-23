@@ -7,7 +7,7 @@ import { useEffect } from 'react'
 // as a placeholder until the exact Novel config is confirmed.
 
 export function NovelEditor() {
-  const { content, setContent } = useEditorStore()
+  const { content, setContent, setEditor, setSelectedText, setSelectionRange } = useEditorStore()
 
   const editor = useEditor({
     extensions: [StarterKit],
@@ -16,12 +16,29 @@ export function NovelEditor() {
       // Autosave content here eventually
       setContent(editor.getHTML())
     },
+    onSelectionUpdate: ({ editor }) => {
+      const { from, to, empty } = editor.state.selection
+      if (empty) {
+        setSelectedText('')
+        setSelectionRange(null)
+      } else {
+        const text = editor.state.doc.textBetween(from, to, ' ')
+        setSelectedText(text)
+        setSelectionRange({ from, to })
+      }
+    },
     editorProps: {
       attributes: {
         class: 'prose prose-slate max-w-none focus:outline-none min-h-[500px] px-8 py-6',
       },
     },
   })
+
+  useEffect(() => {
+    if (editor) {
+      setEditor(editor)
+    }
+  }, [editor, setEditor])
 
   // Sync state content to editor if streaming
   useEffect(() => {
