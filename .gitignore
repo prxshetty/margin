@@ -3,3 +3,4 @@ outputs/
 .DS_Store
 __pycache__/
 .env
+slm_engine.db
