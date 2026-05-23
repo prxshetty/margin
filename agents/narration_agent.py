@@ -42,7 +42,30 @@ class NarrationAgent:
                 if profile.get("description"):
                     parts.append(f"    Description: {profile['description']}")
                 if current_state:
-                    parts.append(f"    Current state: {current_state}")
+                    if isinstance(current_state, dict):
+                        parts.append("    Dynamic Emotional State:")
+                        # 1. Format self posture
+                        self_state = current_state.get("self", {})
+                        if self_state:
+                            parts.append("      - Internal (Self):")
+                            parts.append(f"        * Emotional: {self_state.get('emotional', '')}")
+                            events = self_state.get('recent_events', [])
+                            if events:
+                                parts.append("        * Recent History:")
+                                for ev in events:
+                                    parts.append(f"          · {ev}")
+                        # 2. Format relationships
+                        for key, rel_state in current_state.items():
+                            if key != "self" and isinstance(rel_state, dict):
+                                parts.append(f"      - Toward {key.title()}:")
+                                parts.append(f"        * Emotional: {rel_state.get('emotional', '')}")
+                                events = rel_state.get('recent_events', [])
+                                if events:
+                                    parts.append("        * Recent History:")
+                                    for ev in events:
+                                        parts.append(f"          · {ev}")
+                    else:
+                        parts.append(f"    Current state: {current_state}")
 
         if context.prior_scenes_context:
             parts.append("\nPRIOR SCENES IN THIS ACT:")

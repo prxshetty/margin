@@ -1,15 +1,17 @@
 """
-State Manager — handles character profiles, story state, and updates after approved acts.
+State Manager — handles character profiles, story state, and AI-assisted updates after approved acts.
 """
 
 import yaml
 import re
+import json
 from pathlib import Path
 from typing import Dict, List, Optional, Any
+import llm
 
 
 class StateManager:
-    """Manages character profiles, story state, and updates."""
+    """Manages character profiles, story state, and dynamic dynamic updates."""
 
     def __init__(
         self,
@@ -39,47 +41,98 @@ class StateManager:
         character_names: List[str],
         story_state: Optional[Dict] = None,
     ) -> Dict[str, Dict]:
-        """Load character profiles and current states for specified characters."""
+        """Load character profiles and compiled structured postures for active scene partners."""
         context = {}
+        if story_state is None:
+            story_state = self.read_story_state()
+
+        active_scene_chars = [name.lower() for name in character_names]
 
         for name in character_names:
             profile = self.get_character_profile(name)
             if profile:
-                state = self.get_character_state(name, story_state)
+                char_lower = name.lower()
+                char_data = story_state.get("characters", {}).get(char_lower, {})
+                postures = char_data.get("postures", {})
+
+                # Fallback for old flat states
+                if not isinstance(postures, dict):
+                    postures = {"self": {"emotional": str(postures), "recent_events": []}}
+
+                structured_state = {}
+
+                # 1. Grab Self (Internal) Posture
+                self_posture = postures.get("self") or {}
+                if not isinstance(self_posture, dict):
+                    self_posture = {"emotional": str(self_posture), "recent_events": []}
+                
+                self_emotional = self_posture.get("emotional") or profile.get("current_state") or ""
+                self_events = self_posture.get("recent_events") or []
+                if not isinstance(self_events, list):
+                    self_events = [str(self_events)]
+
+                structured_state["self"] = {
+                    "emotional": self_emotional,
+                    "recent_events": self_events
+                }
+
+                # 2. Grab relationship postures toward other physically present characters
+                for other_char in active_scene_chars:
+                    if other_char != char_lower and other_char in postures:
+                        rel_posture = postures[other_char]
+                        if not isinstance(rel_posture, dict):
+                            rel_posture = {"emotional": str(rel_posture), "recent_events": []}
+                        
+                        rel_emotional = rel_posture.get("emotional") or ""
+                        rel_events = rel_posture.get("recent_events") or []
+                        if not isinstance(rel_events, list):
+                            rel_events = [str(rel_events)]
+
+                        structured_state[other_char] = {
+                            "emotional": rel_emotional,
+                            "recent_events": rel_events
+                        }
+
                 context[name] = {
                     "profile": profile,
-                    "current_state": state or "",
+                    "current_state": structured_state,
                 }
 
         return context
 
     def get_character_profile(self, character_name: str) -> Optional[Dict]:
-        """Read a single character YAML file by its `name` field."""
+        """Read a character profile and strip long-term goals to prevent SLM goal-distraction."""
         path = self._name_to_file.get(character_name.lower())
         if path and path.exists():
             with open(path, "r", encoding="utf-8") as f:
-                return yaml.safe_load(f)
+                profile = yaml.safe_load(f)
+            if profile:
+                # Remove high-level goals so that SLMs don't get distracted/rushed
+                if "goals" in profile:
+                    del profile["goals"]
+                return profile
         return None
 
     def get_character_state(
         self,
         character_name: str,
         story_state: Optional[Dict] = None,
-    ) -> str:
-        """Get current state for a character from story_state.yaml."""
+    ) -> Any:
+        """Get the dynamic posture dictionary for a character from story_state.yaml."""
         if story_state is None:
             story_state = self.read_story_state()
 
         characters = story_state.get("characters") or {}
         char_data = characters.get(character_name.lower()) or {}
-        return char_data.get("current_state") or self._get_default_state_from_profile(character_name)
+        postures = char_data.get("postures") or {}
 
-    def _get_default_state_from_profile(self, character_name: str) -> str:
-        """Get current_state from character profile if story_state doesn't have it."""
-        profile = self.get_character_profile(character_name)
-        if profile:
-            return profile.get("current_state") or ""
-        return ""
+        if not postures:
+            # Fallback to profile
+            profile = self.get_character_profile(character_name)
+            default_state = profile.get("current_state") or "" if profile else ""
+            return {"self": {"emotional": default_state, "recent_events": []}}
+
+        return postures
 
     def read_story_state(self) -> Dict:
         """Read the story_state.yaml file."""
@@ -105,85 +158,144 @@ class StateManager:
             yaml.dump(clean_state, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
 
     def _sanitize_state(self, state: Dict) -> Dict:
-        """Remove None/empty values and ensure clean YAML."""
+        """Remove None/empty values and ensure clean structured YAML."""
         result = {"characters": {}}
         characters = state.get("characters") or {}
 
         for name, char_data in characters.items():
             if char_data is None:
-                result["characters"][name] = {"current_state": ""}
+                result["characters"][name] = {"postures": {}}
             elif isinstance(char_data, dict):
-                result["characters"][name] = {
-                    "current_state": str(char_data.get("current_state") or "")
-                }
+                postures = char_data.get("postures") or {}
+                clean_postures = {}
+                for target, posture_data in postures.items():
+                    if isinstance(posture_data, dict):
+                        clean_postures[target] = {
+                            "emotional": str(posture_data.get("emotional") or ""),
+                            "recent_events": list(posture_data.get("recent_events") or [])
+                        }
+                    else:
+                        clean_postures[target] = {
+                            "emotional": str(posture_data or ""),
+                            "recent_events": []
+                        }
+                result["characters"][name] = {"postures": clean_postures}
             else:
-                result["characters"][name] = {"current_state": ""}
+                result["characters"][name] = {"postures": {}}
 
         return result
 
     def initialize_story_state(self, character_names: List[str]) -> None:
-        """Initialize story_state.yaml from character profiles."""
+        """Initialize story_state.yaml with nested dynamic emotional postures."""
         state = {"characters": {}}
 
         for name in character_names:
             profile = self.get_character_profile(name)
             if profile:
                 state["characters"][name.lower()] = {
-                    "current_state": profile.get("current_state") or ""
+                    "postures": {
+                        "self": {
+                            "emotional": profile.get("current_state") or "",
+                            "recent_events": []
+                        }
+                    }
                 }
 
         self.write_story_state(state)
 
-    def update_after_act_approval(
+    def update_after_scene_approval(
         self,
-        act_number: int,
-        scenes: List[Any],
+        scene_number: int,
         generated_content: str,
-        characters_in_act: List[str],
+        characters_in_scene: List[str],
     ) -> None:
-        """Update character states and story_state.yaml after an approved act."""
-        character_summaries = self._summarize_character_changes(
-            generated_content, characters_in_act
-        )
-
+        """Update emotional postures and relationship history lists after an approved scene via LLM."""
         story_state = self.read_story_state()
 
-        for name, summary in character_summaries.items():
-            if not summary:
-                continue
-
-            char_lower = name.lower()
-            if char_lower not in story_state["characters"]:
-                story_state["characters"][char_lower] = {}
-
-            current = story_state["characters"][char_lower].get("current_state") or ""
-            if current:
-                story_state["characters"][char_lower]["current_state"] = f"{current}; {summary}"
-            else:
-                story_state["characters"][char_lower]["current_state"] = summary
-
-        self.write_story_state(story_state)
-
-    def _summarize_character_changes(
-        self,
-        generated_content: str,
-        characters: List[str],
-    ) -> Dict[str, str]:
-        """Extract what happened to each character from the generated content."""
-        summaries = {}
-
-        for char in characters:
+        # Build current context of the present characters
+        prev_context_block = {}
+        for char in characters_in_scene:
             char_lower = char.lower()
-            sentences = generated_content.split(".")
-            char_sentences = [s.strip() for s in sentences if char_lower in s.lower()]
+            char_data = story_state["characters"].get(char_lower, {})
+            prev_context_block[char_lower] = char_data.get("postures", {})
 
-            if char_sentences:
-                last_mention = char_sentences[-1][:200]
-                clean_summary = "".join(c for c in last_mention if c.isprintable()).strip()
-                if clean_summary:
-                    summaries[char] = clean_summary
+        # Load dynamic updater prompt
+        prompt_path = Path("prompts/state_updater.txt")
+        if not prompt_path.exists():
+            print("  Warning: state_updater.txt not found. Dynamic state update skipped.")
+            return
 
-        return summaries
+        with open(prompt_path, "r", encoding="utf-8") as f:
+            system_prompt = f.read()
+
+        user_prompt = (
+            f"PREVIOUS CHARACTER POSTURES:\n"
+            f"{yaml.dump(prev_context_block, default_flow_style=False)}\n"
+            f"APPROVED SCENE CONTENT:\n"
+            f"{generated_content}\n"
+        )
+
+        print("  Running AI-Assisted character state update...")
+        try:
+            client = llm.LLMClient()
+            response = client.generate(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                stream=False,
+            )
+
+            # Strip markdown if present
+            clean_json = response.strip()
+            if clean_json.startswith("```"):
+                clean_json = re.sub(r"^```(?:json)?\n", "", clean_json)
+                clean_json = re.sub(r"\n```$", "", clean_json)
+
+            updates = json.loads(clean_json)
+
+            for char_name, postures in updates.items():
+                char_lower = char_name.lower()
+                if char_lower not in story_state["characters"]:
+                    story_state["characters"][char_lower] = {"postures": {}}
+                
+                if "postures" not in story_state["characters"][char_lower]:
+                    story_state["characters"][char_lower]["postures"] = {}
+
+                for target, posture_update in postures.items():
+                    target_lower = target.lower()
+                    
+                    new_emotional = posture_update.get("emotional") or ""
+                    new_event = posture_update.get("new_event") or posture_update.get("recent_events") or ""
+
+                    # Load existing postures and history list
+                    existing_posture = story_state["characters"][char_lower]["postures"].get(target_lower) or {}
+                    if not isinstance(existing_posture, dict):
+                        existing_posture = {"emotional": str(existing_posture), "recent_events": []}
+
+                    history = existing_posture.get("recent_events") or []
+                    if not isinstance(history, list):
+                        history = [str(history)]
+
+                    # Append new event and queue-limit to a rolling 3-event list
+                    if new_event:
+                        if isinstance(new_event, list):
+                            for ev in new_event:
+                                if ev and ev not in history:
+                                    history.append(ev)
+                        else:
+                            if new_event not in history:
+                                history.append(str(new_event))
+                        history = history[-3:]
+
+                    story_state["characters"][char_lower]["postures"][target_lower] = {
+                        "emotional": new_emotional,
+                        "recent_events": history
+                    }
+
+            self.write_story_state(story_state)
+            print("  AI-Assisted state update completed successfully.")
+
+        except Exception as e:
+            print(f"  Warning: AI state update failed: {e}")
 
     def append_to_results(
         self,

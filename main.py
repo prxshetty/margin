@@ -401,6 +401,14 @@ def main():
                 act_scenes.append(scene)
                 _save_scene_drafts(scene, agent_logs, act_blueprint.act_number)
                 print(f"Scene {scene.scene_number} approved.")
+                try:
+                    state_manager.update_after_scene_approval(
+                        scene_number=scene.scene_number,
+                        generated_content=scene.full_content,
+                        characters_in_scene=scene.characters_present,
+                    )
+                except Exception as e:
+                    print(f"Warning: Could not update scene state: {e}")
             else:
                 print(f"Scene {scene.scene_number} skipped.")
 
@@ -427,21 +435,6 @@ def main():
             act_approval = input().strip().lower()
 
             if act_approval == "y":
-                chars_in_act = []
-                for scene in act.scenes:
-                    for char in scene.characters_present:
-                        if char not in chars_in_act:
-                            chars_in_act.append(char)
-
-                try:
-                    state_manager.update_after_act_approval(
-                        act_number=act.act_number,
-                        scenes=act.scenes,
-                        generated_content=act.full_content,
-                        characters_in_act=chars_in_act,
-                    )
-                except Exception as e:
-                    print(f"Warning: Could not update state: {e}")
 
                 results_file = state_manager.append_to_results(
                     chapter_title=chapter_title,
