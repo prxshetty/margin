@@ -2,6 +2,7 @@ import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { useEditorStore } from '../../stores/editorStore'
 import { useEffect } from 'react'
+import { Markdown } from 'tiptap-markdown'
 // We would ideally use `novel` components like EditorRoot, EditorContent from 'novel' here.
 // Since Tiptap/Novel setups can be complex and require styles, we'll use a basic Tiptap setup 
 // as a placeholder until the exact Novel config is confirmed.
@@ -10,11 +11,17 @@ export function NovelEditor() {
   const { content, setContent, setEditor, setSelectedText, setSelectionRange } = useEditorStore()
 
   const editor = useEditor({
-    extensions: [StarterKit],
+    extensions: [
+      StarterKit,
+      Markdown.configure({
+        html: false, // Don't preserve raw HTML tags, serialize/deserialize as clean Markdown
+        tightLists: true,
+      })
+    ],
     content: content,
     onUpdate: ({ editor }) => {
-      // Autosave content here eventually
-      setContent(editor.getHTML())
+      // Autosave content as raw Markdown instead of HTML
+      setContent(editor.storage.markdown.getMarkdown())
     },
     onSelectionUpdate: ({ editor }) => {
       const { from, to, empty } = editor.state.selection
@@ -42,8 +49,11 @@ export function NovelEditor() {
 
   // Sync state content to editor if streaming
   useEffect(() => {
-    if (editor && editor.getHTML() !== content) {
-      editor.commands.setContent(content)
+    if (editor) {
+      const currentMarkdown = editor.storage.markdown.getMarkdown()
+      if (currentMarkdown !== content) {
+        editor.commands.setContent(content)
+      }
     }
   }, [content, editor])
 
