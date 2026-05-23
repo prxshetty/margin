@@ -16,23 +16,31 @@ export function useScene(sceneId: string | null) {
 
   const decomposeMutation = useMutation({
     mutationFn: async () => {
-      if (!sceneId) return
+      if (!sceneId) return null
       const res = await fetch(`http://127.0.0.1:8000/scenes/${sceneId}/decompose`, {
         method: 'POST'
       })
       if (!res.ok) throw new Error('Failed to decompose scene events')
       return res.json()
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['scene', sceneId] })
-      queryClient.invalidateQueries({ queryKey: ['blueprint'] }) // Also refresh acts overview
-    }
   })
+
+  const decomposeScene = async () => {
+    try {
+      const data = await decomposeMutation.mutateAsync()
+      if (data) {
+        queryClient.setQueryData(['scene', sceneId], data)
+        queryClient.invalidateQueries({ queryKey: ['blueprint'] })
+      }
+    } catch (err) {
+      console.error('Decomposition failed:', err)
+    }
+  }
 
   return { 
     sceneData, 
     isLoading,
-    decomposeScene: decomposeMutation.mutate,
+    decomposeScene,
     isDecomposing: decomposeMutation.isPending
   }
 }
