@@ -399,11 +399,11 @@ async def stream_generator(scene_id: str, session: Session):
             output=beat_text,
         ))
         session.commit()
-        # Format the draft with a clean HTML horizontal rule for subsequent beats
+        # Format the draft with a clean visual divider block (horizontal rule) for subsequent beats
         if idx == 0:
             formatted_beat = beat_text
         else:
-            formatted_beat = f"<hr />{beat_text}"
+            formatted_beat = f"\n\n---\n{beat_text}"
         beat_outputs.append(formatted_beat)
         prev_tail = _extract_tail(beat_text, 2)
 
