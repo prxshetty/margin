@@ -34,6 +34,7 @@ from agents.scene_agent import SceneAgent
 from agents.narration_agent import NarrationAgent
 from agents.dialogue_agent import DialogueAgent
 from agents.writer_agent import WriterAgent
+from agents.rewrite_agent import RewriteAgent
 
 # Data models & state
 from models import StoryContext, SceneBlueprint, ActBlueprint
@@ -398,11 +399,11 @@ async def stream_generator(scene_id: str, session: Session):
             output=beat_text,
         ))
         session.commit()
-        # Format the draft with a clean visual divider block (horizontal rule) for subsequent beats
+        # Format the draft with a clean HTML horizontal rule for subsequent beats
         if idx == 0:
             formatted_beat = beat_text
         else:
-            formatted_beat = f"\n\n---\n{beat_text}"
+            formatted_beat = f"<hr />{beat_text}"
         beat_outputs.append(formatted_beat)
         prev_tail = _extract_tail(beat_text, 2)
 
@@ -436,6 +437,11 @@ class SceneUpdate(BaseModel):
     scene_description: Optional[str] = None
     scene_setting: Optional[str] = None
     characters: Optional[list] = None
+
+class RewriteSelectionRequest(BaseModel):
+    selected_text: str
+    feedback: str
+    context: Optional[str] = ""
 
 
 # ---------------------------------------------------------------------------
@@ -574,3 +580,22 @@ def regenerate_scene(scene_id: str, request: Request, session: Session = Depends
     session.commit()
 
     return EventSourceResponse(stream_generator(scene_id, session))
+
+@router.post("/{scene_id}/rewrite_selection")
+def rewrite_selection(scene_id: str, payload: RewriteSelectionRequest, session: Session = Depends(get_session)):
+    scene = session.get(Scene, scene_id)
+    if not scene:
+        raise HTTPException(status_code=404, detail="Scene not found")
+        
+    agent = RewriteAgent()
+    # Use the scene.generated_content as context if available
+    context = payload.context or scene.generated_content or ""
+    
+    rewritten_text = agent.generate(
+        selected_text=payload.selected_text,
+        feedback=payload.feedback,
+        context_text=context
+    )
+    
+    return {"rewritten_text": rewritten_text}
+
