@@ -47,7 +47,7 @@ class LLMClient:
     def _blocking_generate(self, url: str, headers: dict, payload: dict) -> str:
         """Blocking (non-streaming) generation."""
         payload["stream"] = False
-        response = requests.post(url, headers=headers, json=payload, timeout=120)
+        response = requests.post(url, headers=headers, json=payload, timeout=300)
         response.raise_for_status()
         data = response.json()
         return data["choices"][0]["message"]["content"]
@@ -102,7 +102,7 @@ class LLMClient:
         }
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
-        response = requests.post(url, headers=headers, json=payload, timeout=120)
+        response = requests.post(url, headers=headers, json=payload, timeout=300)
         response.raise_for_status()
         data = response.json()
         return data["choices"][0]["message"]["content"]
