@@ -6,7 +6,7 @@ import yaml
 import re
 import json
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 import llm
 
 
@@ -22,19 +22,19 @@ class StateManager:
         self.story_state_path = Path(story_state_path)
         self._build_name_index()
 
+    @staticmethod
+    def _strip_frontmatter(content: str) -> str:
+        match = re.match(r"^---\s*\n.*?\n---\s*\n", content, re.DOTALL)
+        if match:
+            return content[match.end():]
+        return content
+
     def _build_name_index(self) -> None:
-        """Index YAML files by their `name` field for O(1) lookup."""
+        """Index character markdown files by name derived from filename."""
         self._name_to_file = {}
-        for fpath in self.characters_dir.glob("*.yaml"):
-            if fpath.stem == "character_template":
-                continue
-            try:
-                with open(fpath, "r", encoding="utf-8") as f:
-                    data = yaml.safe_load(f)
-                if data and data.get("name"):
-                    self._name_to_file[data["name"].lower()] = fpath
-            except Exception:
-                continue
+        for fpath in self.characters_dir.glob("*.md"):
+            name_lower = fpath.stem.replace("_", " ").lower()
+            self._name_to_file[name_lower] = fpath
 
     def get_character_context(
         self,
@@ -101,16 +101,14 @@ class StateManager:
         return context
 
     def get_character_profile(self, character_name: str) -> Optional[Dict]:
-        """Read a character profile and strip long-term goals to prevent SLM goal-distraction."""
+        """Read a character markdown profile and return name + description."""
         path = self._name_to_file.get(character_name.lower())
         if path and path.exists():
             with open(path, "r", encoding="utf-8") as f:
-                profile = yaml.safe_load(f)
-            if profile:
-                # Remove high-level goals so that SLMs don't get distracted/rushed
-                if "goals" in profile:
-                    del profile["goals"]
-                return profile
+                content = f.read()
+            body = self._strip_frontmatter(content)
+            name = path.stem.replace("_", " ").title()
+            return {"name": name, "description": body.strip()}
         return None
 
     def get_character_state(

@@ -1,32 +1,19 @@
 """
 Scene Router — all scene endpoints including the real multi-agent SSE generation pipeline.
-
-Generation pipeline per scene:
-  1. Load style data from SQLite (agent_sections: narration / dialogue / writer).
-  2. Build StoryContext from DB hierarchy (chapter → blueprint → act → scene).
-  3. Load character profiles + dynamic postures via StateManager (YAML).
-  4. Run SceneAgent to establish atmospheric setting draft (once per scene).
-  5. For each beat in scene_events:
-       a. NarrationAgent   — if style has 'narration' section
-       b. DialogueAgent    — if style has 'dialogue' section
-       c. WriterAgent      — always (merges drafts into polished paragraph)
-     Log every agent run to the AgentLog table with real prompts + output.
-  6. Assemble full content, persist to DB, and yield a single done event.
 """
 
 import asyncio
 import json
 import re
 import uuid
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
-from sqlmodel import Session, select
 
-from api.database import get_session
-from api.models.db import Scene, Style, AgentLog, Act, Blueprint, Chapter
+from api.services.file_storage import storage
+from api.models.domain import Scene, AgentLog, SceneEvent
 
 # Core agents
 from agents.decomposer_agent import DecomposerAgent
@@ -37,7 +24,7 @@ from agents.writer_agent import WriterAgent
 from agents.rewrite_agent import RewriteAgent
 
 # Data models & state
-from models import StoryContext, SceneBlueprint, ActBlueprint
+from models import StoryContext
 from state_manager import StateManager
 import config
 
@@ -63,50 +50,37 @@ def _normalize_events(events: list) -> list:
     return events
 
 
-def _load_styles_from_db(session: Session) -> Dict[str, Dict]:
-    """
-    Load all styles from the SQLite Style table and convert them into the same
-    format as style_loader.load_all_styles() so the rest of the pipeline is
-    identical to the CLI.
-    
-    Returns: { style_name: { "agent_sections": {...}, "output_size": int|None } }
-    """
-    styles = session.exec(select(Style)).all()
+def _load_styles() -> Dict[str, Dict]:
+    """Load styles from file storage."""
+    styles = storage.get_styles()
     loaded = {}
     for s in styles:
-        # agent_sections is stored as JSON in the DB: {"writer": "...", "narration": "...", ...}
-        agent_sections = s.agent_sections if isinstance(s.agent_sections, dict) else {}
         loaded[s.name] = {
             "description": s.description,
-            "agent_sections": agent_sections,
+            "agent_sections": s.agent_sections,
             "output_size": None,  # respect DISABLE_TOKEN_LIMITS setting from config
         }
     return loaded
 
 
-def _build_story_context(scene: Scene, session: Session) -> StoryContext:
-    """
-    Reconstruct a full StoryContext from the DB hierarchy for a given scene row.
-    Mirrors exactly what cli.py + orchestrator.py build before generation.
-    """
-    # Walk up: scene → act → blueprint → chapter
-    act = session.get(Act, scene.act_id)
-    blueprint = session.get(Blueprint, act.blueprint_id) if act else None
-    chapter = session.get(Chapter, blueprint.chapter_id) if blueprint else None
-
-    # Prior scenes in the same act (ordered by scene_number, excluding current)
-    prior_scenes_context: list[str] = []
-    if act:
-        prior_scenes = session.exec(
-            select(Scene)
-            .where(Scene.act_id == act.id)
-            .where(Scene.scene_number < scene.scene_number)
-            .order_by(Scene.scene_number)
-        ).all()
-        prior_scenes_context = [s.scene_description for s in prior_scenes]
+def _build_story_context(scene: Scene) -> StoryContext:
+    """Reconstruct a full StoryContext from files for a given scene."""
+    # Extract IDs from scene.id: {chapter_slug}_act-{act_num}_scene-{scene_num}
+    parts = scene.id.split("_")
+    chapter_slug = parts[0]
+    act_num = int(parts[1].split("-")[1])
+    
+    chapter = storage.get_chapter(chapter_slug)
+    
+    # Prior scenes in the same act
+    prior_scenes = storage.get_prior_scenes_for_context(chapter_slug, act_num, scene.scene_number)
+    prior_scenes_context = [s.scene_description for s in prior_scenes]
 
     # Load character profiles + dynamic postures from YAML workspace
-    state_manager = StateManager()
+    state_manager = StateManager(
+        characters_dir=str(storage.inputs_dir / "characters"),
+        story_state_path=str(storage.inputs_dir / "story_state.yaml")
+    )
     story_state = state_manager.read_story_state()
     char_profiles: Dict = {}
     char_states: Dict = {}
@@ -119,7 +93,7 @@ def _build_story_context(scene: Scene, session: Session) -> StoryContext:
 
     return StoryContext(
         chapter_title=chapter.title if chapter else "",
-        act_number=act.act_number if act else 1,
+        act_number=act_num,
         scene_number=scene.scene_number,
         background=scene.scene_setting,
         chapter_background="",
@@ -137,28 +111,22 @@ def _build_story_context(scene: Scene, session: Session) -> StoryContext:
 
 
 def _determine_mode(scene_index: int, beat_index: int, total_beats: int,
-                    scene: Scene, session: Session) -> str:
-    """
-    Determine the WriterAgent mode string for a beat, mirroring cli.py logic.
-    First beat of a scene that uses a new location → opening_with_setting.
-    First beat same location as prior scene → opening_without_setting.
-    Last beat → closing.
-    Middle beats → continuation.
-    """
+                    scene: Scene) -> str:
+    """Determine the WriterAgent mode string for a beat."""
     if beat_index == total_beats - 1:
         return "closing"
     if beat_index > 0:
         return "continuation"
 
     # First beat — check if location changed from the previous scene in same act
-    act = session.get(Act, scene.act_id)
-    if act:
-        prev_scene = session.exec(
-            select(Scene)
-            .where(Scene.act_id == act.id)
-            .where(Scene.scene_number == scene.scene_number - 1)
-        ).first()
-        if prev_scene and prev_scene.scene_setting == scene.scene_setting:
+    parts = scene.id.split("_")
+    chapter_slug = parts[0]
+    act_num = int(parts[1].split("-")[1])
+    
+    prior_scenes = storage.get_prior_scenes_for_context(chapter_slug, act_num, scene.scene_number)
+    if prior_scenes:
+        prev_scene = prior_scenes[-1]
+        if prev_scene.scene_setting == scene.scene_setting:
             return "opening_without_setting"
 
     return "opening_with_setting"
@@ -168,35 +136,18 @@ def _determine_mode(scene_index: int, beat_index: int, total_beats: int,
 # Main SSE stream generator — real multi-agent pipeline
 # ---------------------------------------------------------------------------
 
-async def stream_generator(scene_id: str, session: Session):
-    """
-    Real LLM-backed scene generation stream.
-    
-    Protocol (each yield is a JSON-encoded SSE data event):
-      { "status": "..." }          — progress update
-      { "beats": [...] }           — decomposed beat list (sent once at start)
-      { "content": "..." }         — full beat paragraph appended to output
-      { "done": true }             — final event; full content saved to DB
-      { "error": "..." }           — fatal error
-    """
-
-    # -----------------------------------------------------------------------
-    # 0. Load scene from DB
-    # -----------------------------------------------------------------------
-    scene = session.get(Scene, scene_id)
+async def stream_generator(scene_id: str):
+    # 0. Load scene
+    scene = storage.get_scene(scene_id)
     if not scene:
         yield {"data": json.dumps({"error": "Scene not found"})}
         return
 
-    # -----------------------------------------------------------------------
-    # 1. Load styles from SQLite DB (same structure as CLI's style_loader)
-    # -----------------------------------------------------------------------
-    loaded_styles = _load_styles_from_db(session)
+    # 1. Load styles
+    loaded_styles = _load_styles()
     style_descriptions = {name: data["description"] for name, data in loaded_styles.items()}
 
-    # -----------------------------------------------------------------------
     # 2. Decompose scene into beats if not already done
-    # -----------------------------------------------------------------------
     if not scene.scene_events:
         yield {"data": json.dumps({"status": "Decomposing scene into beats..."})}
         await asyncio.sleep(0)
@@ -211,12 +162,10 @@ async def stream_generator(scene_id: str, session: Session):
         )
 
         scene.scene_events = decomposed_events
-        session.add(scene)
-        session.commit()
-        session.refresh(scene)
+        storage.save_scene(scene)
 
         # Log decomposer run
-        session.add(AgentLog(
+        storage.save_agent_log(AgentLog(
             id=str(uuid.uuid4()),
             scene_id=scene.id,
             beat_number=0,
@@ -225,7 +174,6 @@ async def stream_generator(scene_id: str, session: Session):
             user_prompt=scene.scene_description,
             output=json.dumps(decomposed_events, indent=2),
         ))
-        session.commit()
 
     events = _normalize_events(scene.scene_events)
 
@@ -233,17 +181,13 @@ async def stream_generator(scene_id: str, session: Session):
     yield {"data": json.dumps({"beats": events})}
     await asyncio.sleep(0)
 
-    # -----------------------------------------------------------------------
-    # 3. Build StoryContext from DB hierarchy + YAML workspace
-    # -----------------------------------------------------------------------
+    # 3. Build StoryContext
     yield {"data": json.dumps({"status": "Building scene context..."})}
     await asyncio.sleep(0)
 
-    context = _build_story_context(scene, session)
+    context = _build_story_context(scene)
 
-    # -----------------------------------------------------------------------
-    # 4. Generate atmospheric setting draft via SceneAgent (once per scene)
-    # -----------------------------------------------------------------------
+    # 4. Generate atmospheric setting draft via SceneAgent
     setting_draft = scene.setting_draft or ""
     if not setting_draft:
         yield {"data": json.dumps({"status": "Generating scene setting..."})}
@@ -256,11 +200,10 @@ async def stream_generator(scene_id: str, session: Session):
         )
 
         scene.setting_draft = setting_draft
-        session.add(scene)
-        session.commit()
+        storage.save_scene(scene)
 
         # Log SceneAgent
-        session.add(AgentLog(
+        storage.save_agent_log(AgentLog(
             id=str(uuid.uuid4()),
             scene_id=scene.id,
             beat_number=0,
@@ -269,23 +212,11 @@ async def stream_generator(scene_id: str, session: Session):
             user_prompt=scene_agent._build_prompt(context),
             output=setting_draft,
         ))
-        session.commit()
 
-    # -----------------------------------------------------------------------
     # 5. Clear any existing writer-level logs for a clean regeneration
-    # -----------------------------------------------------------------------
-    existing_logs = session.exec(
-        select(AgentLog)
-        .where(AgentLog.scene_id == scene.id)
-        .where(AgentLog.beat_number > 0)
-    ).all()
-    for log in existing_logs:
-        session.delete(log)
-    session.commit()
+    storage.clear_writer_logs(scene.id)
 
-    # -----------------------------------------------------------------------
     # 6. Per-beat generation — NarrationAgent → DialogueAgent → WriterAgent
-    # -----------------------------------------------------------------------
     narration_agent = NarrationAgent()
     dialogue_agent = DialogueAgent()
     writer_agent = WriterAgent()
@@ -307,8 +238,7 @@ async def stream_generator(scene_id: str, session: Session):
             scene_index=context.scene_number - 1,
             beat_index=idx,
             total_beats=total_beats,
-            scene=scene,
-            session=session,
+            scene=scene
         )
 
         beat_num = idx + 1
@@ -332,7 +262,7 @@ async def stream_generator(scene_id: str, session: Session):
             )
             drafts["narration"] = narration_draft
 
-            session.add(AgentLog(
+            storage.save_agent_log(AgentLog(
                 id=str(uuid.uuid4()),
                 scene_id=scene.id,
                 beat_number=beat_num,
@@ -341,7 +271,6 @@ async def stream_generator(scene_id: str, session: Session):
                 user_prompt=narration_agent._build_prompt(context, beat_desc, guidelines),
                 output=narration_draft,
             ))
-            session.commit()
 
         # ---- DialogueAgent -------------------------------------------------
         if "dialogue" in agent_sections:
@@ -355,7 +284,7 @@ async def stream_generator(scene_id: str, session: Session):
             )
             drafts["dialogue"] = dialogue_draft
 
-            session.add(AgentLog(
+            storage.save_agent_log(AgentLog(
                 id=str(uuid.uuid4()),
                 scene_id=scene.id,
                 beat_number=beat_num,
@@ -364,7 +293,6 @@ async def stream_generator(scene_id: str, session: Session):
                 user_prompt=dialogue_agent._build_prompt(context, event, guidelines, narration_draft),
                 output=dialogue_draft,
             ))
-            session.commit()
 
         # ---- WriterAgent ---------------------------------------------------
         yield {"data": json.dumps({"status": f"  Beat {beat_num}: Running WriterAgent..."})}
@@ -389,7 +317,7 @@ async def stream_generator(scene_id: str, session: Session):
             )
         )
 
-        session.add(AgentLog(
+        storage.save_agent_log(AgentLog(
             id=str(uuid.uuid4()),
             scene_id=scene.id,
             beat_number=beat_num,
@@ -398,27 +326,18 @@ async def stream_generator(scene_id: str, session: Session):
             user_prompt=getattr(writer_agent, "last_user_prompt", ""),
             output=beat_text,
         ))
-        session.commit()
-        # Format the draft with a clean visual divider block (horizontal rule) for subsequent beats
-        if idx == 0:
-            formatted_beat = beat_text
-        else:
-            formatted_beat = f"\n\n---\n{beat_text}"
-        beat_outputs.append(formatted_beat)
+
+        beat_outputs.append(beat_text)
         prev_tail = _extract_tail(beat_text, 2)
 
-        # Yield the accumulated content so far to keep the editor state fully in sync
-        full_content_so_far = "\n\n".join(beat_outputs)
+        full_content_so_far = "\n\n---\n\n".join(beat_outputs)
         yield {"data": json.dumps({"content": full_content_so_far})}
         await asyncio.sleep(0)
 
-    # -----------------------------------------------------------------------
     # 7. Persist final assembled content
-    # -----------------------------------------------------------------------
-    full_content = "\n\n".join(beat_outputs)
+    full_content = "\n\n---\n\n".join(beat_outputs)
     scene.generated_content = full_content
-    session.add(scene)
-    session.commit()
+    storage.save_scene(scene)
 
     yield {"data": json.dumps({"done": True})}
 
@@ -431,7 +350,7 @@ class ContentUpdate(BaseModel):
     content: str
 
 class BeatsUpdate(BaseModel):
-    beats: list
+    beats: List[SceneEvent]
 
 class SceneUpdate(BaseModel):
     scene_description: Optional[str] = None
@@ -445,47 +364,16 @@ class RewriteSelectionRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Endpoints
+# Endpoints (specific routes first, generic catch-all last)
 # ---------------------------------------------------------------------------
 
-@router.patch("/{scene_id}")
-def update_scene(scene_id: str, payload: SceneUpdate, session: Session = Depends(get_session)):
-    scene = session.get(Scene, scene_id)
+@router.post("/{scene_id:path}/decompose")
+def decompose_scene(scene_id: str):
+    scene = storage.get_scene(scene_id)
     if not scene:
         raise HTTPException(status_code=404, detail="Scene not found")
 
-    if payload.scene_description is not None:
-        scene.scene_description = payload.scene_description
-        # Reset beats + content when description changes so they get regenerated
-        scene.scene_events = []
-        scene.generated_content = None
-        scene.setting_draft = None
-    if payload.scene_setting is not None:
-        scene.scene_setting = payload.scene_setting
-    if payload.characters is not None:
-        scene.characters = payload.characters
-
-    session.add(scene)
-    session.commit()
-    session.refresh(scene)
-    return scene
-
-
-@router.get("/{scene_id}")
-def get_scene(scene_id: str, session: Session = Depends(get_session)):
-    scene = session.get(Scene, scene_id)
-    if not scene:
-        raise HTTPException(status_code=404, detail="Scene not found")
-    return scene
-
-
-@router.post("/{scene_id}/decompose")
-def decompose_scene(scene_id: str, session: Session = Depends(get_session)):
-    scene = session.get(Scene, scene_id)
-    if not scene:
-        raise HTTPException(status_code=404, detail="Scene not found")
-
-    loaded_styles = _load_styles_from_db(session)
+    loaded_styles = _load_styles()
     style_descriptions = {name: data["description"] for name, data in loaded_styles.items()}
 
     decomposer = DecomposerAgent()
@@ -497,9 +385,9 @@ def decompose_scene(scene_id: str, session: Session = Depends(get_session)):
     scene.scene_events = decomposed_events
     scene.generated_content = None
     scene.setting_draft = None
-    session.add(scene)
+    storage.save_scene(scene)
 
-    session.add(AgentLog(
+    storage.save_agent_log(AgentLog(
         id=str(uuid.uuid4()),
         scene_id=scene.id,
         beat_number=0,
@@ -508,94 +396,128 @@ def decompose_scene(scene_id: str, session: Session = Depends(get_session)):
         user_prompt=scene.scene_description,
         output=json.dumps(decomposed_events, indent=2),
     ))
-    session.commit()
-    session.refresh(scene)
     return scene
 
 
-@router.get("/{scene_id}/generate")
-def generate_scene(scene_id: str, session: Session = Depends(get_session)):
-    return EventSourceResponse(stream_generator(scene_id, session))
+@router.get("/{scene_id:path}/generate")
+def generate_scene(scene_id: str):
+    return EventSourceResponse(stream_generator(scene_id))
 
 
-@router.patch("/{scene_id}/content")
-def update_scene_content(scene_id: str, payload: ContentUpdate, session: Session = Depends(get_session)):
-    scene = session.get(Scene, scene_id)
+@router.patch("/{scene_id:path}/content")
+def update_scene_content(scene_id: str, payload: ContentUpdate):
+    scene = storage.get_scene(scene_id)
     if not scene:
         raise HTTPException(status_code=404, detail="Scene not found")
 
     scene.generated_content = payload.content
-    session.add(scene)
-    session.commit()
+    storage.save_scene(scene)
     return {"status": "success"}
 
 
-@router.patch("/{scene_id}/beats")
-def update_scene_beats(scene_id: str, payload: BeatsUpdate, session: Session = Depends(get_session)):
-    scene = session.get(Scene, scene_id)
+@router.patch("/{scene_id:path}/beats")
+def update_scene_beats(scene_id: str, payload: BeatsUpdate):
+    scene = storage.get_scene(scene_id)
     if not scene:
         raise HTTPException(status_code=404, detail="Scene not found")
 
     scene.scene_events = payload.beats
-    session.add(scene)
-    session.commit()
-    session.refresh(scene)
+    storage.save_scene(scene)
     return scene
 
 
-@router.get("/{scene_id}/logs")
-def get_scene_logs(scene_id: str, session: Session = Depends(get_session)):
-    logs = session.exec(
-        select(AgentLog)
-        .where(AgentLog.scene_id == scene_id)
-        .order_by(AgentLog.beat_number)
-    ).all()
-    return logs
+@router.get("/{scene_id:path}/logs")
+def get_scene_logs(scene_id: str):
+    return storage.get_agent_logs(scene_id)
 
 
-@router.post("/{scene_id}/approve")
-def approve_scene(scene_id: str, session: Session = Depends(get_session)):
-    scene = session.get(Scene, scene_id)
+@router.post("/{scene_id:path}/approve")
+def approve_scene(scene_id: str):
+    scene = storage.get_scene(scene_id)
     if not scene:
         raise HTTPException(status_code=404, detail="Scene not found")
 
     from datetime import datetime
     scene.approved = not scene.approved
     scene.approved_at = datetime.utcnow() if scene.approved else None
-    session.add(scene)
-    session.commit()
+    storage.save_scene(scene)
     return {"status": "success", "approved": scene.approved}
 
 
-@router.post("/{scene_id}/regenerate")
-def regenerate_scene(scene_id: str, request: Request, session: Session = Depends(get_session)):
-    scene = session.get(Scene, scene_id)
+@router.post("/{scene_id:path}/regenerate")
+def regenerate_scene(scene_id: str, request: Request):
+    scene = storage.get_scene(scene_id)
     if not scene:
         raise HTTPException(status_code=404, detail="Scene not found")
 
-    # Reset so a full fresh pipeline runs
     scene.generated_content = None
     scene.setting_draft = None
-    session.add(scene)
-    session.commit()
+    storage.save_scene(scene)
 
-    return EventSourceResponse(stream_generator(scene_id, session))
+    return EventSourceResponse(stream_generator(scene_id))
 
-@router.post("/{scene_id}/rewrite_selection")
-def rewrite_selection(scene_id: str, payload: RewriteSelectionRequest, session: Session = Depends(get_session)):
-    scene = session.get(Scene, scene_id)
+
+@router.post("/{scene_id:path}/rewrite_selection")
+def rewrite_selection(scene_id: str, payload: RewriteSelectionRequest):
+    scene = storage.get_scene(scene_id)
     if not scene:
         raise HTTPException(status_code=404, detail="Scene not found")
-        
+
     agent = RewriteAgent()
-    # Use the scene.generated_content as context if available
     context = payload.context or scene.generated_content or ""
-    
+
     rewritten_text = agent.generate(
         selected_text=payload.selected_text,
         feedback=payload.feedback,
         context_text=context
     )
-    
+
     return {"rewritten_text": rewritten_text}
 
+
+@router.get("/{scene_id:path}/beats/{beat_num}")
+def get_beat(scene_id: str, beat_num: int):
+    beat = storage.get_beat(scene_id, beat_num)
+    if beat is None:
+        raise HTTPException(status_code=404, detail="Beat not found")
+    return beat
+
+
+class BeatContentUpdate(BaseModel):
+    beat: str
+
+@router.patch("/{scene_id:path}/beats/{beat_num}")
+def update_beat(scene_id: str, beat_num: int, payload: BeatContentUpdate):
+    updated = storage.update_beat(scene_id, beat_num, payload.beat)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Beat not found")
+    return updated
+
+
+# Generic catch-all routes (must be last)
+@router.patch("/{scene_id:path}")
+def update_scene(scene_id: str, payload: SceneUpdate):
+    scene = storage.get_scene(scene_id)
+    if not scene:
+        raise HTTPException(status_code=404, detail="Scene not found")
+
+    if payload.scene_description is not None:
+        scene.scene_description = payload.scene_description
+        scene.scene_events = []
+        scene.generated_content = None
+        scene.setting_draft = None
+    if payload.scene_setting is not None:
+        scene.scene_setting = payload.scene_setting
+    if payload.characters is not None:
+        scene.characters = payload.characters
+
+    storage.save_scene(scene)
+    return scene
+
+
+@router.get("/{scene_id:path}")
+def get_scene(scene_id: str):
+    scene = storage.get_scene(scene_id)
+    if not scene:
+        raise HTTPException(status_code=404, detail="Scene not found")
+    return scene

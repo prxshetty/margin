@@ -50,11 +50,15 @@ class LLMClient:
         response = requests.post(url, headers=headers, json=payload, timeout=300)
         response.raise_for_status()
         data = response.json()
-        return data["choices"][0]["message"]["content"]
+        content = data["choices"][0]["message"]["content"]
+        return self._clean_reasoning(content)
 
     def _stream_generate(self, url: str, headers: dict, payload: dict) -> str:
         """Streaming generation — yields content as it arrives."""
         full_content = ""
+        in_thinking = config.REASONING_MODEL
+        thinking_buffer = ""
+
         try:
             response = requests.post(
                 url, headers=headers, json=payload, stream=True, timeout=180
@@ -74,8 +78,31 @@ class LLMClient:
                                 delta = data["choices"][0].get("delta", {})
                                 content = delta.get("content", "")
                                 if content:
-                                    full_content += content
-                                    yield content
+                                    if in_thinking:
+                                        thinking_buffer += content
+                                        # Check if we have seen a closing channel tag
+                                        # (handle <channel|> or <|channel|>)
+                                        if "<channel|>" in thinking_buffer or "<|channel|>" in thinking_buffer:
+                                            idx = thinking_buffer.find("<channel|>")
+                                            if idx == -1:
+                                                idx = thinking_buffer.find("<|channel|>")
+                                                tag_len = len("<|channel|>")
+                                            else:
+                                                tag_len = len("<channel|>")
+                                            
+                                            remaining = thinking_buffer[idx + tag_len:]
+                                            in_thinking = False
+                                            if remaining:
+                                                full_content += remaining
+                                                yield remaining
+                                        elif len(thinking_buffer) > 6000:
+                                            # Fail-safe: if the reasoning block is extremely long, just flush it
+                                            in_thinking = False
+                                            full_content += thinking_buffer
+                                            yield thinking_buffer
+                                    else:
+                                        full_content += content
+                                        yield content
                         except json.JSONDecodeError:
                             continue
         except requests.exceptions.RequestException as e:
@@ -105,7 +132,27 @@ class LLMClient:
         response = requests.post(url, headers=headers, json=payload, timeout=300)
         response.raise_for_status()
         data = response.json()
-        return data["choices"][0]["message"]["content"]
+        content = data["choices"][0]["message"]["content"]
+        return self._clean_reasoning(content)
+
+    def _clean_reasoning(self, text: str) -> str:
+        if not config.REASONING_MODEL:
+            return text
+        
+        # Remove anything before and including the closing tag
+        idx = text.find("<channel|>")
+        if idx == -1:
+            idx = text.find("<|channel|>")
+            if idx != -1:
+                return text[idx + len("<|channel|>"):].strip()
+        else:
+            return text[idx + len("<channel|>"):].strip()
+        
+        # Fallback regex if somehow the closing tag wasn't found but standard tags exist
+        import re
+        text = re.sub(r'<\|?channel\|>thought.*?<\|?channel\|>', '', text, flags=re.DOTALL)
+        text = re.sub(r'<\|?channel\|>', '', text)
+        return text.strip()
 
 
 def stream_print(generator):

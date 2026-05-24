@@ -176,6 +176,7 @@ class SchemaLoader:
 
     def parse_blueprint_response(self, response: str) -> dict:
         """Parse the LLM response and extract data using schema knowledge."""
+        data = None
         try:
             data = json.loads(response)
         except json.JSONDecodeError:
@@ -184,8 +185,13 @@ class SchemaLoader:
                 end = response.rfind("}") + 1
                 if start >= 0 and end > start:
                     data = json.loads(response[start:end])
-            except:
+                else:
+                    data = {"chapter_title": "Untitled", "acts": []}
+            except Exception:
                 data = {"chapter_title": "Untitled", "acts": []}
+
+        if data is None:
+            data = {"chapter_title": "Untitled", "acts": []}
 
         return self._normalize_blueprint_data(data)
 

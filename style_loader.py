@@ -4,6 +4,7 @@ Style Loader — loads style markdown files from inputs/styles/.
 
 import yaml
 import re
+import json
 from pathlib import Path
 from typing import Dict, Optional, Any, Union
 
@@ -23,13 +24,31 @@ def resolve_output_size(value: Union[str, int, None]) -> Optional[int]:
     return OUTPUT_SIZE_MAP.get(str(value).lower())
 
 
-STYLES_DIR = Path(__file__).parent / "inputs" / "styles"
-STYLES_MD_PATH = STYLES_DIR / "STYLES.md"
+def get_styles_dir() -> Path:
+    base_dir = Path(__file__).parent
+    settings_path = base_dir / "settings.json"
+    if settings_path.exists():
+        try:
+            with open(settings_path, "r", encoding="utf-8") as f:
+                settings = json.load(f)
+                custom_inputs = settings.get("linked_inputs_dir")
+                if custom_inputs:
+                    p = Path(custom_inputs)
+                    if p.exists() and p.is_dir():
+                        return p / "styles"
+        except Exception:
+            pass
+    return base_dir / "inputs" / "styles"
+
+
+def get_styles_md_path() -> Path:
+    return get_styles_dir() / "STYLES.md"
 
 
 def load_style(name: str) -> Optional[Dict[str, Any]]:
     """Load a style by name from inputs/styles/."""
-    path = STYLES_DIR / f"{name}.md"
+    styles_dir = get_styles_dir()
+    path = styles_dir / f"{name}.md"
     if path.exists():
         return _parse_style_file(path)
     return None
@@ -46,8 +65,9 @@ def load_all_styles() -> Dict[str, Dict[str, Any]]:
     expected = set(descs.keys())
 
     actual = set()
-    if STYLES_DIR.exists():
-        for fpath in STYLES_DIR.glob("*.md"):
+    styles_dir = get_styles_dir()
+    if styles_dir.exists():
+        for fpath in styles_dir.glob("*.md"):
             if fpath.stem.lower() == "styles":
                 continue
             actual.add(fpath.stem.lower())
@@ -74,23 +94,21 @@ def load_all_styles() -> Dict[str, Dict[str, Any]]:
     return styles
 
 
-STYLES_MD_PATH = Path(__file__).parent / "inputs" / "styles" / "STYLES.md"
-
-
 def generate_styles_md(path: Optional[Path] = None) -> str:
     """Generate STYLES.md from style files on disk.
 
     Skips if file already exists (user-owned). Delete STYLES.md or
     pass force=True via the caller to regenerate.
     """
-    target = path or STYLES_MD_PATH
+    target = path or get_styles_md_path()
     if target.exists():
         return target.read_text(encoding="utf-8")
 
     # Scan disk directly (no validation — STYLES.md doesn't exist yet)
     style_files = {}
-    if STYLES_DIR.exists():
-        for fpath in STYLES_DIR.glob("*.md"):
+    styles_dir = get_styles_dir()
+    if styles_dir.exists():
+        for fpath in styles_dir.glob("*.md"):
             if fpath.stem.lower() == "styles":
                 continue
             style_files[fpath.stem.lower()] = _parse_style_file(fpath)
@@ -117,7 +135,7 @@ def read_styles_md(path: Optional[Path] = None) -> Dict[str, str]:
 
     Returns empty dict if file doesn't exist.
     """
-    target = path or STYLES_MD_PATH
+    target = path or get_styles_md_path()
     if not target.exists():
         return {}
 
@@ -132,7 +150,7 @@ def read_styles_md(path: Optional[Path] = None) -> Dict[str, str]:
 
 def get_min_dialogues(path: Optional[Path] = None) -> int:
     """Parse STYLES.md for 'Minimum Dialogues: X' preference. Defaults to 2."""
-    target = path or STYLES_MD_PATH
+    target = path or get_styles_md_path()
     if not target.exists():
         return 2
 
