@@ -1,20 +1,20 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useSearchParams, Link, useNavigate } from 'react-router-dom'
 import { 
-  ArrowLeft, Users, Settings, CheckCircle2, Sparkles,
-  BookPlus, Trash2, FolderOpen, Link2, Link2Off, AlertCircle, CheckCircle, Layout
+  ArrowLeft, CheckCircle2, Sparkles, Brain, Cpu,
+  BookPlus, Trash2, FolderOpen, Link2, Link2Off, AlertCircle, CheckCircle, Layout,
+  Play, RefreshCw, Square, BookOpen, List
 } from 'lucide-react'
 import { useQueryClient, useQuery, useMutation } from '@tanstack/react-query'
 import { useBlueprint } from '../hooks/useBlueprint'
 import { useScene } from '../hooks/useScene'
+import { useStream } from '../hooks/useStream'
 import { Sidebar } from '../components/Sidebar'
 import { NovelEditor } from '../components/Editor/NovelEditor'
-import { Toolbar } from '../components/Toolbar'
 import { Inspector } from '../components/Inspector'
 import type { ActiveDoc } from '../stores/projectStore'
 import { useProjectStore } from '../stores/projectStore'
 import { useEditorStore } from '../stores/editorStore'
-import NewChapter from './NewChapter'
 
 export default function Workshop() {
   const [searchParams] = useSearchParams()
@@ -60,6 +60,33 @@ export default function Workshop() {
           blueprints: number
         }
       }>
+    }
+  })
+
+  const { data: llmSettings, refetch: refetchLlmSettings } = useQuery({
+    queryKey: ['llmSettings'],
+    queryFn: async () => {
+      const res = await fetch('http://127.0.0.1:8000/settings')
+      if (!res.ok) throw new Error('Failed to fetch LLM settings')
+      return res.json() as Promise<{
+        reasoning_model: boolean
+        prepend_thinking_preamble: boolean
+      }>
+    }
+  })
+
+  const updateLlmSettingsMutation = useMutation({
+    mutationFn: async (updated: { reasoning_model: boolean; prepend_thinking_preamble: boolean }) => {
+      const res = await fetch('http://127.0.0.1:8000/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updated)
+      })
+      if (!res.ok) throw new Error('Failed to update LLM settings')
+      return res.json()
+    },
+    onSuccess: () => {
+      refetchLlmSettings()
     }
   })
 
@@ -137,10 +164,11 @@ export default function Workshop() {
   })
 
   const { setActiveChapter, activeSceneId, activeDoc, setActiveDoc } = useProjectStore()
-  const { content, setContent } = useEditorStore()
+  const { content, setContent, isStreaming } = useEditorStore()
+  const { generateScene, stopGeneration } = useStream()
 
-  const { blueprintData, isLoading, generateBlueprint, isGenerating } = useBlueprint(chapterId)
-  const { sceneData } = useScene(activeDoc?.type === 'scene' || activeDoc?.type === 'beat' ? activeDoc.sceneId : null)
+  const { blueprintData, generateBlueprint, isGenerating } = useBlueprint(chapterId)
+  const { sceneData } = useScene(activeDoc?.type === 'scene' ? activeDoc.sceneId : null)
 
   const [isSaving, setIsSaving] = useState(false)
   const docChangeRef = useRef<number>(0)
@@ -148,28 +176,45 @@ export default function Workshop() {
   const [exportedChapterDoc, setExportedChapterDoc] = useState(false)
 
   const [sceneViewMode, setSceneViewMode] = useState<'content' | 'beats'>('beats')
+  const [beatSubMode, setBeatSubMode] = useState<'outline' | 'prose'>('outline')
   const [currentBeatIndex, setCurrentBeatIndex] = useState(0)
   const lastViewedSceneRef = useRef<string | null>(null)
 
   // Track previous document and live content for exit/unload saving
-  const prevDocInfoRef = useRef<{doc: ActiveDoc, mode?: string, beatIndex?: number} | null>(null)
+  const prevDocInfoRef = useRef<{doc: ActiveDoc, mode?: string, subMode?: string, beatIndex?: number} | null>(null)
   const contentRef = useRef<string>('')
   const lastDocKeyRef = useRef<string>('')
   const hasLoadedRef = useRef<boolean>(false)
 
   // Auto-save callback
-  const saveContent = useCallback(async (docInfo: {doc: ActiveDoc, mode?: string, beatIndex?: number}, text: string) => {
+  const saveContent = useCallback(async (docInfo: {doc: ActiveDoc, mode?: string, subMode?: string, beatIndex?: number}, text: string) => {
     if (!docInfo || !docInfo.doc || !text.trim()) return
     const doc = docInfo.doc
     setIsSaving(true)
     try {
       if (doc.type === 'scene') {
         if (docInfo.mode === 'beats' && docInfo.beatIndex !== undefined) {
-          await fetch(`http://127.0.0.1:8000/scenes/${doc.sceneId}/beats/${docInfo.beatIndex + 1}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ beat: text })
-          })
+          if (docInfo.subMode === 'prose') {
+            const currentProse = sceneData?.generated_content || ''
+            const segments = currentProse.split(/\n\s*---\s*\n/)
+            while (segments.length <= docInfo.beatIndex) {
+              segments.push('')
+            }
+            segments[docInfo.beatIndex] = text
+            const updatedContent = segments.join('\n\n---\n\n')
+            await fetch(`http://127.0.0.1:8000/scenes/${doc.sceneId}/content`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ content: updatedContent })
+            })
+            queryClient.invalidateQueries({ queryKey: ['scene', doc.sceneId] })
+          } else {
+            await fetch(`http://127.0.0.1:8000/scenes/${doc.sceneId}/beats/${docInfo.beatIndex + 1}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ beat: text })
+            })
+          }
         } else {
           await fetch(`http://127.0.0.1:8000/scenes/${doc.sceneId}/content`, {
             method: 'PATCH',
@@ -237,6 +282,7 @@ export default function Workshop() {
     if (activeDoc?.type === 'scene' && activeSceneId && sceneData && activeSceneId !== lastViewedSceneRef.current) {
       const hasContent = !!sceneData.generated_content
       setSceneViewMode(hasContent ? 'content' : 'beats')
+      setBeatSubMode('outline')
       setCurrentBeatIndex(0)
       lastViewedSceneRef.current = activeSceneId
     }
@@ -266,13 +312,22 @@ export default function Workshop() {
     const currentDocInfo = activeDoc ? {
       doc: activeDoc,
       mode: activeDoc.type === 'scene' ? sceneViewMode : undefined,
+      subMode: activeDoc.type === 'scene' ? beatSubMode : undefined,
       beatIndex: activeDoc.type === 'scene' ? currentBeatIndex : undefined
     } : null
 
+    const docId = activeDoc
+      ? activeDoc.type === 'scene'
+        ? activeDoc.sceneId
+        : activeDoc.type === 'character'
+          ? activeDoc.slug
+          : activeDoc.id
+      : ''
+
     const docKey = activeDoc 
       ? activeDoc.type === 'scene'
-        ? `${activeDoc.type}-${activeDoc.sceneId}-${sceneViewMode}-${currentBeatIndex}`
-        : `${activeDoc.type}-${activeDoc.id || activeDoc.slug || activeDoc.sceneId || ''}`
+        ? `${activeDoc.type}-${activeDoc.sceneId}-${sceneViewMode}-${beatSubMode}-${currentBeatIndex}`
+        : `${activeDoc.type}-${docId}`
       : 'none'
 
     const isSameDoc = docKey === lastDocKeyRef.current
@@ -307,19 +362,26 @@ export default function Workshop() {
 
     if (activeDoc.type === 'scene') {
       if (sceneViewMode === 'beats') {
-        const sceneBeat = sceneData?.scene_events?.[currentBeatIndex]
-        if (sceneBeat) {
-          const beatText = sceneBeat.beat || ''
-          const flow = sceneBeat.conversation_flow || []
-          const flowText = flow.map((s: string) => `- ${s}`).join('\n')
-          setContent(flowText ? `${beatText}\n\n${flowText}` : beatText)
+        if (beatSubMode === 'prose') {
+          const segments = sceneData?.generated_content?.split(/\n\s*---\s*\n/) || []
+          const beatProse = segments[currentBeatIndex] || ''
+          setContent(beatProse)
           hasLoadedRef.current = true
-        } else if (sceneData) {
-          hasLoadedRef.current = true
-          fetch(`http://127.0.0.1:8000/scenes/${activeDoc.sceneId}/beats/${currentBeatIndex + 1}`)
-            .then(res => res.json())
-            .then(data => setContent(data.beat || ''))
-            .catch(() => setContent(''))
+        } else {
+          const sceneBeat = sceneData?.scene_events?.[currentBeatIndex]
+          if (sceneBeat) {
+            const beatText = sceneBeat.beat || ''
+            const flow = sceneBeat.conversation_flow || []
+            const flowText = flow.map((s: string) => `- ${s}`).join('\n')
+            setContent(flowText ? `${beatText}\n\n${flowText}` : beatText)
+            hasLoadedRef.current = true
+          } else if (sceneData) {
+            hasLoadedRef.current = true
+            fetch(`http://127.0.0.1:8000/scenes/${activeDoc.sceneId}/beats/${currentBeatIndex + 1}`)
+              .then(res => res.json())
+              .then(data => setContent(data.beat || ''))
+              .catch(() => setContent(''))
+          }
         }
       } else {
         if (sceneData) {
@@ -380,7 +442,7 @@ export default function Workshop() {
         .catch(() => { setContent('') })
       return
     }
-  }, [activeDoc, sceneData, chapterData, setContent, saveContent, chapterId, sceneViewMode, currentBeatIndex])
+  }, [activeDoc, sceneData, chapterData, setContent, saveContent, chapterId, sceneViewMode, beatSubMode, currentBeatIndex])
 
 
 
@@ -393,12 +455,28 @@ export default function Workshop() {
         const doc = prevDocInfo.doc
         if (doc.type === 'scene') {
           if (prevDocInfo.mode === 'beats' && prevDocInfo.beatIndex !== undefined) {
-            fetch(`http://127.0.0.1:8000/scenes/${doc.sceneId}/beats/${prevDocInfo.beatIndex + 1}`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ beat: text }),
-              keepalive: true
-            })
+            if (prevDocInfo.subMode === 'prose') {
+              const currentProse = sceneData?.generated_content || ''
+              const segments = currentProse.split(/\n\s*---\s*\n/)
+              while (segments.length <= prevDocInfo.beatIndex) {
+                segments.push('')
+              }
+              segments[prevDocInfo.beatIndex] = text
+              const updatedContent = segments.join('\n\n---\n\n')
+              fetch(`http://127.0.0.1:8000/scenes/${doc.sceneId}/content`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: updatedContent }),
+                keepalive: true
+              })
+            } else {
+              fetch(`http://127.0.0.1:8000/scenes/${doc.sceneId}/beats/${prevDocInfo.beatIndex + 1}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ beat: text }),
+                keepalive: true
+              })
+            }
           } else {
             fetch(`http://127.0.0.1:8000/scenes/${doc.sceneId}/content`, {
               method: 'PATCH',
@@ -452,7 +530,12 @@ export default function Workshop() {
     try {
       // Always save active editor content before approving to persist any final manual changes
       if (activeDoc && contentRef.current.trim()) {
-        await saveContent(activeDoc, contentRef.current)
+        const docInfo = {
+          doc: activeDoc,
+          mode: activeDoc.type === 'scene' ? sceneViewMode : undefined,
+          beatIndex: activeDoc.type === 'scene' ? currentBeatIndex : undefined
+        }
+        await saveContent(docInfo, contentRef.current)
       }
       const res = await fetch(`http://127.0.0.1:8000/scenes/${activeSceneId}/approve`, { method: 'POST' })
       if (res.ok) {
@@ -615,42 +698,64 @@ export default function Workshop() {
             ))}
           </div>
           
-          <div className="flex items-center gap-2">
-            {sceneViewMode === 'beats' ? (
+          <div className="flex items-center gap-3">
+            {/* View Mode Toggle */}
+            <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 shadow-sm shrink-0">
+              <button
+                type="button"
+                onClick={() => setSceneViewMode('beats')}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
+                  sceneViewMode === 'beats'
+                    ? 'bg-white text-indigo-600 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50/50'
+                }`}
+              >
+                <List className="w-3.5 h-3.5" />
+                Beats Editor
+              </button>
+              <button
+                type="button"
+                onClick={() => setSceneViewMode('content')}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
+                  sceneViewMode === 'content'
+                    ? 'bg-white text-indigo-600 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50/50'
+                }`}
+              >
+                <BookOpen className="w-3.5 h-3.5" />
+                Full Scene
+              </button>
+            </div>
+
+            {sceneViewMode === 'beats' && (
               sceneData?.scene_events?.length ? (
-                <div className="flex items-center gap-3 bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-sm">
+                <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-sm shrink-0">
                   <button 
                     onClick={() => setCurrentBeatIndex(prev => Math.max(0, prev - 1))}
                     disabled={currentBeatIndex === 0}
-                    className="text-slate-400 hover:text-blue-600 disabled:opacity-30 p-0.5"
+                    className="text-slate-400 hover:text-blue-600 disabled:opacity-30 p-0.5 text-xs font-bold"
                   >
                     ◀
                   </button>
-                  <span className="text-xs font-bold text-slate-700 uppercase tracking-widest min-w-[80px] text-center">
-                    Beat {currentBeatIndex + 1} of {sceneData.scene_events.length}
+                  <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider min-w-[75px] text-center select-none">
+                    Beat {currentBeatIndex + 1} / {sceneData.scene_events.length}
                   </span>
                   <button 
                     onClick={() => setCurrentBeatIndex(prev => Math.min(sceneData.scene_events.length - 1, prev + 1))}
                     disabled={currentBeatIndex >= sceneData.scene_events.length - 1}
-                    className="text-slate-400 hover:text-blue-600 disabled:opacity-30 p-0.5"
+                    className="text-slate-400 hover:text-blue-600 disabled:opacity-30 p-0.5 text-xs font-bold"
                   >
                     ▶
                   </button>
                 </div>
               ) : (
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-widest bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg">
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg select-none shrink-0">
                   No Beats Yet
                 </span>
               )
-            ) : (
-              <button
-                onClick={() => setSceneViewMode('beats')}
-                className="text-xs font-semibold text-blue-600 bg-blue-50 border border-blue-200 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors"
-              >
-                Edit Beats
-              </button>
             )}
-            <span className={`text-[10px] font-mono ml-2 ${isSaving ? 'text-amber-500' : 'text-slate-400'}`}>
+
+            <span className={`text-[10px] font-mono shrink-0 select-none ${isSaving ? 'text-amber-500 font-bold animate-pulse' : 'text-slate-400'}`}>
               {isSaving ? 'Saving...' : 'Auto-saved'}
             </span>
           </div>
@@ -681,7 +786,33 @@ export default function Workshop() {
             }
           }}
         />
-        <div className="h-px bg-slate-200 mt-2" />
+        <div className="h-px bg-slate-200 mt-2 animate-fadeIn" />
+        {sceneViewMode === 'beats' && !!sceneData?.generated_content && (
+          <div className="flex border-b border-slate-100 mt-3 -mb-3 animate-fadeIn">
+            <button
+              type="button"
+              onClick={() => setBeatSubMode('outline')}
+              className={`px-4 py-1.5 text-xs font-bold border-b-2 transition-all cursor-pointer ${
+                beatSubMode === 'outline'
+                  ? 'border-indigo-600 text-indigo-600'
+                  : 'border-transparent text-slate-400 hover:text-slate-700'
+              }`}
+            >
+              Beat Outline
+            </button>
+            <button
+              type="button"
+              onClick={() => setBeatSubMode('prose')}
+              className={`px-4 py-1.5 text-xs font-bold border-b-2 transition-all cursor-pointer ${
+                beatSubMode === 'prose'
+                  ? 'border-indigo-600 text-indigo-600'
+                  : 'border-transparent text-slate-400 hover:text-slate-700'
+              }`}
+            >
+              Generated Prose
+            </button>
+          </div>
+        )}
       </div>
     )
   }
@@ -766,6 +897,66 @@ export default function Workshop() {
                     <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 shadow-sm text-center transition-all hover:scale-[1.02] hover:border-slate-300">
                       <span className="block text-2xl font-extrabold text-slate-800">{settingsStatus.stats.blueprints}</span>
                       <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Blueprints</span>
+                    </div>
+                  </div>
+                )}
+
+                {llmSettings && (
+                  <div className="mt-4 pt-4 border-t border-slate-100 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="bg-slate-50/50 border border-slate-100 rounded-xl p-4 flex items-center justify-between shadow-sm">
+                      <div className="pr-4">
+                        <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                          <Cpu className="w-4 h-4 text-indigo-500" />
+                          AI Reasoning Model
+                        </span>
+                        <p className="text-[10px] text-slate-500 mt-0.5 leading-relaxed">
+                          Enable internal thinking filters for reasoning models (e.g. DeepSeek R1, Qwen Distill).
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => updateLlmSettingsMutation.mutate({
+                          reasoning_model: !llmSettings.reasoning_model,
+                          prepend_thinking_preamble: llmSettings.prepend_thinking_preamble
+                        })}
+                        className={`w-12 h-6 flex items-center rounded-full p-1 cursor-pointer transition-colors shadow-inner shrink-0 ${
+                          llmSettings.reasoning_model ? 'bg-indigo-600' : 'bg-slate-300'
+                        }`}
+                      >
+                        <div
+                          className={`bg-white w-4 h-4 rounded-full shadow-md transform duration-200 ease-in-out ${
+                            llmSettings.reasoning_model ? 'translate-x-6' : 'translate-x-0'
+                          }`}
+                        />
+                      </button>
+                    </div>
+
+                    <div className="bg-slate-50/50 border border-slate-100 rounded-xl p-4 flex items-center justify-between shadow-sm">
+                      <div className="pr-4">
+                        <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                          <Brain className="w-4 h-4 text-indigo-500" />
+                          Prepend Thinking Preamble
+                        </span>
+                        <p className="text-[10px] text-slate-500 mt-0.5 leading-relaxed">
+                          Force thoughts inside tags. Turn this **OFF** for native reasoning models (like DeepSeek) to prevent list/thought leaks.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => updateLlmSettingsMutation.mutate({
+                          reasoning_model: llmSettings.reasoning_model,
+                          prepend_thinking_preamble: !llmSettings.prepend_thinking_preamble
+                        })}
+                        className={`w-12 h-6 flex items-center rounded-full p-1 cursor-pointer transition-colors shadow-inner shrink-0 ${
+                          llmSettings.prepend_thinking_preamble ? 'bg-indigo-600' : 'bg-slate-300'
+                        }`}
+                      >
+                        <div
+                          className={`bg-white w-4 h-4 rounded-full shadow-md transform duration-200 ease-in-out ${
+                            llmSettings.prepend_thinking_preamble ? 'translate-x-6' : 'translate-x-0'
+                          }`}
+                        />
+                      </button>
                     </div>
                   </div>
                 )}
@@ -902,20 +1093,66 @@ export default function Workshop() {
 
           <div className="flex items-center gap-2">
             {activeDoc?.type === 'scene' && sceneData && (
-              <button
-                type="button"
-                onClick={approveScene}
-                disabled={isApproving}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-all border shrink-0 mr-2 cursor-pointer ${
-                  sceneData.approved
-                    ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100'
-                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                }`}
-                title={sceneData.approved ? "Mark scene as in-progress" : "Mark scene as approved/done"}
-              >
-                <CheckCircle2 className={`w-4 h-4 ${sceneData.approved ? 'text-green-500 fill-green-200' : 'text-slate-400'}`} />
-                {sceneData.approved ? 'Approved' : 'Approve Scene'}
-              </button>
+              <>
+                {sceneData.scene_events && sceneData.scene_events.length > 0 && (
+                  <div className="flex items-center gap-1.5 mr-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!activeSceneId) return
+                        setSceneViewMode('content')
+                        generateScene(activeSceneId)
+                      }}
+                      disabled={isStreaming}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-extrabold shadow-sm transition-all border shrink-0 cursor-pointer disabled:opacity-50 ${
+                        isStreaming
+                          ? 'bg-amber-50 text-amber-700 border-amber-200'
+                          : 'bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white border-transparent'
+                      }`}
+                      title={sceneViewMode === 'beats' ? 'Use Beats for Generation' : 'Regenerate Scene'}
+                    >
+                      {isStreaming ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          Drafting Scene...
+                        </>
+                      ) : (
+                        <>
+                          <Play className="w-3.5 h-3.5 fill-current" />
+                          {sceneViewMode === 'beats' ? 'Use Beats for Generation' : 'Regenerate Scene'}
+                        </>
+                      )}
+                    </button>
+
+                    {isStreaming && (
+                      <button
+                        type="button"
+                        onClick={stopGeneration}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg text-xs font-semibold cursor-pointer shadow-sm animate-pulse"
+                        title="Stop Generation"
+                      >
+                        <Square className="w-3.5 h-3.5 fill-red-700 text-red-700 border-transparent" />
+                        Stop
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={approveScene}
+                  disabled={isApproving}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-all border shrink-0 mr-2 cursor-pointer ${
+                    sceneData.approved
+                      ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100'
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                  }`}
+                  title={sceneData.approved ? "Mark scene as in-progress" : "Mark scene as approved/done"}
+                >
+                  <CheckCircle2 className={`w-4 h-4 ${sceneData.approved ? 'text-green-500 fill-green-200' : 'text-slate-400'}`} />
+                  {sceneData.approved ? 'Approved' : 'Approve Scene'}
+                </button>
+              </>
             )}
             {(activeDoc === null || activeDoc.type === 'outline') && (
               <button
@@ -944,10 +1181,6 @@ export default function Workshop() {
 
               <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
                 <NovelEditor />
-              </div>
-
-              <div className="mt-4">
-                <Toolbar sceneViewMode={sceneViewMode} />
               </div>
             </div>
           ) : !blueprintData ? (
