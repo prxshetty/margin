@@ -18,10 +18,11 @@ export function useBlueprint(chapterId: string | null) {
   })
 
   const generateMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (isRegenerate: boolean = false) => {
       if (!chapterId) return
+      const method = isRegenerate ? 'PATCH' : 'POST'
       const res = await fetch(`http://127.0.0.1:8000/chapters/${chapterId}/blueprint/`, {
-        method: 'POST'
+        method
       })
       if (!res.ok) throw new Error('Failed to generate blueprint')
       return res.json()
@@ -34,7 +35,7 @@ export function useBlueprint(chapterId: string | null) {
   return {
     blueprintData,
     isLoading,
-    generateBlueprint: generateMutation.mutate,
+    generateBlueprint: (isRegenerate: boolean = false) => generateMutation.mutate(isRegenerate),
     isGenerating: generateMutation.isPending
   }
 }

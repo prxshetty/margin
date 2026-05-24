@@ -37,10 +37,35 @@ export function useScene(sceneId: string | null) {
     }
   }
 
+  const approveMutation = useMutation({
+    mutationFn: async () => {
+      if (!sceneId) return null
+      const res = await fetch(`http://127.0.0.1:8000/scenes/${sceneId}/approve`, {
+        method: 'POST'
+      })
+      if (!res.ok) throw new Error('Failed to approve scene')
+      return res.json()
+    },
+  })
+
+  const approveScene = async () => {
+    try {
+      const data = await approveMutation.mutateAsync()
+      if (data) {
+        queryClient.invalidateQueries({ queryKey: ['scene', sceneId] })
+        queryClient.invalidateQueries({ queryKey: ['blueprint'] })
+      }
+    } catch (err) {
+      console.error('Approval failed:', err)
+    }
+  }
+
   return { 
     sceneData, 
     isLoading,
     decomposeScene,
-    isDecomposing: decomposeMutation.isPending
+    isDecomposing: decomposeMutation.isPending,
+    approveScene,
+    isApproving: approveMutation.isPending
   }
 }

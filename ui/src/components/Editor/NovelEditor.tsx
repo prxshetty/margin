@@ -1,27 +1,38 @@
 import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { useEditorStore } from '../../stores/editorStore'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { Markdown } from 'tiptap-markdown'
-// We would ideally use `novel` components like EditorRoot, EditorContent from 'novel' here.
-// Since Tiptap/Novel setups can be complex and require styles, we'll use a basic Tiptap setup 
-// as a placeholder until the exact Novel config is confirmed.
 
 export function NovelEditor() {
-  const { content, setContent, setEditor, setSelectedText, setSelectionRange } = useEditorStore()
+  const content = useEditorStore(state => state.content)
+  const setContent = useEditorStore(state => state.setContent)
+  const setEditor = useEditorStore(state => state.setEditor)
+  const setSelectedText = useEditorStore(state => state.setSelectedText)
+  const setSelectionRange = useEditorStore(state => state.setSelectionRange)
+  const lastContentRef = useRef('')
+  // Flag: true while we are programmatically calling setContent so onUpdate
+  // doesn't echo the change back into Zustand and cause an infinite loop.
+  const isProgrammaticUpdateRef = useRef(false)
 
   const editor = useEditor({
     extensions: [
       StarterKit,
       Markdown.configure({
-        html: false, // Don't preserve raw HTML tags, serialize/deserialize as clean Markdown
+        html: false,
         tightLists: true,
       })
     ],
-    content: content,
+    // Feed raw markdown — the Markdown extension parses it natively
+    content: content || '',
     onUpdate: ({ editor }) => {
-      // Autosave content as raw Markdown instead of HTML
-      setContent(editor.storage.markdown.getMarkdown())
+      // Only propagate changes that come from the USER typing, not from us.
+      if (isProgrammaticUpdateRef.current) return
+      if ((editor.storage as any)?.markdown) {
+        const newMarkdown = (editor.storage as any).markdown.getMarkdown()
+        lastContentRef.current = newMarkdown
+        setContent(newMarkdown)
+      }
     },
     onSelectionUpdate: ({ editor }) => {
       const { from, to, empty } = editor.state.selection
@@ -47,12 +58,16 @@ export function NovelEditor() {
     }
   }, [editor, setEditor])
 
-  // Sync state content to editor if streaming
+  // Sync external content changes (e.g. doc switch, streaming) into the editor.
+  // Pass raw markdown — tiptap-markdown parses it, no html intermediary needed.
   useEffect(() => {
-    if (editor) {
-      const currentMarkdown = editor.storage.markdown.getMarkdown()
-      if (currentMarkdown !== content) {
-        editor.commands.setContent(content)
+    if (editor && content !== undefined) {
+      if (content !== lastContentRef.current) {
+        lastContentRef.current = content
+        isProgrammaticUpdateRef.current = true
+        editor.commands.setContent(content || '', { contentType: 'markdown' } as any)
+        // ProseMirror dispatches synchronously so we reset immediately.
+        isProgrammaticUpdateRef.current = false
       }
     }
   }, [content, editor])

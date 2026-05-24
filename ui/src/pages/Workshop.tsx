@@ -1,29 +1,215 @@
-import { useEffect, useState } from 'react'
-import { useSearchParams, Link } from 'react-router-dom'
-import { ArrowLeft, Users, Settings, Map } from 'lucide-react'
-import { useQueryClient, useQuery } from '@tanstack/react-query'
+import { useEffect, useRef, useState, useCallback } from 'react'
+import { useSearchParams, Link, useNavigate } from 'react-router-dom'
+import { 
+  ArrowLeft, Users, Settings, CheckCircle2, Sparkles,
+  BookPlus, Trash2, FolderOpen, Link2, Link2Off, AlertCircle, CheckCircle, Layout
+} from 'lucide-react'
+import { useQueryClient, useQuery, useMutation } from '@tanstack/react-query'
 import { useBlueprint } from '../hooks/useBlueprint'
 import { useScene } from '../hooks/useScene'
 import { Sidebar } from '../components/Sidebar'
 import { NovelEditor } from '../components/Editor/NovelEditor'
 import { Toolbar } from '../components/Toolbar'
 import { Inspector } from '../components/Inspector'
+import type { ActiveDoc } from '../stores/projectStore'
 import { useProjectStore } from '../stores/projectStore'
 import { useEditorStore } from '../stores/editorStore'
+import NewChapter from './NewChapter'
 
 export default function Workshop() {
   const [searchParams] = useSearchParams()
   const chapterId = searchParams.get('chapter')
   const queryClient = useQueryClient()
-  const [showOutline, setShowOutline] = useState(true)
-  
-  const { setActiveChapter, activeSceneId, setActiveScene } = useProjectStore()
-  const { setContent } = useEditorStore()
-  
-  const { blueprintData, isLoading, generateBlueprint, isGenerating } = useBlueprint(chapterId)
-  const { sceneData } = useScene(activeSceneId)
+  const navigate = useNavigate()
 
-  // Fetch active chapter metadata for the original raw outline
+  const [inputPath, setInputPath] = useState('')
+  const [errorMsg, setErrorMsg] = useState('')
+  const [successMsg, setSuccessMsg] = useState('')
+
+  interface Chapter {
+    id: string
+    title: string
+    created_at: string
+  }
+
+  const { data: chapters, isLoading: isChaptersLoading } = useQuery({
+    queryKey: ['chapters'],
+    queryFn: async () => {
+      const res = await fetch('http://127.0.0.1:8000/chapters/')
+      if (!res.ok) throw new Error('Failed to fetch chapters')
+      return res.json() as Promise<Chapter[]>
+    }
+  })
+
+  const { data: settingsStatus, refetch: refetchSettings } = useQuery({
+    queryKey: ['settingsStatus'],
+    queryFn: async () => {
+      const res = await fetch('http://127.0.0.1:8000/settings/status')
+      if (!res.ok) throw new Error('Failed to fetch settings status')
+      return res.json() as Promise<{
+        is_linked: boolean
+        inputs_dir: string
+        outputs_dir: string
+        default_inputs_dir: string
+        default_outputs_dir: string
+        warning?: string | null
+        stats?: {
+          chapters: number
+          characters: number
+          styles: number
+          blueprints: number
+        }
+      }>
+    }
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`http://127.0.0.1:8000/chapters/${id}`, {
+        method: 'DELETE'
+      })
+      if (!res.ok) throw new Error('Failed to delete chapter')
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['chapters'] })
+      refetchSettings()
+    }
+  })
+
+  const linkMutation = useMutation({
+    mutationFn: async (path: string) => {
+      setErrorMsg('')
+      setSuccessMsg('')
+      const res = await fetch('http://127.0.0.1:8000/settings/link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ inputs_path: path })
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.detail || 'Failed to link directory')
+      }
+      return res.json()
+    },
+    onSuccess: async () => {
+      refetchSettings()
+      const chaptersResult = await queryClient.fetchQuery({
+        queryKey: ['chapters'],
+        queryFn: async () => {
+          const res = await fetch('http://127.0.0.1:8000/chapters/')
+          if (!res.ok) throw new Error('Failed to fetch chapters')
+          return res.json() as Promise<Chapter[]>
+        }
+      })
+      
+      setSuccessMsg('Directory linked successfully!')
+      setInputPath('')
+      
+      if (chaptersResult && chaptersResult.length > 0) {
+        navigate(`/workshop?chapter=${chaptersResult[0].id}`)
+      } else {
+        navigate('/workshop')
+      }
+    },
+    onError: (err: any) => {
+      setErrorMsg(err.message)
+    }
+  })
+
+  const unlinkMutation = useMutation({
+    mutationFn: async () => {
+      setErrorMsg('')
+      setSuccessMsg('')
+      const res = await fetch('http://127.0.0.1:8000/settings/unlink', {
+        method: 'POST'
+      })
+      if (!res.ok) throw new Error('Failed to restore default workspace')
+      return res.json()
+    },
+    onSuccess: () => {
+      refetchSettings()
+      queryClient.invalidateQueries({ queryKey: ['chapters'] })
+      setSuccessMsg('Restored default workspace directories!')
+    },
+    onError: (err: any) => {
+      setErrorMsg(err.message)
+    }
+  })
+
+  const { setActiveChapter, activeSceneId, activeDoc, setActiveDoc } = useProjectStore()
+  const { content, setContent } = useEditorStore()
+
+  const { blueprintData, isLoading, generateBlueprint, isGenerating } = useBlueprint(chapterId)
+  const { sceneData } = useScene(activeDoc?.type === 'scene' || activeDoc?.type === 'beat' ? activeDoc.sceneId : null)
+
+  const [isSaving, setIsSaving] = useState(false)
+  const docChangeRef = useRef<number>(0)
+  const [isExporting, setIsExporting] = useState(false)
+  const [exportedChapterDoc, setExportedChapterDoc] = useState(false)
+
+  const [sceneViewMode, setSceneViewMode] = useState<'content' | 'beats'>('beats')
+  const [currentBeatIndex, setCurrentBeatIndex] = useState(0)
+  const lastViewedSceneRef = useRef<string | null>(null)
+
+  // Track previous document and live content for exit/unload saving
+  const prevDocInfoRef = useRef<{doc: ActiveDoc, mode?: string, beatIndex?: number} | null>(null)
+  const contentRef = useRef<string>('')
+  const lastDocKeyRef = useRef<string>('')
+  const hasLoadedRef = useRef<boolean>(false)
+
+  // Auto-save callback
+  const saveContent = useCallback(async (docInfo: {doc: ActiveDoc, mode?: string, beatIndex?: number}, text: string) => {
+    if (!docInfo || !docInfo.doc || !text.trim()) return
+    const doc = docInfo.doc
+    setIsSaving(true)
+    try {
+      if (doc.type === 'scene') {
+        if (docInfo.mode === 'beats' && docInfo.beatIndex !== undefined) {
+          await fetch(`http://127.0.0.1:8000/scenes/${doc.sceneId}/beats/${docInfo.beatIndex + 1}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ beat: text })
+          })
+        } else {
+          await fetch(`http://127.0.0.1:8000/scenes/${doc.sceneId}/content`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: text })
+          })
+        }
+      } else if (doc.type === 'character') {
+        await fetch(`http://127.0.0.1:8000/characters/${doc.slug}/content`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: text })
+        })
+      } else if (doc.type === 'style') {
+        await fetch(`http://127.0.0.1:8000/styles/${doc.id}/content`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: text })
+        })
+      } else if (doc.type === 'outline') {
+        await fetch(`http://127.0.0.1:8000/chapters/${chapterId}/content`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: text })
+        })
+      } else if (doc.type === 'blueprint') {
+        await fetch(`http://127.0.0.1:8000/chapters/${chapterId}/blueprint/markdown`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: text })
+        })
+        queryClient.invalidateQueries({ queryKey: ['blueprint', chapterId] })
+      }
+    } catch (err) {
+      console.error('Auto-save failed:', err)
+    } finally {
+      setIsSaving(false)
+    }
+  }, [])
+
   const { data: chapterData } = useQuery({
     queryKey: ['chapter', chapterId],
     queryFn: async () => {
@@ -35,18 +221,26 @@ export default function Workshop() {
     enabled: !!chapterId
   })
 
-  // Sync scene switching — clear editor content to prevent instance leaking
   useEffect(() => {
     setActiveChapter(chapterId)
   }, [chapterId, setActiveChapter])
 
+  // Auto-initialize outline doc if blueprint does not exist yet and no active doc is set
   useEffect(() => {
-    if (sceneData) {
-      setContent(sceneData.generated_content || '')
-    } else {
-      setContent('')
+    if (chapterId && blueprintData !== undefined && !blueprintData && !activeDoc) {
+      setActiveDoc({ type: 'outline', id: 'outline', name: 'Original Outline' })
     }
-  }, [activeSceneId, sceneData, setContent])
+  }, [chapterId, blueprintData, activeDoc, setActiveDoc])
+
+  // Reset scene view mode when scene changes
+  useEffect(() => {
+    if (activeDoc?.type === 'scene' && activeSceneId && sceneData && activeSceneId !== lastViewedSceneRef.current) {
+      const hasContent = !!sceneData.generated_content
+      setSceneViewMode(hasContent ? 'content' : 'beats')
+      setCurrentBeatIndex(0)
+      lastViewedSceneRef.current = activeSceneId
+    }
+  }, [activeSceneId, sceneData, activeDoc])
 
   // Look up the active scene's metadata from blueprint data
   let activeSceneMeta: any = null
@@ -62,30 +256,638 @@ export default function Workshop() {
     }
   }
 
+  // Keep live content ref up-to-date
+  useEffect(() => {
+    contentRef.current = content
+  }, [content])
+
+  // Load content into editor when activeDoc changes, and save the previous doc on switch
+  useEffect(() => {
+    const currentDocInfo = activeDoc ? {
+      doc: activeDoc,
+      mode: activeDoc.type === 'scene' ? sceneViewMode : undefined,
+      beatIndex: activeDoc.type === 'scene' ? currentBeatIndex : undefined
+    } : null
+
+    const docKey = activeDoc 
+      ? activeDoc.type === 'scene'
+        ? `${activeDoc.type}-${activeDoc.sceneId}-${sceneViewMode}-${currentBeatIndex}`
+        : `${activeDoc.type}-${activeDoc.id || activeDoc.slug || activeDoc.sceneId || ''}`
+      : 'none'
+
+    const isSameDoc = docKey === lastDocKeyRef.current
+
+    if (!isSameDoc) {
+      // We are switching documents! Save the previous one if it has unsaved content.
+      const prevDocInfo = prevDocInfoRef.current
+      const prevContent = contentRef.current
+
+      if (prevDocInfo && prevContent.trim()) {
+        saveContent(prevDocInfo, prevContent)
+      }
+
+      // Track the new doc and reset loaded flag
+      prevDocInfoRef.current = currentDocInfo
+      lastDocKeyRef.current = docKey
+      hasLoadedRef.current = false
+
+      if (!activeDoc) {
+        setContent('')
+        return
+      }
+      docChangeRef.current = Date.now()
+    }
+
+    // If we have already loaded the content for this active document, do not overwrite it!
+    if (hasLoadedRef.current) {
+      return
+    }
+
+    if (!activeDoc) return
+
+    if (activeDoc.type === 'scene') {
+      if (sceneViewMode === 'beats') {
+        const sceneBeat = sceneData?.scene_events?.[currentBeatIndex]
+        if (sceneBeat) {
+          const beatText = sceneBeat.beat || ''
+          const flow = sceneBeat.conversation_flow || []
+          const flowText = flow.map((s: string) => `- ${s}`).join('\n')
+          setContent(flowText ? `${beatText}\n\n${flowText}` : beatText)
+          hasLoadedRef.current = true
+        } else if (sceneData) {
+          hasLoadedRef.current = true
+          fetch(`http://127.0.0.1:8000/scenes/${activeDoc.sceneId}/beats/${currentBeatIndex + 1}`)
+            .then(res => res.json())
+            .then(data => setContent(data.beat || ''))
+            .catch(() => setContent(''))
+        }
+      } else {
+        if (sceneData) {
+          setContent(sceneData.generated_content || '')
+          hasLoadedRef.current = true
+        }
+      }
+      return
+    }
+
+    if (activeDoc.type === 'outline') {
+      if (chapterData) {
+        setContent(chapterData.raw_outline || '')
+        hasLoadedRef.current = true
+      } else {
+        hasLoadedRef.current = true
+        fetch(`http://127.0.0.1:8000/chapters/${chapterId}`)
+          .then(res => res.json())
+          .then(data => { setContent(data.raw_outline || '') })
+          .catch(() => { setContent('') })
+      }
+      return
+    }
+
+    if (activeDoc.type === 'character') {
+      hasLoadedRef.current = true
+      fetch(`http://127.0.0.1:8000/characters/${activeDoc.slug}/content`)
+        .then(res => res.json())
+        .then(data => { setContent(data.content || '') })
+        .catch(() => { setContent('') })
+      return
+    }
+
+    if (activeDoc.type === 'style') {
+      hasLoadedRef.current = true
+      fetch(`http://127.0.0.1:8000/styles/${activeDoc.id}/content`)
+        .then(res => res.json())
+        .then(data => { setContent(data.content || '') })
+        .catch(() => { setContent('') })
+      return
+    }
+
+
+    if (activeDoc.type === 'chapter') {
+      hasLoadedRef.current = true
+      fetch(`http://127.0.0.1:8000/chapters/${chapterId}/export`)
+        .then(res => res.json())
+        .then(data => { setContent(data.content || '') })
+        .catch(() => { setContent('') })
+      return
+    }
+
+    if (activeDoc.type === 'blueprint') {
+      hasLoadedRef.current = true
+      fetch(`http://127.0.0.1:8000/chapters/${chapterId}/blueprint/markdown`)
+        .then(res => res.json())
+        .then(data => { setContent(data.content || '') })
+        .catch(() => { setContent('') })
+      return
+    }
+  }, [activeDoc, sceneData, chapterData, setContent, saveContent, chapterId, sceneViewMode, currentBeatIndex])
+
+
+
+  // Safety net: Save content on browser close, tab close, or reload
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      const prevDocInfo = prevDocInfoRef.current
+      if (prevDocInfo && prevDocInfo.doc && contentRef.current.trim()) {
+        const text = contentRef.current
+        const doc = prevDocInfo.doc
+        if (doc.type === 'scene') {
+          if (prevDocInfo.mode === 'beats' && prevDocInfo.beatIndex !== undefined) {
+            fetch(`http://127.0.0.1:8000/scenes/${doc.sceneId}/beats/${prevDocInfo.beatIndex + 1}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ beat: text }),
+              keepalive: true
+            })
+          } else {
+            fetch(`http://127.0.0.1:8000/scenes/${doc.sceneId}/content`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ content: text }),
+              keepalive: true
+            })
+          }
+        } else if (doc.type === 'character') {
+          fetch(`http://127.0.0.1:8000/characters/${doc.slug}/content`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: text }),
+            keepalive: true
+          })
+        } else if (doc.type === 'style') {
+          fetch(`http://127.0.0.1:8000/styles/${doc.id}/content`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: text }),
+            keepalive: true
+          })
+        } else if (doc.type === 'outline') {
+          fetch(`http://127.0.0.1:8000/chapters/${chapterId}/content`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: text }),
+            keepalive: true
+          })
+        } else if (doc.type === 'blueprint') {
+          fetch(`http://127.0.0.1:8000/chapters/${chapterId}/blueprint/markdown`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: text }),
+            keepalive: true
+          })
+        }
+      }
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+    }
+  }, [chapterId])
+
+  // Approve scene
+  const [isApproving, setIsApproving] = useState(false)
+  const approveScene = async () => {
+    if (!activeSceneId) return
+    setIsApproving(true)
+    try {
+      // Always save active editor content before approving to persist any final manual changes
+      if (activeDoc && contentRef.current.trim()) {
+        await saveContent(activeDoc, contentRef.current)
+      }
+      const res = await fetch(`http://127.0.0.1:8000/scenes/${activeSceneId}/approve`, { method: 'POST' })
+      if (res.ok) {
+        queryClient.invalidateQueries({ queryKey: ['scene', activeSceneId] })
+        queryClient.invalidateQueries({ queryKey: ['blueprint', chapterId] })
+      }
+    } finally {
+      setIsApproving(false)
+    }
+  }
+
+  // Export / compile chapter
+  const exportChapter = async () => {
+    if (!chapterId) return
+    setIsExporting(true)
+    try {
+      const res = await fetch(`http://127.0.0.1:8000/chapters/${chapterId}/export`, { method: 'POST' })
+      if (res.ok) {
+        const data = await res.json()
+        setExportedChapterDoc(true)
+        // Open the compiled chapter in the editor
+        setActiveDoc({ type: 'chapter', id: 'chapter', name: blueprintData?.blueprint?.chapter_title || 'Chapter' })
+        setContent(data.content || '')
+      } else {
+        const err = await res.json()
+        alert(err.detail || 'Export failed')
+      }
+    } catch (e) {
+      alert('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
+  // Build breadcrumb based on active doc type
+  const renderBreadcrumb = () => {
+    if (!activeDoc) {
+      return blueprintData ? (
+        <span className="text-sm font-semibold text-slate-600 bg-slate-100 px-2.5 py-0.5 rounded-full border border-slate-200">
+          Blueprint Overview
+        </span>
+      ) : null
+    }
+
+    if (!blueprintData) {
+      return (
+        <span className="text-sm font-semibold text-slate-600 bg-slate-100 px-2.5 py-0.5 rounded-full border border-slate-200">
+          Original Chapter Outline
+        </span>
+      )
+    }
+
+    const items: { label: string; onClick?: () => void }[] = [{ label: 'Blueprint Overview', onClick: () => setActiveDoc(null) }]
+
+    if (activeDoc.type === 'scene') {
+      if (activeActMeta) {
+        items.push({ label: `Act ${activeActMeta.act_number}` })
+      }
+      if (sceneViewMode === 'beats') {
+        items.push({ label: `Scene ${activeSceneMeta?.scene_number || ''}`, onClick: () => setSceneViewMode('content') })
+        if (sceneData?.scene_events?.length) {
+          items.push({ label: `Beat ${currentBeatIndex + 1}` })
+        } else {
+          items.push({ label: `No Beats` })
+        }
+      } else {
+        items.push({ label: `Scene ${activeSceneMeta?.scene_number || ''}` })
+      }
+    } else if (activeDoc.type === 'character') {
+      items.push({ label: 'Characters' })
+      items.push({ label: activeDoc.name })
+    } else if (activeDoc.type === 'style') {
+      items.push({ label: 'Styles' })
+      items.push({ label: activeDoc.name })
+    } else if (activeDoc.type === 'chapter') {
+      items.push({ label: 'result' })
+      items.push({ label: 'chapter.md' })
+    } else if (activeDoc.type === 'blueprint') {
+      items.push({ label: 'outputs' })
+      items.push({ label: 'blueprint.md' })
+    } else if (activeDoc.type === 'outline') {
+      items.push({ label: 'inputs' })
+      items.push({ label: 'outline.md' })
+    }
+
+    return (
+      <div className="flex items-center gap-1.5 text-xs text-slate-400 flex-wrap">
+        {items.map((item, i) => (
+          <span key={i} className="flex items-center gap-1.5">
+            {i > 0 && <span>&rsaquo;</span>}
+            {item.onClick ? (
+              <button onClick={item.onClick} className="hover:text-slate-900 transition-colors font-medium hover:underline text-indigo-600">
+                {item.label}
+              </button>
+            ) : (
+              <span className={`font-semibold ${i === items.length - 1 ? 'text-slate-600' : 'text-slate-400'}`}>{item.label}</span>
+            )}
+          </span>
+        ))}
+      </div>
+    )
+  }
+
+  const renderEditorHeader = () => {
+    if (!activeDoc) return null
+    if (activeDoc.type !== 'scene') {
+      return (
+        <div className="mb-6 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+              {activeDoc.type === 'character' && 'Character Profile'}
+              {activeDoc.type === 'style' && 'Style Guidelines'}
+              {activeDoc.type === 'outline' && (
+                <span className="flex items-center gap-1.5">
+                  <span className="text-indigo-600">outline.md</span>
+                  <span className="text-slate-300">— chapter source</span>
+                </span>
+              )}
+              {activeDoc.type === 'blueprint' && (
+                <span className="flex items-center gap-1.5">
+                  <span className="text-blue-500">blueprint.md</span>
+                  <span className="text-slate-300">— compiled structure</span>
+                </span>
+              )}
+              {activeDoc.type === 'chapter' && (
+                <span className="flex items-center gap-1.5">
+                  <span className="text-rose-500">chapter.md</span>
+                  <span className="text-slate-300">— compiled output</span>
+                </span>
+              )}
+            </span>
+          </div>
+          {activeDoc.type !== 'chapter' && activeDoc.type !== 'blueprint' && (
+            <span className={`text-[10px] font-mono ${isSaving ? 'text-amber-500' : 'text-slate-400'}`}>
+              {isSaving ? 'Saving...' : 'Auto-saved'}
+            </span>
+          )}
+        </div>
+      )
+    }
+
+    return (
+      <div className="mb-6 flex flex-col gap-1.5">
+        <div className="flex flex-wrap items-center justify-between mb-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-mono text-slate-500 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded">
+              {activeSceneMeta?.scene_setting || '—'}
+            </span>
+            {activeSceneMeta?.characters?.map((char: string) => (
+              <button
+                key={char}
+                onClick={() => {
+                  const slug = char.toLowerCase().replace(/^(dr|mr|mrs|ms|prof)\.?\s+/i, '').replace(/\s+/g, '_')
+                  setActiveDoc({ type: 'character', slug, name: char })
+                }}
+                className="text-[10px] font-semibold bg-indigo-50 border border-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full hover:bg-indigo-100 hover:border-indigo-200 transition-colors"
+              >
+                {char}
+              </button>
+            ))}
+          </div>
+          
+          <div className="flex items-center gap-2">
+            {sceneViewMode === 'beats' ? (
+              sceneData?.scene_events?.length ? (
+                <div className="flex items-center gap-3 bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-sm">
+                  <button 
+                    onClick={() => setCurrentBeatIndex(prev => Math.max(0, prev - 1))}
+                    disabled={currentBeatIndex === 0}
+                    className="text-slate-400 hover:text-blue-600 disabled:opacity-30 p-0.5"
+                  >
+                    ◀
+                  </button>
+                  <span className="text-xs font-bold text-slate-700 uppercase tracking-widest min-w-[80px] text-center">
+                    Beat {currentBeatIndex + 1} of {sceneData.scene_events.length}
+                  </span>
+                  <button 
+                    onClick={() => setCurrentBeatIndex(prev => Math.min(sceneData.scene_events.length - 1, prev + 1))}
+                    disabled={currentBeatIndex >= sceneData.scene_events.length - 1}
+                    className="text-slate-400 hover:text-blue-600 disabled:opacity-30 p-0.5"
+                  >
+                    ▶
+                  </button>
+                </div>
+              ) : (
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-widest bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg">
+                  No Beats Yet
+                </span>
+              )
+            ) : (
+              <button
+                onClick={() => setSceneViewMode('beats')}
+                className="text-xs font-semibold text-blue-600 bg-blue-50 border border-blue-200 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors"
+              >
+                Edit Beats
+              </button>
+            )}
+            <span className={`text-[10px] font-mono ml-2 ${isSaving ? 'text-amber-500' : 'text-slate-400'}`}>
+              {isSaving ? 'Saving...' : 'Auto-saved'}
+            </span>
+          </div>
+        </div>
+
+        <textarea
+          key={activeSceneId}
+          className="w-full text-slate-700 text-base leading-relaxed outline-none bg-transparent resize-none placeholder:text-slate-300"
+          defaultValue={activeSceneMeta?.scene_description || ''}
+          placeholder="Describe what happens in this scene…"
+          rows={3}
+          onInput={(e) => {
+            const t = e.currentTarget
+            t.style.height = 'auto'
+            t.style.height = t.scrollHeight + 'px'
+          }}
+          onBlur={async (e) => {
+            const newDesc = e.target.value
+            if (newDesc === activeSceneMeta?.scene_description) return
+            const res = await fetch(`http://127.0.0.1:8000/scenes/${activeSceneId}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ scene_description: newDesc })
+            })
+            if (res.ok) {
+              queryClient.invalidateQueries({ queryKey: ['scene', activeSceneId] })
+              queryClient.invalidateQueries({ queryKey: ['blueprint', chapterId] })
+            }
+          }}
+        />
+        <div className="h-px bg-slate-200 mt-2" />
+      </div>
+    )
+  }
+
   if (!chapterId) {
-    return <div className="p-8">No chapter specified. <Link to="/" className="text-blue-600">Go back</Link></div>
+    return (
+      <div className="min-h-screen bg-slate-50 overflow-y-auto text-slate-900">
+        <div className="max-w-4xl mx-auto p-8 animate-fadeIn">
+          <header className="flex justify-between items-center mb-12">
+            <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 flex items-center gap-3">
+              <Layout className="w-8 h-8 text-blue-600 animate-pulse" />
+              SLM Writing Engine
+            </h1>
+          </header>
+
+          {/* Workspace Directory Link Section */}
+          <div className="bg-white border border-slate-200/80 rounded-2xl p-6 mb-8 shadow-sm transition-all hover:border-slate-300">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                  <FolderOpen className="w-5 h-5 text-blue-600" />
+                  Workspace Data Directory
+                </h3>
+                <p className="text-slate-500 text-sm mt-1">
+                  Link an external directory to read outlines, characters, and styles directly from your custom book folder.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                {settingsStatus?.is_linked ? (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/60 shadow-sm">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                    Linked External
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                    <span className="w-2 h-2 rounded-full bg-slate-400"></span>
+                    Default Local Workspace
+                  </span>
+                )}
+              </div>
+            </div>
+            {settingsStatus?.warning && (
+              <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm mb-4 animate-shake shadow-sm">
+                <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <span className="font-bold text-amber-900 block">System Access Safeguard</span>
+                  <p className="text-amber-700 text-xs leading-relaxed">{settingsStatus.warning}</p>
+                </div>
+              </div>
+            )}
+            {settingsStatus && (
+              <div className="space-y-4 mb-4">
+                <div className="space-y-3 bg-slate-50/50 rounded-xl p-4 border border-slate-100 shadow-sm text-sm text-slate-600">
+                  <div className="flex items-start gap-2">
+                    <span className="font-semibold text-slate-500 min-w-[100px]">Inputs Dir:</span>
+                    <code className="text-xs bg-slate-100 px-2 py-0.5 rounded border border-slate-200 text-slate-700 break-all select-all flex-1">
+                      {settingsStatus.inputs_dir}
+                    </code>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="font-semibold text-slate-500 min-w-[100px]">Outputs Dir:</span>
+                    <code className="text-xs bg-slate-100 px-2 py-0.5 rounded border border-slate-200 text-slate-700 break-all select-all flex-1">
+                      {settingsStatus.outputs_dir}
+                    </code>
+                  </div>
+                </div>
+
+                {settingsStatus.stats && (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 shadow-sm text-center transition-all hover:scale-[1.02] hover:border-slate-300">
+                      <span className="block text-2xl font-extrabold text-slate-800">{settingsStatus.stats.chapters}</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Chapters</span>
+                    </div>
+                    <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 shadow-sm text-center transition-all hover:scale-[1.02] hover:border-slate-300">
+                      <span className="block text-2xl font-extrabold text-slate-800">{settingsStatus.stats.characters}</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Characters</span>
+                    </div>
+                    <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 shadow-sm text-center transition-all hover:scale-[1.02] hover:border-slate-300">
+                      <span className="block text-2xl font-extrabold text-slate-800">{settingsStatus.stats.styles}</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Styles</span>
+                    </div>
+                    <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 shadow-sm text-center transition-all hover:scale-[1.02] hover:border-slate-300">
+                      <span className="block text-2xl font-extrabold text-slate-800">{settingsStatus.stats.blueprints}</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Blueprints</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <form 
+              onSubmit={(e) => {
+                e.preventDefault()
+                if (inputPath.trim()) {
+                  linkMutation.mutate(inputPath.trim())
+                }
+              }}
+              className="flex flex-col sm:flex-row gap-3"
+            >
+              <div className="flex-1 relative">
+                <input
+                  type="text"
+                  placeholder="Paste absolute path to inputs/ folder (e.g. /Users/name/book/inputs)"
+                  value={inputPath}
+                  onChange={(e) => setInputPath(e.target.value)}
+                  className="w-full pl-4 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shadow-inner"
+                />
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="submit"
+                  disabled={linkMutation.isPending || !inputPath.trim()}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-medium transition-colors shadow-sm disabled:opacity-50 flex items-center gap-1.5 shrink-0 cursor-pointer"
+                >
+                  <Link2 className="w-4 h-4" />
+                  Link Folder
+                </button>
+                {settingsStatus?.is_linked && (
+                  <button
+                    type="button"
+                    onClick={() => unlinkMutation.mutate()}
+                    disabled={unlinkMutation.isPending}
+                    className="px-4 py-2 bg-white hover:bg-slate-50 text-slate-600 hover:text-slate-800 border border-slate-200 rounded-xl text-sm font-medium transition-colors shadow-sm flex items-center gap-1.5 shrink-0 cursor-pointer"
+                  >
+                    <Link2Off className="w-4 h-4 text-slate-400" />
+                    Restore Default
+                  </button>
+                )}
+              </div>
+            </form>
+
+            {errorMsg && (
+              <div className="mt-3 text-xs text-red-600 bg-red-50 border border-red-100 p-2.5 rounded-lg flex items-center gap-1.5">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{errorMsg}</span>
+              </div>
+            )}
+
+            {successMsg && (
+              <div className="mt-3 text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 p-2.5 rounded-lg flex items-center gap-1.5">
+                <CheckCircle className="w-4 h-4 shrink-0" />
+                <span>{successMsg}</span>
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <Link 
+              to="/new"
+              className="border-2 border-dashed border-slate-300 rounded-2xl p-8 flex flex-col items-center justify-center text-slate-500 hover:border-blue-500 hover:text-blue-600 transition-colors h-48 bg-white hover:bg-blue-50/20 shadow-sm"
+            >
+              <BookPlus className="w-12 h-12 mb-4 text-slate-400" />
+              <span className="font-semibold text-lg">Create New Chapter</span>
+            </Link>
+
+            {isChaptersLoading ? (
+              <div className="border border-slate-200 rounded-2xl p-8 flex items-center justify-center h-48 bg-white shadow-sm">
+                <span className="text-slate-400">Loading chapters...</span>
+              </div>
+            ) : (
+              chapters?.map(chapter => (
+                <div
+                  key={chapter.id}
+                  className="border border-slate-200 rounded-2xl p-8 flex flex-col justify-between bg-white shadow-sm hover:shadow-md transition-all hover:border-blue-300 h-48 group relative cursor-pointer"
+                  onClick={() => navigate(`/workshop?chapter=${chapter.id}`)}
+                >
+                  <div className="flex-1">
+                    <h2 className="text-xl font-semibold text-slate-900 group-hover:text-blue-600 mb-2 transition-colors">
+                      {chapter.title}
+                    </h2>
+                    <p className="text-slate-400 text-xs mt-1">
+                      Created {new Date(chapter.created_at).toLocaleDateString()}
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      if (confirm(`Delete chapter "${chapter.title}" permanently? This will clear the outline and all generated scenes.`)) {
+                        deleteMutation.mutate(chapter.id)
+                      }
+                    }}
+                    className="absolute top-4 right-4 p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors opacity-0 group-hover:opacity-100 z-10 cursor-pointer"
+                    title="Delete chapter"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
     <div className="flex h-screen bg-slate-100 overflow-hidden text-slate-900">
       {/* Sidebar */}
-      {blueprintData ? (
-        <Sidebar blueprintData={blueprintData} />
-      ) : (
-        <div className="w-64 border-r border-slate-200 bg-slate-50 p-4 flex flex-col items-center justify-center">
-          {isLoading ? (
-            <p className="text-slate-500 text-sm">Loading...</p>
-          ) : (
-            <button
-              onClick={() => generateBlueprint()}
-              disabled={isGenerating}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg shadow-sm text-sm font-medium disabled:opacity-50"
-            >
-              {isGenerating ? 'Generating...' : 'Generate Blueprint'}
-            </button>
-          )}
-        </div>
-      )}
+      <Sidebar
+        blueprintData={blueprintData}
+        onExport={exportChapter}
+        isExporting={isExporting}
+        exportedChapterDoc={exportedChapterDoc}
+      />
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
@@ -95,118 +897,83 @@ export default function Workshop() {
             <Link to="/" className="text-slate-500 hover:text-slate-900 p-1 rounded-md hover:bg-slate-100">
               <ArrowLeft className="w-5 h-5" />
             </Link>
-            {!activeSceneId && blueprintData && (
-              <span className="text-sm font-semibold text-slate-600 bg-slate-100 px-2.5 py-0.5 rounded-full border border-slate-200">
-                Blueprint Overview
-              </span>
-            )}
-            {activeSceneId && activeActMeta && (
-              <div className="flex items-center gap-1.5 text-xs text-slate-400">
-                <button 
-                  onClick={() => setActiveScene(null)}
-                  className="hover:text-slate-900 transition-colors font-medium hover:underline text-indigo-600"
-                >
-                  Blueprint Overview
-                </button>
-                <span>&rsaquo;</span>
-                <span>Act {activeActMeta.act_number}</span>
-                <span>&rsaquo;</span>
-                <span className="font-semibold text-slate-600">Scene {activeSceneMeta?.scene_number}</span>
-              </div>
-            )}
+            {renderBreadcrumb()}
           </div>
-          
-          <div className="flex gap-2">
-            {chapterData?.raw_outline && (
-              <button 
-                onClick={() => setShowOutline(!showOutline)}
-                className={`p-2 rounded-md transition-all ${showOutline ? 'bg-indigo-50 border border-indigo-200 text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'}`}
-                title="Toggle Original Chapter Outline"
+
+          <div className="flex items-center gap-2">
+            {activeDoc?.type === 'scene' && sceneData && (
+              <button
+                type="button"
+                onClick={approveScene}
+                disabled={isApproving}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-all border shrink-0 mr-2 cursor-pointer ${
+                  sceneData.approved
+                    ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100'
+                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                }`}
+                title={sceneData.approved ? "Mark scene as in-progress" : "Mark scene as approved/done"}
               >
-                <Map className="w-5 h-5" />
+                <CheckCircle2 className={`w-4 h-4 ${sceneData.approved ? 'text-green-500 fill-green-200' : 'text-slate-400'}`} />
+                {sceneData.approved ? 'Approved' : 'Approve Scene'}
               </button>
             )}
-            <Link to="/characters" className="p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-md" title="Characters">
-              <Users className="w-5 h-5" />
-            </Link>
-            <button className="p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-md" title="Settings">
-              <Settings className="w-5 h-5" />
-            </button>
+            {(activeDoc === null || activeDoc.type === 'outline') && (
+              <button
+                type="button"
+                onClick={() => generateBlueprint(true)}
+                disabled={isGenerating}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm transition-all border shrink-0 mr-2 cursor-pointer disabled:opacity-50 ${
+                  !blueprintData
+                    ? 'bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white border-transparent'
+                    : 'bg-gradient-to-r from-violet-50 to-indigo-50 text-indigo-700 border-indigo-200 hover:from-violet-100 hover:to-indigo-100'
+                }`}
+                title={blueprintData ? "Regenerate Chapter Blueprint structure using AI" : "Generate Chapter Blueprint structure using AI"}
+              >
+                <Sparkles className={`w-3.5 h-3.5 ${!blueprintData ? 'text-white' : 'text-indigo-500'} ${isGenerating ? 'animate-spin' : ''}`} />
+                {isGenerating ? 'Planning...' : blueprintData ? 'Replan Blueprint' : 'Generate Blueprint'}
+              </button>
+            )}
           </div>
         </header>
 
         {/* Editor Area or Blueprint Overview */}
         <div className="flex-1 overflow-y-auto">
-          {activeSceneId ? (
+          {activeDoc ? (
             <div className="max-w-3xl mx-auto py-10 px-6 flex flex-col gap-0">
+              {renderEditorHeader()}
 
-              {/* ── Scene header — part of the document ── */}
-              <div className="mb-6 flex flex-col gap-1.5">
-                {/* Setting badge + characters inline */}
-                <div className="flex flex-wrap items-center gap-2 mb-1">
-                  <span className="text-xs font-mono text-slate-500 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded">
-                    {activeSceneMeta?.scene_setting || '—'}
-                  </span>
-                  {activeSceneMeta?.characters?.map((char: string) => (
-                    <span key={char} className="text-[10px] font-semibold bg-indigo-50 border border-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full">
-                      {char}
-                    </span>
-                  ))}
-                </div>
-
-                {/* Editable scene outline — no box, no header, just plain text area like a doc title/description */}
-                <textarea
-                  key={activeSceneId}
-                  className="w-full text-slate-700 text-base leading-relaxed outline-none bg-transparent resize-none placeholder:text-slate-300"
-                  defaultValue={activeSceneMeta?.scene_description || ''}
-                  placeholder="Describe what happens in this scene…"
-                  rows={3}
-                  onInput={(e) => {
-                    const t = e.currentTarget
-                    t.style.height = 'auto'
-                    t.style.height = t.scrollHeight + 'px'
-                  }}
-                  onBlur={async (e) => {
-                    const newDesc = e.target.value
-                    if (newDesc === activeSceneMeta?.scene_description) return
-                    
-                    const res = await fetch(`http://127.0.0.1:8000/scenes/${activeSceneId}`, {
-                      method: 'PATCH',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ scene_description: newDesc })
-                    })
-                    if (res.ok) {
-                      queryClient.invalidateQueries({ queryKey: ['scene', activeSceneId] })
-                      queryClient.invalidateQueries({ queryKey: ['blueprint', chapterId] })
-                    }
-                  }}
-                />
-
-                <div className="h-px bg-slate-200 mt-2" />
-              </div>
-
-              {/* ── Tiptap editor body ── */}
               <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
                 <NovelEditor />
               </div>
 
-              {/* ── Toolbar below editor ── */}
               <div className="mt-4">
-                <Toolbar />
+                <Toolbar sceneViewMode={sceneViewMode} />
               </div>
+            </div>
+          ) : !blueprintData ? (
+            <div className="max-w-4xl mx-auto flex flex-col gap-6 py-20 px-6 animate-fadeIn items-center text-center">
+              <div className="w-16 h-16 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600 shadow-inner mb-2">
+                <Sparkles className="w-8 h-8 animate-pulse" />
+              </div>
+              <h2 className="text-xl font-extrabold text-slate-800">Outline Ready for Structuring</h2>
+              <p className="text-slate-500 text-sm max-w-md leading-relaxed">
+                Click the <strong className="text-indigo-600">Generate Blueprint</strong> button in the top navigation bar to analyze your outline and plan sequential acts, scenes, and beat timelines.
+              </p>
             </div>
           ) : (
             <div className="max-w-4xl mx-auto flex flex-col gap-6 py-10 px-6">
-              <div className="border-b border-slate-200 pb-5">
-                <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">
-                  {blueprintData?.blueprint?.data?.chapter_title || blueprintData?.blueprint?.chapter_title || "Chapter Blueprint Skeleton"}
-                </h1>
-                <p className="text-sm text-slate-500 mt-1.5 leading-relaxed">
-                  Review and analyze your structured acts and scenes. Select a scene below or from the sidebar to decompose it into beats and stream generated drafts.
-                </p>
+              <div className="border-b border-slate-200 pb-5 flex flex-wrap items-center justify-between gap-4">
+                <div className="flex-1 min-w-[280px]">
+                  <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">
+                    {blueprintData?.blueprint?.data?.chapter_title || blueprintData?.blueprint?.chapter_title || "Chapter Blueprint Skeleton"}
+                  </h1>
+                  <p className="text-sm text-slate-500 mt-1.5 leading-relaxed">
+                    Review and analyze your structured acts and scenes. Select a scene below or from the sidebar to decompose it into beats and stream generated drafts.
+                  </p>
+                </div>
               </div>
 
-              {showOutline && chapterData?.raw_outline && (
+              {chapterData?.raw_outline && (
                 <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm flex flex-col gap-2.5">
                   <h3 className="text-xs font-extrabold text-indigo-600 uppercase tracking-wider">
                     Original Chapter Outline
@@ -216,7 +983,7 @@ export default function Workshop() {
                   </p>
                 </div>
               )}
-              
+
               <div className="flex flex-col gap-6">
                 {blueprintData?.acts?.map((act: any) => (
                   <div key={act.id} className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col gap-4">
@@ -229,12 +996,12 @@ export default function Workshop() {
                         <span className="text-xs text-slate-400 italic">Transition: {act.act_transition_hint}</span>
                       )}
                     </div>
-                    
+
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {act.scenes?.map((scene: any) => (
-                        <div 
-                          key={scene.id} 
-                          onClick={() => setActiveScene(scene.id)}
+                        <div
+                          key={scene.id}
+                          onClick={() => setActiveDoc({ type: 'scene', sceneId: scene.id })}
                           className="p-4 border border-slate-200 rounded-lg bg-slate-50/50 hover:bg-blue-50/30 hover:border-blue-300 transition-all cursor-pointer flex flex-col justify-between gap-3 group"
                         >
                           <div>
@@ -250,7 +1017,7 @@ export default function Workshop() {
                               {scene.scene_description}
                             </p>
                           </div>
-                          
+
                           <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
                             <div className="flex flex-wrap gap-1">
                               {scene.characters?.map((char: string) => (
@@ -274,7 +1041,11 @@ export default function Workshop() {
         </div>
       </div>
 
-      <Inspector />
+      <Inspector 
+        sceneViewMode={sceneViewMode} 
+        currentBeatIndex={currentBeatIndex}
+        setCurrentBeatIndex={setCurrentBeatIndex} 
+      />
     </div>
   )
 }
