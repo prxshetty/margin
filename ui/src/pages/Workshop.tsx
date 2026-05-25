@@ -167,8 +167,9 @@ export default function Workshop() {
   const { content, setContent, isStreaming } = useEditorStore()
   const { generateScene, stopGeneration } = useStream()
 
-  const { blueprintData, generateBlueprint, isGenerating } = useBlueprint(chapterId)
+  const { blueprintData, generateBlueprint, isGenerating, confirmBlueprint, isConfirming } = useBlueprint(chapterId)
   const { sceneData } = useScene(activeDoc?.type === 'scene' ? activeDoc.sceneId : null)
+  const isConfirmed = !!blueprintData?.blueprint?.confirmed
 
   const [isSaving, setIsSaving] = useState(false)
   const docChangeRef = useRef<number>(0)
@@ -1154,21 +1155,52 @@ export default function Workshop() {
                 </button>
               </>
             )}
-            {(activeDoc === null || activeDoc.type === 'outline') && (
-              <button
-                type="button"
-                onClick={() => generateBlueprint(true)}
-                disabled={isGenerating}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm transition-all border shrink-0 mr-2 cursor-pointer disabled:opacity-50 ${
-                  !blueprintData
-                    ? 'bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white border-transparent'
-                    : 'bg-gradient-to-r from-violet-50 to-indigo-50 text-indigo-700 border-indigo-200 hover:from-violet-100 hover:to-indigo-100'
-                }`}
-                title={blueprintData ? "Regenerate Chapter Blueprint structure using AI" : "Generate Chapter Blueprint structure using AI"}
-              >
-                <Sparkles className={`w-3.5 h-3.5 ${!blueprintData ? 'text-white' : 'text-indigo-500'} ${isGenerating ? 'animate-spin' : ''}`} />
-                {isGenerating ? 'Planning...' : blueprintData ? 'Replan Blueprint' : 'Generate Blueprint'}
-              </button>
+            {(activeDoc === null || activeDoc.type === 'outline' || activeDoc.type === 'blueprint') && (
+              <div className="flex items-center gap-2 mr-2">
+                <button
+                  type="button"
+                  onClick={() => generateBlueprint(true)}
+                  disabled={isGenerating}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm transition-all border shrink-0 cursor-pointer disabled:opacity-50 ${
+                    !blueprintData
+                      ? 'bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white border-transparent'
+                      : 'bg-gradient-to-r from-violet-50 to-indigo-50 text-indigo-700 border-indigo-200 hover:from-violet-100 hover:to-indigo-100'
+                  }`}
+                  title={blueprintData ? "Regenerate Chapter Blueprint structure using AI" : "Generate Chapter Blueprint structure using AI"}
+                >
+                  <Sparkles className={`w-3.5 h-3.5 ${!blueprintData ? 'text-white' : 'text-indigo-500'} ${isGenerating ? 'animate-spin' : ''}`} />
+                  {isGenerating ? 'Planning...' : blueprintData ? 'Replan Blueprint' : 'Generate Blueprint'}
+                </button>
+
+                {blueprintData && (
+                  isConfirmed ? (
+                    <span className="flex items-center gap-1 px-3 py-1.5 bg-green-50 border border-green-200 text-green-700 rounded-lg text-xs font-extrabold shadow-sm shrink-0 select-none">
+                      <CheckCircle className="w-3.5 h-3.5 text-green-500" />
+                      Confirmed
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => confirmBlueprint()}
+                      disabled={isConfirming}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 disabled:from-amber-400 disabled:to-orange-400 text-white border-transparent rounded-lg text-xs font-extrabold shadow-sm transition-all shrink-0 cursor-pointer"
+                      title="Lock this blueprint structure to generate scenes"
+                    >
+                      {isConfirming ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          Confirming...
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle className="w-3.5 h-3.5" />
+                          Confirm Blueprint
+                        </>
+                      )}
+                    </button>
+                  )
+                )}
+              </div>
             )}
           </div>
         </header>
@@ -1197,14 +1229,39 @@ export default function Workshop() {
             <div className="max-w-4xl mx-auto flex flex-col gap-6 py-10 px-6">
               <div className="border-b border-slate-200 pb-5 flex flex-wrap items-center justify-between gap-4">
                 <div className="flex-1 min-w-[280px]">
-                  <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">
+                  <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2.5">
                     {blueprintData?.blueprint?.data?.chapter_title || blueprintData?.blueprint?.chapter_title || "Chapter Blueprint Skeleton"}
+                    {isConfirmed ? (
+                      <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider flex items-center gap-1 shadow-sm">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                        Confirmed
+                      </span>
+                    ) : (
+                      <span className="bg-amber-50 text-amber-700 border border-amber-200 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider flex items-center gap-1 shadow-sm">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                        Drafting
+                      </span>
+                    )}
                   </h1>
                   <p className="text-sm text-slate-500 mt-1.5 leading-relaxed">
                     Review and analyze your structured acts and scenes. Select a scene below or from the sidebar to decompose it into beats and stream generated drafts.
                   </p>
                 </div>
               </div>
+
+              {!isConfirmed && (
+                <div className="bg-gradient-to-r from-indigo-50/60 to-blue-50/60 border border-slate-200 rounded-2xl p-8 text-center flex flex-col items-center gap-4 max-w-2xl mx-auto shadow-sm my-6">
+                  <div className="w-12 h-12 bg-gradient-to-tr from-indigo-500 to-blue-500 text-white rounded-full flex items-center justify-center text-lg shadow-md font-extrabold animate-pulse">
+                    ✨
+                  </div>
+                  <h3 className="text-base font-extrabold text-slate-800 tracking-tight">
+                    Draft Blueprint Ready for Review!
+                  </h3>
+                  <p className="text-xs text-slate-600 max-w-md leading-relaxed font-medium">
+                    Review and refine the draft chapter blueprint in <strong className="text-indigo-600">blueprint.md</strong> via the sidebar. When you are happy with the layout, click <strong className="text-amber-600">Confirm Blueprint</strong> in the header to initialize scene documents and start writing!
+                  </p>
+                </div>
+              )}
 
               {chapterData?.raw_outline && (
                 <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm flex flex-col gap-2.5">
@@ -1217,58 +1274,60 @@ export default function Workshop() {
                 </div>
               )}
 
-              <div className="flex flex-col gap-6">
-                {blueprintData?.acts?.map((act: any) => (
-                  <div key={act.id} className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col gap-4">
-                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
-                      <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
-                        <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded text-xs">Act {act.act_number}</span>
-                        {act.act_theme}
-                      </h2>
-                      {act.act_transition_hint && (
-                        <span className="text-xs text-slate-400 italic">Transition: {act.act_transition_hint}</span>
-                      )}
-                    </div>
+              {isConfirmed && (
+                <div className="flex flex-col gap-6">
+                  {blueprintData?.acts?.map((act: any) => (
+                    <div key={act.id} className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col gap-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                        <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                          <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded text-xs">Act {act.act_number}</span>
+                          {act.act_theme}
+                        </h2>
+                        {act.act_transition_hint && (
+                          <span className="text-xs text-slate-400 italic">Transition: {act.act_transition_hint}</span>
+                        )}
+                      </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {act.scenes?.map((scene: any) => (
-                        <div
-                          key={scene.id}
-                          onClick={() => setActiveDoc({ type: 'scene', sceneId: scene.id })}
-                          className="p-4 border border-slate-200 rounded-lg bg-slate-50/50 hover:bg-blue-50/30 hover:border-blue-300 transition-all cursor-pointer flex flex-col justify-between gap-3 group"
-                        >
-                          <div>
-                            <div className="flex items-center justify-between">
-                              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                                Scene {scene.scene_number}
-                              </span>
-                              <span className="text-xs font-mono text-slate-600 bg-slate-200/50 px-2 py-0.5 rounded">
-                                {scene.scene_setting}
-                              </span>
-                            </div>
-                            <p className="text-sm text-slate-700 mt-2 leading-relaxed group-hover:text-blue-900 transition-colors">
-                              {scene.scene_description}
-                            </p>
-                          </div>
-
-                          <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
-                            <div className="flex flex-wrap gap-1">
-                              {scene.characters?.map((char: string) => (
-                                <span key={char} className="text-[10px] bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded-full font-semibold">
-                                  {char}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {act.scenes?.map((scene: any) => (
+                          <div
+                            key={scene.id}
+                            onClick={() => setActiveDoc({ type: 'scene', sceneId: scene.id })}
+                            className="p-4 border border-slate-200 bg-slate-50/50 hover:bg-blue-50/30 hover:border-blue-300 rounded-lg transition-all flex flex-col justify-between gap-3 group cursor-pointer"
+                          >
+                            <div>
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                                  Scene {scene.scene_number}
                                 </span>
-                              ))}
+                                <span className="text-xs font-mono text-slate-600 bg-slate-200/50 px-2 py-0.5 rounded">
+                                  {scene.scene_setting}
+                                </span>
+                              </div>
+                              <p className="text-sm text-slate-700 mt-2 leading-relaxed group-hover:text-blue-900 transition-colors">
+                                {scene.scene_description}
+                              </p>
                             </div>
-                            <span className="text-xs text-blue-600 font-semibold opacity-0 group-hover:opacity-100 transition-opacity">
-                              Write Scene →
-                            </span>
+
+                            <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
+                              <div className="flex flex-wrap gap-1">
+                                {scene.characters?.map((char: string) => (
+                                  <span key={char} className="text-[10px] bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded-full font-semibold">
+                                    {char}
+                                  </span>
+                                ))}
+                              </div>
+                              <span className="text-xs text-blue-600 font-semibold opacity-0 group-hover:opacity-100 transition-opacity">
+                                Write Scene →
+                              </span>
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1278,6 +1337,8 @@ export default function Workshop() {
         sceneViewMode={sceneViewMode} 
         currentBeatIndex={currentBeatIndex}
         setCurrentBeatIndex={setCurrentBeatIndex} 
+        blueprintData={blueprintData}
+        chapterId={chapterId}
       />
     </div>
   )

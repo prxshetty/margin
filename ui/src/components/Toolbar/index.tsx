@@ -86,7 +86,11 @@ export function Toolbar({
   }
 
   const handleInsert = async () => {
-    if (!feedback.trim() || !editor || !activeSceneId) return
+    if (!feedback.trim() || !editor) return
+    const isScene = activeDoc?.type === 'scene'
+    if (isScene && !activeSceneId) return
+    if (!isScene && !activeChapterId) return
+
     setIsWorking(true)
     try {
       const pos = anchorPosition
@@ -96,7 +100,11 @@ export function Toolbar({
       const resolvedPos = editor.state.doc.resolve(pos)
       const blockType = resolvedPos.parent.type.name
 
-      const response = await fetch(`http://localhost:8000/scenes/${activeSceneId}/insert_after`, {
+      const url = isScene
+        ? `http://localhost:8000/scenes/${activeSceneId}/insert_after`
+        : `http://localhost:8000/chapters/${activeChapterId}/insert_after`
+
+      const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -135,7 +143,11 @@ export function Toolbar({
       console.error(err)
     } finally {
       setIsWorking(false)
-      queryClient.invalidateQueries({ queryKey: ['aiEditorLogs', activeSceneId] })
+      if (isScene) {
+        queryClient.invalidateQueries({ queryKey: ['aiEditorLogs', activeSceneId] })
+      } else {
+        queryClient.invalidateQueries({ queryKey: ['aiEditorLogs', activeChapterId] })
+      }
     }
   }
 
@@ -306,7 +318,7 @@ export function Toolbar({
             ) : (
               <button
                 onClick={handleInsert}
-                disabled={!feedback.trim() || isWorking || !isSceneActive}
+                disabled={!feedback.trim() || isWorking || (!activeSceneId && !activeChapterId)}
                 className="w-full py-2 bg-slate-800 hover:bg-slate-900 disabled:bg-slate-300 text-white font-semibold rounded-lg shadow-sm transition-colors text-xs flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 {isWorking ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}

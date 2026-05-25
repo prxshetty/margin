@@ -32,10 +32,26 @@ export function useBlueprint(chapterId: string | null) {
     }
   })
 
+  const confirmMutation = useMutation({
+    mutationFn: async () => {
+      if (!chapterId) return
+      const res = await fetch(`http://127.0.0.1:8000/chapters/${chapterId}/blueprint/confirm`, {
+        method: 'POST'
+      })
+      if (!res.ok) throw new Error('Failed to confirm blueprint')
+      return res.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['blueprint', chapterId] })
+    }
+  })
+
   return {
     blueprintData,
     isLoading,
     generateBlueprint: (isRegenerate: boolean = false) => generateMutation.mutate(isRegenerate),
-    isGenerating: generateMutation.isPending
+    isGenerating: generateMutation.isPending,
+    confirmBlueprint: () => confirmMutation.mutate(),
+    isConfirming: confirmMutation.isPending
   }
 }

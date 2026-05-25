@@ -16,6 +16,10 @@ interface EditorState {
   setSelectedText: (text: string) => void
   selectionRange: { from: number; to: number } | null
   setSelectionRange: (range: { from: number; to: number } | null) => void
+  anchorPosition: number
+  setAnchorPosition: (pos: number) => void
+  aiAssistPreload: { text: string; range: { from: number; to: number } } | null
+  setAIAssistPreload: (preload: { text: string; range: { from: number; to: number } } | null) => void
 }
 
 export const useEditorStore = create<EditorState>((set) => ({
@@ -33,4 +37,8 @@ export const useEditorStore = create<EditorState>((set) => ({
   setSelectedText: (selectedText) => set({ selectedText }),
   selectionRange: null,
   setSelectionRange: (selectionRange) => set({ selectionRange }),
+  anchorPosition: 0,
+  setAnchorPosition: (anchorPosition) => set({ anchorPosition }),
+  aiAssistPreload: null,
+  setAIAssistPreload: (aiAssistPreload) => set({ aiAssistPreload }),
 }))

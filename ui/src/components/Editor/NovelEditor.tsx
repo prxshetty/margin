@@ -3,6 +3,7 @@ import StarterKit from '@tiptap/starter-kit'
 import { useEditorStore } from '../../stores/editorStore'
 import { useEffect, useRef } from 'react'
 import { Markdown } from 'tiptap-markdown'
+import { InlineSelectionPopup } from './InlineSelectionPopup'
 
 export function NovelEditor() {
   const content = useEditorStore(state => state.content)
@@ -10,6 +11,7 @@ export function NovelEditor() {
   const setEditor = useEditorStore(state => state.setEditor)
   const setSelectedText = useEditorStore(state => state.setSelectedText)
   const setSelectionRange = useEditorStore(state => state.setSelectionRange)
+  const setAnchorPosition = useEditorStore(state => state.setAnchorPosition)
   const lastContentRef = useRef('')
   // Flag: true while we are programmatically calling setContent so onUpdate
   // doesn't echo the change back into Zustand and cause an infinite loop.
@@ -36,6 +38,7 @@ export function NovelEditor() {
     },
     onSelectionUpdate: ({ editor }) => {
       const { from, to, empty } = editor.state.selection
+      setAnchorPosition(from)
       if (empty) {
         setSelectedText('')
         setSelectionRange(null)
@@ -73,8 +76,9 @@ export function NovelEditor() {
   }, [content, editor])
 
   return (
-    <div className="bg-white overflow-hidden">
+    <div className="bg-white overflow-hidden relative">
       <EditorContent editor={editor} />
+      <InlineSelectionPopup />
     </div>
   )
 }

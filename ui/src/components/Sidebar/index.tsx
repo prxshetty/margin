@@ -1,8 +1,7 @@
 import { useState } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { useProjectStore } from '../../stores/projectStore'
-import { useScene } from '../../hooks/useScene'
 
 // ── tiny inline SVGs ──────────────────────────────────────────────────────────
 function FolderOpen({ className = '' }: { className?: string }) {
@@ -69,9 +68,7 @@ export function Sidebar({
   exportedChapterDoc: boolean
 }) {
   const { activeSceneId, activeDoc, setActiveDoc } = useProjectStore()
-  const { sceneData } = useScene(activeSceneId)
-
-  const queryClient = useQueryClient()
+  const isConfirmed = !!blueprintData?.blueprint?.confirmed
 
   const [showCharacters, setShowCharacters] = useState(true)
   const [showStyles, setShowStyles]         = useState(true)
@@ -199,16 +196,7 @@ export function Sidebar({
           {showOutputs && (
             <div className="flex flex-col gap-3 mt-1">
               {blueprintData?.blueprint && (
-                <div className="flex flex-col gap-0.5 pb-2 border-b border-slate-200">
-                  <button
-                    onClick={() => setActiveDoc(null)}
-                    className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-xs text-left transition-colors w-full ${
-                      activeDoc === null ? 'bg-blue-100 text-blue-900 font-medium' : 'text-slate-600 hover:bg-slate-200'
-                    }`}
-                  >
-                    <FileIcon className="w-3 h-3 shrink-0 text-blue-300" />
-                    blueprint.json
-                  </button>
+                <div className="flex flex-col gap-0.5 pb-2">
                   <button
                     onClick={() => setActiveDoc({ type: 'blueprint', id: 'blueprint', name: blueprintData?.blueprint?.chapter_title || 'Blueprint Outline' })}
                     className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-xs text-left transition-colors w-full ${
@@ -221,7 +209,7 @@ export function Sidebar({
                 </div>
               )}
 
-              {blueprintData?.acts ? (
+              {isConfirmed && blueprintData?.acts ? (
                 blueprintData.acts.map((act: any) => {
                   const isCollapsed = collapsedActs[act.id] ?? false
                   return (
@@ -247,7 +235,9 @@ export function Sidebar({
                                 key={scene.id}
                                 onClick={() => setActiveDoc({ type: 'scene', sceneId: scene.id })}
                                 className={`flex items-center justify-between gap-1.5 px-2 py-1.5 rounded text-xs text-left transition-colors w-full ${
-                                  isActive ? 'bg-blue-100 text-blue-900 font-medium' : 'text-slate-600 hover:bg-slate-200'
+                                  isActive
+                                    ? 'bg-blue-100 text-blue-900 font-medium'
+                                    : 'text-slate-600 hover:bg-slate-200'
                                 }`}
                               >
                                 <span className="flex items-center gap-1.5 truncate">
@@ -267,11 +257,11 @@ export function Sidebar({
                     </div>
                   )
                 })
-              ) : (
+              ) : !blueprintData?.blueprint ? (
                 <div className="px-2 py-3 bg-slate-100 border border-slate-200/60 rounded-xl text-center">
                   <p className="text-[11px] text-slate-400 italic">Blueprint not generated</p>
                 </div>
-              )}
+              ) : null}
             </div>
           )}
         </div>
