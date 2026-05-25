@@ -152,3 +152,52 @@ def rewrite_selection_generic(chapter_id: str, payload: RewriteSelectionGenericR
     )
     return {"rewritten_text": rewritten_text}
 
+
+import asyncio
+import uuid
+import json
+from datetime import datetime
+from sse_starlette.sse import EventSourceResponse
+
+class InsertAfterRequest(BaseModel):
+    text_before: str
+    text_after: str
+    block_type: str
+    feedback: str
+    context: Optional[str] = ""
+
+@router.post("/{chapter_id}/insert_after")
+async def insert_after_generic(chapter_id: str, request: InsertAfterRequest):
+    chapter = storage.get_chapter(chapter_id)
+    if not chapter:
+        raise HTTPException(status_code=404, detail="Chapter not found")
+
+    async def insert_generator():
+        agent = RewriteAgent()
+        result = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: agent.generate_insert(
+                text_before=request.text_before,
+                text_after=request.text_after,
+                block_type=request.block_type,
+                feedback=request.feedback,
+            )
+        )
+        operation = "expand" if not request.feedback.strip() else "insert"
+        storage.save_chapter_ai_editor_log(chapter_id, {
+            "id": str(uuid.uuid4()),
+            "operation": operation,
+            "feedback": request.feedback or "(one-click expand)",
+            "block_type": request.block_type,
+            "output": result,
+            "timestamp": datetime.utcnow().isoformat()
+        })
+        yield {"data": json.dumps({"generated_text": result, "done": True})}
+
+    return EventSourceResponse(insert_generator())
+
+@router.get("/{chapter_id}/ai_editor_logs")
+def get_chapter_ai_editor_logs(chapter_id: str):
+    return storage.get_chapter_ai_editor_logs(chapter_id)
+
+

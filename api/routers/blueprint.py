@@ -41,24 +41,18 @@ def generate_blueprint(chapter_id: str):
     blueprint = Blueprint(
         id=f"{chapter_id}_blueprint",
         chapter_id=chapter_id,
-        data=result.to_dict()
+        data=result.to_dict(),
+        confirmed=False
     )
     storage.save_blueprint(blueprint)
     
-    # Save Initial Scenes
-    for act_model in result.acts:
-        act_id = f"{chapter_id}_act-{act_model.act_number}"
-        for scene_model in act_model.scenes:
-            scene = Scene(
-                id=f"{act_id}_scene-{scene_model.scene_number}",
-                act_id=act_id,
-                scene_number=scene_model.scene_number,
-                scene_setting=scene_model.scene_setting,
-                scene_description=scene_model.scene_description,
-                characters=scene_model.characters,
-                scene_events=scene_model.scene_events if hasattr(scene_model, 'scene_events') else []
-            )
-            storage.save_scene(scene)
+    # Save Log
+    storage.save_blueprint_log(
+        chapter_id=chapter_id,
+        system_prompt=agent.last_system_prompt,
+        user_prompt=agent.last_user_prompt,
+        output=agent.last_response
+    )
     
     return {"status": "success", "blueprint_id": blueprint.id}
 
@@ -113,32 +107,33 @@ def update_blueprint_markdown(chapter_id: str, payload: dict):
     existing.data = parsed_data
     storage.save_blueprint(existing)
     
-    # Propagate changes to individual acts, scenes, and beat files!
-    for act_data in parsed_data.get("acts", []):
-        act_num = act_data["act_number"]
-        act_id = f"{chapter_id}_act-{act_num}"
-        for scene_data in act_data.get("scenes", []):
-            scene_num = scene_data["scene_number"]
-            scene_id = f"{act_id}_scene-{scene_num}"
-            
-            existing_scene = storage.get_scene(scene_id)
-            if existing_scene:
-                existing_scene.scene_setting = scene_data.get("scene_setting", "")
-                existing_scene.scene_description = scene_data.get("scene_description", "")
-                existing_scene.characters = scene_data.get("characters", [])
-                existing_scene.scene_events = scene_data.get("scene_events", [])
-                storage.save_scene(existing_scene)
-            else:
-                new_scene = Scene(
-                    id=scene_id,
-                    act_id=act_id,
-                    scene_number=scene_num,
-                    scene_setting=scene_data.get("scene_setting", ""),
-                    scene_description=scene_data.get("scene_description", ""),
-                    characters=scene_data.get("characters", []),
-                    scene_events=scene_data.get("scene_events", [])
-                )
-                storage.save_scene(new_scene)
+    # Propagate changes to individual acts, scenes, and beat files ONLY if confirmed!
+    if existing.confirmed:
+        for act_data in parsed_data.get("acts", []):
+            act_num = act_data["act_number"]
+            act_id = f"{chapter_id}_act-{act_num}"
+            for scene_data in act_data.get("scenes", []):
+                scene_num = scene_data["scene_number"]
+                scene_id = f"{act_id}_scene-{scene_num}"
+                
+                existing_scene = storage.get_scene(scene_id)
+                if existing_scene:
+                    existing_scene.scene_setting = scene_data.get("scene_setting", "")
+                    existing_scene.scene_description = scene_data.get("scene_description", "")
+                    existing_scene.characters = scene_data.get("characters", [])
+                    existing_scene.scene_events = scene_data.get("scene_events", [])
+                    storage.save_scene(existing_scene)
+                else:
+                    new_scene = Scene(
+                        id=scene_id,
+                        act_id=act_id,
+                        scene_number=scene_num,
+                        scene_setting=scene_data.get("scene_setting", ""),
+                        scene_description=scene_data.get("scene_description", ""),
+                        characters=scene_data.get("characters", []),
+                        scene_events=scene_data.get("scene_events", [])
+                    )
+                    storage.save_scene(new_scene)
                 
     return {"status": "success", "chapter_id": chapter_id}
 
@@ -171,23 +166,56 @@ def regenerate_blueprint(chapter_id: str):
     blueprint = Blueprint(
         id=f"{chapter_id}_blueprint",
         chapter_id=chapter_id,
-        data=result.to_dict()
+        data=result.to_dict(),
+        confirmed=False
     )
     storage.save_blueprint(blueprint)
     
-    # Save Initial Scenes
-    for act_model in result.acts:
-        act_id = f"{chapter_id}_act-{act_model.act_number}"
-        for scene_model in act_model.scenes:
-            scene = Scene(
-                id=f"{act_id}_scene-{scene_model.scene_number}",
-                act_id=act_id,
-                scene_number=scene_model.scene_number,
-                scene_setting=scene_model.scene_setting,
-                scene_description=scene_model.scene_description,
-                characters=scene_model.characters,
-                scene_events=scene_model.scene_events if hasattr(scene_model, 'scene_events') else []
-            )
-            storage.save_scene(scene)
+    # Save Log
+    storage.save_blueprint_log(
+        chapter_id=chapter_id,
+        system_prompt=agent.last_system_prompt,
+        user_prompt=agent.last_user_prompt,
+        output=agent.last_response
+    )
     
     return {"status": "success", "blueprint_id": blueprint.id}
+
+@router.post("/confirm")
+def confirm_blueprint(chapter_id: str):
+    blueprint = storage.get_blueprint(chapter_id)
+    if not blueprint:
+        raise HTTPException(status_code=404, detail="Blueprint not found")
+        
+    if blueprint.confirmed:
+        return {"status": "success", "message": "Blueprint already confirmed"}
+        
+    blueprint.confirmed = True
+    storage.save_blueprint(blueprint)
+    
+    # Save Initial Scenes to disk (plan.md files) using latest blueprint data!
+    for act_data in blueprint.data.get("acts", []):
+        act_num = act_data["act_number"]
+        act_id = f"{chapter_id}_act-{act_num}"
+        for scene_data in act_data.get("scenes", []):
+            scene_num = scene_data["scene_number"]
+            scene_id = f"{act_id}_scene-{scene_num}"
+            
+            existing_scene = storage.get_scene(scene_id)
+            if not existing_scene:
+                scene = Scene(
+                    id=scene_id,
+                    act_id=act_id,
+                    scene_number=scene_num,
+                    scene_setting=scene_data.get("scene_setting", "Setting"),
+                    scene_description=scene_data.get("scene_description", ""),
+                    characters=scene_data.get("characters", []),
+                    scene_events=scene_data.get("scene_events", [])
+                )
+                storage.save_scene(scene)
+                
+    return {"status": "success", "blueprint_id": blueprint.id}
+
+@router.get("/logs")
+def get_blueprint_logs(chapter_id: str):
+    return storage.get_blueprint_logs(chapter_id)

@@ -89,13 +89,43 @@ def _build_agent_prompts() -> dict:
     }
 
 
-def _apply_thinking_preamble(prompts: dict) -> dict:
-    """Prepend the thinking preamble to every system prompt if reasoning model is enabled."""
-    if not REASONING_MODEL:
-        return prompts
-    return {key: THINKING_PREAMBLE + prompt for key, prompt in prompts.items()}
+import json
 
+class DynamicSystemPrompts:
+    def __init__(self):
+        self._base_prompts = _build_agent_prompts()
 
-agent_prompts = _build_agent_prompts()
-agent_prompts = _apply_thinking_preamble(agent_prompts)
-SYSTEM_PROMPTS = {key: prompt for key, prompt in agent_prompts.items()}
+    def get_prompt(self, key: str) -> str:
+        prompt = self._base_prompts.get(key, "")
+        
+        # Load from settings.json dynamically
+        reasoning_model = True
+        prepend_thinking_preamble = False  # Off by default!
+        
+        settings_path = Path(__file__).parent / "settings.json"
+        if settings_path.exists():
+            try:
+                with open(settings_path, "r", encoding="utf-8") as f:
+                    settings = json.load(f)
+                    reasoning_model = settings.get("reasoning_model", True)
+                    prepend_thinking_preamble = settings.get("prepend_thinking_preamble", False)
+            except Exception:
+                pass
+                
+        if reasoning_model and prepend_thinking_preamble:
+            prompt = THINKING_PREAMBLE + prompt
+            
+        return prompt
+
+    def __getitem__(self, key: str) -> str:
+        return self.get_prompt(key)
+
+    def get(self, key: str, default: str = "") -> str:
+        if key in self._base_prompts:
+            return self.get_prompt(key)
+        return default
+
+    def items(self):
+        return {key: self.get_prompt(key) for key in self._base_prompts}.items()
+
+SYSTEM_PROMPTS = DynamicSystemPrompts()

@@ -12,6 +12,24 @@ router = APIRouter(
 class LinkRequest(BaseModel):
     inputs_path: str
 
+class SettingsUpdateRequest(BaseModel):
+    reasoning_model: bool
+    prepend_thinking_preamble: bool
+
+@router.get("/", response_model=Dict[str, Any])
+def get_settings():
+    try:
+        return storage.get_settings()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/", response_model=Dict[str, Any])
+def update_settings(payload: SettingsUpdateRequest):
+    try:
+        return storage.update_settings(payload.dict())
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/status", response_model=Dict[str, Any])
 def get_status():
     return storage.get_directory_status()

@@ -7,6 +7,7 @@ import json
 import re
 import uuid
 from typing import Optional, Dict, List
+from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -362,6 +363,13 @@ class RewriteSelectionRequest(BaseModel):
     feedback: str
     context: Optional[str] = ""
 
+class InsertAfterRequest(BaseModel):
+    text_before: str
+    text_after: str
+    block_type: str
+    feedback: str
+    context: Optional[str] = ""
+
 
 # ---------------------------------------------------------------------------
 # Endpoints (specific routes first, generic catch-all last)
@@ -472,6 +480,15 @@ def rewrite_selection(scene_id: str, payload: RewriteSelectionRequest):
         context_text=context
     )
 
+    storage.save_ai_editor_log(scene_id, {
+        "id": str(uuid.uuid4()),
+        "operation": "rewrite",
+        "feedback": payload.feedback or "(one-click rewrite)",
+        "selected_text_preview": payload.selected_text[:120],
+        "output": rewritten_text,
+        "timestamp": datetime.utcnow().isoformat()
+    })
+
     return {"rewritten_text": rewritten_text}
 
 
@@ -495,6 +512,40 @@ def update_beat(scene_id: str, beat_num: int, payload: BeatContentUpdate):
 
 
 # Generic catch-all routes (must be last)
+@router.post("/{scene_id:path}/insert_after")
+async def insert_after(scene_id: str, request: InsertAfterRequest):
+    scene = storage.get_scene(scene_id)
+    if not scene:
+        raise HTTPException(status_code=404, detail="Scene not found")
+
+    async def insert_generator():
+        agent = RewriteAgent()
+        result = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: agent.generate_insert(
+                text_before=request.text_before,
+                text_after=request.text_after,
+                block_type=request.block_type,
+                feedback=request.feedback,
+            )
+        )
+        operation = "expand" if not request.feedback.strip() else "insert"
+        storage.save_ai_editor_log(scene_id, {
+            "id": str(uuid.uuid4()),
+            "operation": operation,
+            "feedback": request.feedback or "(one-click expand)",
+            "block_type": request.block_type,
+            "output": result,
+            "timestamp": datetime.utcnow().isoformat()
+        })
+        yield {"data": json.dumps({"generated_text": result, "done": True})}
+
+    return EventSourceResponse(insert_generator())
+
+@router.get("/{scene_id:path}/ai_editor_logs")
+def get_ai_editor_logs(scene_id: str):
+    return storage.get_ai_editor_logs(scene_id)
+
 @router.patch("/{scene_id:path}")
 def update_scene(scene_id: str, payload: SceneUpdate):
     scene = storage.get_scene(scene_id)

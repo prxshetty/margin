@@ -14,6 +14,7 @@ class Blueprint(BaseModel):
     chapter_id: str
     data: Dict[str, Any] = Field(default_factory=dict)
     approved: bool = Field(default=False)
+    confirmed: bool = Field(default=False)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 class Act(BaseModel):

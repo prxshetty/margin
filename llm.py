@@ -80,22 +80,25 @@ class LLMClient:
                                 if content:
                                     if in_thinking:
                                         thinking_buffer += content
-                                        # Check if we have seen a closing channel tag
-                                        # (handle <channel|> or <|channel|>)
-                                        if "<channel|>" in thinking_buffer or "<|channel|>" in thinking_buffer:
-                                            idx = thinking_buffer.find("<channel|>")
-                                            if idx == -1:
-                                                idx = thinking_buffer.find("<|channel|>")
-                                                tag_len = len("<|channel|>")
-                                            else:
-                                                tag_len = len("<channel|>")
-                                            
-                                            remaining = thinking_buffer[idx + tag_len:]
-                                            in_thinking = False
-                                            if remaining:
-                                                full_content += remaining
-                                                yield remaining
-                                        elif len(thinking_buffer) > 6000:
+                                        # All known closing channel tags from local reasoning models
+                                        CLOSING_TAGS = [
+                                            "<channel|>",
+                                            "<|channel|>",
+                                            "</channel|>",
+                                            "|channel|>",
+                                        ]
+                                        found_close = False
+                                        for close_tag in CLOSING_TAGS:
+                                            if close_tag in thinking_buffer:
+                                                idx = thinking_buffer.find(close_tag)
+                                                remaining = thinking_buffer[idx + len(close_tag):]
+                                                in_thinking = False
+                                                found_close = True
+                                                if remaining:
+                                                    full_content += remaining
+                                                    yield remaining
+                                                break
+                                        if not found_close and len(thinking_buffer) > 6000:
                                             # Fail-safe: if the reasoning block is extremely long, just flush it
                                             in_thinking = False
                                             full_content += thinking_buffer
@@ -136,22 +139,47 @@ class LLMClient:
         return self._clean_reasoning(content)
 
     def _clean_reasoning(self, text: str) -> str:
-        if not config.REASONING_MODEL:
-            return text
-        
-        # Remove anything before and including the closing tag
-        idx = text.find("<channel|>")
-        if idx == -1:
-            idx = text.find("<|channel|>")
-            if idx != -1:
-                return text[idx + len("<|channel|>"):].strip()
-        else:
-            return text[idx + len("<channel|>"):].strip()
-        
-        # Fallback regex if somehow the closing tag wasn't found but standard tags exist
+        # Always attempt to clean reasoning tags to be completely safe against 
+        # hallucinations and environment variable caching issues.
         import re
-        text = re.sub(r'<\|?channel\|>thought.*?<\|?channel\|>', '', text, flags=re.DOTALL)
-        text = re.sub(r'<\|?channel\|>', '', text)
+
+        CLOSING_TAGS = [
+            "<channel|>",      # DeepSeek standard closing
+            "<|channel|>",     # Alternative DeepSeek
+            "</channel|>",     # Malformed but seen in practice
+            "|channel|>",      # Truncated variant
+        ]
+
+        # Use rfind to find the LAST closing tag. This handles cases where the model
+        # outputs multiple reasoning blocks or restarts its thought process.
+        last_idx = -1
+        last_tag_len = 0
+        for tag in CLOSING_TAGS:
+            idx = text.rfind(tag)
+            if idx > last_idx:
+                last_idx = idx
+                last_tag_len = len(tag)
+                
+        if last_idx != -1:
+            text = text[last_idx + last_tag_len:].strip()
+            
+        # Fallback 1: strip native <think>...</think> tags and their inner content
+        text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+        text = re.sub(r'<think>.*', '', text, flags=re.DOTALL)
+            
+        # Fallback 2: strip any cleanly paired <...channel...> blocks that remain
+        text = re.sub(r'<\|?channel\|?>.*?<[\|/]?channel[\|>]', '', text, flags=re.DOTALL)
+        
+        # Fallback 3: strip malformed greedy tags
+        text = re.sub(r'<[\|/]?channel[\|>][^<]*', '', text, flags=re.DOTALL)
+
+        text = text.strip()
+
+        # Clean up stray bullet points or prefixes that were attached to the reasoning block
+        # For example, if the model output `* <|channel|>thought...`, after stripping the tags
+        # we are left with a leading `* ` followed by nothing or the actual content.
+        text = re.sub(r'^[\*\-\+]\s*\n?', '', text)
+
         return text.strip()
 
 

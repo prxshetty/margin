@@ -153,6 +153,37 @@ class FileStorageService:
         
         return self.get_directory_status()
 
+    def get_settings(self) -> Dict[str, Any]:
+        settings = {
+            "linked_inputs_dir": None,
+            "linked_outputs_dir": None,
+            "reasoning_model": True,
+            "prepend_thinking_preamble": False,  # Off by default!
+        }
+        if self.settings_path.exists():
+            try:
+                with open(self.settings_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    for k, v in data.items():
+                        settings[k] = v
+            except Exception:
+                pass
+        return settings
+
+    def update_settings(self, new_settings: Dict[str, Any]) -> Dict[str, Any]:
+        settings = self.get_settings()
+        for k, v in new_settings.items():
+            if k in ("linked_inputs_dir", "linked_outputs_dir", "reasoning_model", "prepend_thinking_preamble"):
+                settings[k] = v
+        
+        try:
+            with open(self.settings_path, "w", encoding="utf-8") as f:
+                json.dump(settings, f, indent=2)
+        except Exception as e:
+            print(f"Error saving settings: {e}")
+            
+        return settings
+
     def get_directory_status(self) -> Dict[str, Any]:
         is_linked = self.inputs_dir != (self.base_dir / "inputs")
         
@@ -549,6 +580,17 @@ class FileStorageService:
                 scene = self.get_scene(scene_id)
                 if scene:
                     scenes.append(scene)
+                else:
+                    # Fallback to blueprint planned scene details
+                    scenes.append(Scene(
+                        id=scene_id,
+                        act_id=f"{chapter_id}_{act_str}",
+                        scene_number=scene_num,
+                        scene_setting=sc.get("scene_setting", "Setting"),
+                        scene_description=sc.get("scene_description", ""),
+                        characters=sc.get("characters", []),
+                        scene_events=sc.get("scene_events", [])
+                    ))
         return scenes
 
     def save_scene(self, scene: Scene) -> Scene:
@@ -639,6 +681,101 @@ class FileStorageService:
 
             with open(logs_path, "w", encoding="utf-8") as f:
                 json.dump(filtered, f, indent=2)
+
+    def save_ai_editor_log(self, scene_id: str, log: dict):
+        parts = scene_id.split("_")
+        if len(parts) != 3: return
+        chapter_id, act_str, scene_str = parts
+        
+        scene_dir = self.outputs_dir / chapter_id / act_str / scene_str
+        scene_dir.mkdir(parents=True, exist_ok=True)
+        
+        logs_path = scene_dir / "ai_editor_logs.json"
+        logs = []
+        if logs_path.exists():
+            with open(logs_path, "r", encoding="utf-8") as f:
+                logs = json.load(f)
+                
+        logs.append(log)
+        logs = logs[-20:]  # keep last 20 entries
+        
+        with open(logs_path, "w", encoding="utf-8") as f:
+            json.dump(logs, f, indent=2)
+
+    def get_ai_editor_logs(self, scene_id: str) -> list:
+        parts = scene_id.split("_")
+        if len(parts) != 3: return []
+        chapter_id, act_str, scene_str = parts
+        
+        logs_path = self.outputs_dir / chapter_id / act_str / scene_str / "ai_editor_logs.json"
+        if not logs_path.exists():
+            return []
+            
+        with open(logs_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+    def save_chapter_ai_editor_log(self, chapter_id: str, log: dict):
+        chapter_dir = self.outputs_dir / chapter_id
+        chapter_dir.mkdir(parents=True, exist_ok=True)
+        logs_path = chapter_dir / "ai_editor_logs.json"
+        logs = []
+        if logs_path.exists():
+            try:
+                with open(logs_path, "r", encoding="utf-8") as f:
+                    logs = json.load(f)
+            except Exception:
+                logs = []
+        logs.append(log)
+        logs = logs[-20:]
+        with open(logs_path, "w", encoding="utf-8") as f:
+            json.dump(logs, f, indent=2)
+
+    def get_chapter_ai_editor_logs(self, chapter_id: str) -> list:
+        logs_path = self.outputs_dir / chapter_id / "ai_editor_logs.json"
+        if not logs_path.exists():
+            return []
+        try:
+            with open(logs_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return []
+
+    def save_blueprint_log(self, chapter_id: str, system_prompt: str, user_prompt: str, output: str):
+        import uuid
+        from datetime import datetime
+        logs_path = self.outputs_dir / chapter_id / "blueprint_logs.json"
+        logs = []
+        if logs_path.exists():
+            try:
+                with open(logs_path, "r", encoding="utf-8") as f:
+                    logs = json.load(f)
+            except Exception:
+                logs = []
+        log_entry = {
+            "id": f"blueprint_{uuid.uuid4().hex}",
+            "scene_id": "blueprint",
+            "beat_number": 0,
+            "agent_name": "BlueprintAgent",
+            "system_prompt": system_prompt,
+            "user_prompt": user_prompt,
+            "output": output,
+            "created_at": datetime.utcnow().isoformat()
+        }
+        logs.append(log_entry)
+        logs = logs[-10:]
+        logs_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(logs_path, "w", encoding="utf-8") as f:
+            json.dump(logs, f, indent=2)
+
+    def get_blueprint_logs(self, chapter_id: str) -> list:
+        logs_path = self.outputs_dir / chapter_id / "blueprint_logs.json"
+        if not logs_path.exists():
+            return []
+        try:
+            with open(logs_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return []
 
     # --- Individual Beat Access ---
     def get_beat(self, scene_id: str, beat_num: int) -> Optional[Dict]:

@@ -20,6 +20,9 @@ class BlueprintAgent:
         self.token_limit = config.TOKEN_LIMITS["blueprint"]
         self.temperature = config.AGENT_CONFIG["blueprint"]["temperature"]
         self.schema = config.SCHEMA
+        self.last_system_prompt = ""
+        self.last_user_prompt = ""
+        self.last_response = ""
 
     def generate(
         self,
@@ -49,6 +52,10 @@ class BlueprintAgent:
             max_tokens=self.token_limit,
         )
 
+        self.last_system_prompt = self.system_prompt
+        self.last_user_prompt = user_prompt
+        self.last_response = response
+
         questions = self._extract_questions(response)
         if questions:
             return questions
@@ -75,6 +82,10 @@ Please revise the blueprint based on this feedback. Output ONLY valid JSON."""
             temperature=self.temperature - 0.05,
             max_tokens=self.token_limit,
         )
+
+        self.last_system_prompt = self.system_prompt
+        self.last_user_prompt = user_prompt
+        self.last_response = response
 
         blueprint = self._parse_response(response)
         return blueprint
