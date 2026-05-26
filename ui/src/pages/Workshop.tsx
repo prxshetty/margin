@@ -11,6 +11,7 @@ import { useScene } from '../hooks/useScene'
 import { useStream } from '../hooks/useStream'
 import { Sidebar } from '../components/Sidebar'
 import { NovelEditor } from '../components/Editor/NovelEditor'
+import { SceneBeatsList } from '../components/Editor/SceneBeatsList'
 import { Inspector } from '../components/Inspector'
 import type { ActiveDoc } from '../stores/projectStore'
 import { useProjectStore } from '../stores/projectStore'
@@ -91,8 +92,8 @@ export default function Workshop() {
   })
 
   const deleteMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const res = await fetch(`http://127.0.0.1:8000/chapters/${id}`, {
+    mutationFn: async ({ id, target }: { id: string, target: 'input' | 'output' | 'both' }) => {
+      const res = await fetch(`http://127.0.0.1:8000/chapters/${id}?target=${target}`, {
         method: 'DELETE'
       })
       if (!res.ok) throw new Error('Failed to delete chapter')
@@ -163,8 +164,8 @@ export default function Workshop() {
     }
   })
 
-  const { setActiveChapter, activeSceneId, activeDoc, setActiveDoc } = useProjectStore()
-  const { content, setContent, isStreaming } = useEditorStore()
+  const { setActiveChapter, activeSceneId, activeDoc, setActiveDoc, currentBeatIndex, sceneViewMode, setSceneViewMode } = useProjectStore()
+  const { content, setContent, isStreaming, reloadDocSignal } = useEditorStore()
   const { generateScene, stopGeneration } = useStream()
 
   const { blueprintData, generateBlueprint, isGenerating, confirmBlueprint, isConfirming } = useBlueprint(chapterId)
@@ -176,52 +177,43 @@ export default function Workshop() {
   const [isExporting, setIsExporting] = useState(false)
   const [exportedChapterDoc, setExportedChapterDoc] = useState(false)
 
-  const [sceneViewMode, setSceneViewMode] = useState<'content' | 'beats'>('beats')
-  const [beatSubMode, setBeatSubMode] = useState<'outline' | 'prose'>('outline')
-  const [currentBeatIndex, setCurrentBeatIndex] = useState(0)
+  const [deleteConfirmChapter, setDeleteConfirmChapter] = useState<{ id: string, title: string } | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<'input' | 'output' | 'both'>('both')
   const lastViewedSceneRef = useRef<string | null>(null)
 
   // Track previous document and live content for exit/unload saving
-  const prevDocInfoRef = useRef<{doc: ActiveDoc, mode?: string, subMode?: string, beatIndex?: number} | null>(null)
+  const prevDocInfoRef = useRef<{doc: ActiveDoc, mode?: string, beatIndex?: number} | null>(null)
   const contentRef = useRef<string>('')
   const lastDocKeyRef = useRef<string>('')
   const hasLoadedRef = useRef<boolean>(false)
 
+  // Force-reload the document from disk when the Toolbar's AI assist succeeds
+  useEffect(() => {
+    if (reloadDocSignal === 0) return
+    hasLoadedRef.current = false
+    // The content-loading effect will pick this up on next render since deps include activeDoc
+  }, [reloadDocSignal])
+
   // Auto-save callback
-  const saveContent = useCallback(async (docInfo: {doc: ActiveDoc, mode?: string, subMode?: string, beatIndex?: number}, text: string) => {
+  const saveContent = useCallback(async (docInfo: {doc: ActiveDoc, mode?: string, beatIndex?: number}, text: string) => {
     if (!docInfo || !docInfo.doc || !text.trim()) return
     const doc = docInfo.doc
     setIsSaving(true)
     try {
       if (doc.type === 'scene') {
-        if (docInfo.mode === 'beats' && docInfo.beatIndex !== undefined) {
-          if (docInfo.subMode === 'prose') {
-            const currentProse = sceneData?.generated_content || ''
-            const segments = currentProse.split(/\n\s*---\s*\n/)
-            while (segments.length <= docInfo.beatIndex) {
-              segments.push('')
-            }
-            segments[docInfo.beatIndex] = text
-            const updatedContent = segments.join('\n\n---\n\n')
-            await fetch(`http://127.0.0.1:8000/scenes/${doc.sceneId}/content`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ content: updatedContent })
-            })
-            queryClient.invalidateQueries({ queryKey: ['scene', doc.sceneId] })
-          } else {
-            await fetch(`http://127.0.0.1:8000/scenes/${doc.sceneId}/beats/${docInfo.beatIndex + 1}`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ beat: text })
-            })
-          }
-        } else {
+        if (docInfo.mode === 'content') {
           await fetch(`http://127.0.0.1:8000/scenes/${doc.sceneId}/content`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ content: text })
           })
+        } else if (docInfo.mode === 'beats' && docInfo.beatIndex !== undefined) {
+          await fetch(`http://127.0.0.1:8000/scenes/${doc.sceneId}/beats/${docInfo.beatIndex + 1}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ beat: text })
+          })
+          queryClient.invalidateQueries({ queryKey: ['scene', doc.sceneId] })
         }
       } else if (doc.type === 'character') {
         await fetch(`http://127.0.0.1:8000/characters/${doc.slug}/content`, {
@@ -283,8 +275,6 @@ export default function Workshop() {
     if (activeDoc?.type === 'scene' && activeSceneId && sceneData && activeSceneId !== lastViewedSceneRef.current) {
       const hasContent = !!sceneData.generated_content
       setSceneViewMode(hasContent ? 'content' : 'beats')
-      setBeatSubMode('outline')
-      setCurrentBeatIndex(0)
       lastViewedSceneRef.current = activeSceneId
     }
   }, [activeSceneId, sceneData, activeDoc])
@@ -313,8 +303,7 @@ export default function Workshop() {
     const currentDocInfo = activeDoc ? {
       doc: activeDoc,
       mode: activeDoc.type === 'scene' ? sceneViewMode : undefined,
-      subMode: activeDoc.type === 'scene' ? beatSubMode : undefined,
-      beatIndex: activeDoc.type === 'scene' ? currentBeatIndex : undefined
+      beatIndex: activeDoc.type === 'scene' && sceneViewMode === 'beats' ? currentBeatIndex : undefined
     } : null
 
     const docId = activeDoc
@@ -327,7 +316,7 @@ export default function Workshop() {
 
     const docKey = activeDoc 
       ? activeDoc.type === 'scene'
-        ? `${activeDoc.type}-${activeDoc.sceneId}-${sceneViewMode}-${beatSubMode}-${currentBeatIndex}`
+        ? `${activeDoc.type}-${activeDoc.sceneId}-${sceneViewMode}-${sceneViewMode === 'beats' ? currentBeatIndex : ''}`
         : `${activeDoc.type}-${docId}`
       : 'none'
 
@@ -362,33 +351,19 @@ export default function Workshop() {
     if (!activeDoc) return
 
     if (activeDoc.type === 'scene') {
-      if (sceneViewMode === 'beats') {
-        if (beatSubMode === 'prose') {
-          const segments = sceneData?.generated_content?.split(/\n\s*---\s*\n/) || []
-          const beatProse = segments[currentBeatIndex] || ''
-          setContent(beatProse)
-          hasLoadedRef.current = true
-        } else {
-          const sceneBeat = sceneData?.scene_events?.[currentBeatIndex]
-          if (sceneBeat) {
-            const beatText = sceneBeat.beat || ''
-            const flow = sceneBeat.conversation_flow || []
-            const flowText = flow.map((s: string) => `- ${s}`).join('\n')
-            setContent(flowText ? `${beatText}\n\n${flowText}` : beatText)
-            hasLoadedRef.current = true
-          } else if (sceneData) {
-            hasLoadedRef.current = true
-            fetch(`http://127.0.0.1:8000/scenes/${activeDoc.sceneId}/beats/${currentBeatIndex + 1}`)
-              .then(res => res.json())
-              .then(data => setContent(data.beat || ''))
-              .catch(() => setContent(''))
-          }
-        }
-      } else {
-        if (sceneData) {
-          setContent(sceneData.generated_content || '')
-          hasLoadedRef.current = true
-        }
+      if (sceneViewMode === 'content' && activeSceneId) {
+        // Always fetch fresh from server so newly compiled beat prose is reflected immediately
+        hasLoadedRef.current = true
+        fetch(`http://127.0.0.1:8000/scenes/${activeSceneId}`)
+          .then(res => res.json())
+          .then(data => { setContent(data.generated_content || '') })
+          .catch(() => { setContent('') })
+      } else if (sceneViewMode === 'beats' && activeSceneId) {
+        hasLoadedRef.current = true
+        fetch(`http://127.0.0.1:8000/scenes/${activeSceneId}/beats/${currentBeatIndex + 1}`)
+          .then(res => res.json())
+          .then(data => { setContent(data.beat || '') })
+          .catch(() => { setContent('') })
       }
       return
     }
@@ -443,7 +418,7 @@ export default function Workshop() {
         .catch(() => { setContent('') })
       return
     }
-  }, [activeDoc, sceneData, chapterData, setContent, saveContent, chapterId, sceneViewMode, beatSubMode, currentBeatIndex])
+  }, [activeDoc, sceneData, chapterData, setContent, saveContent, chapterId, sceneViewMode, currentBeatIndex, reloadDocSignal])
 
 
 
@@ -455,34 +430,18 @@ export default function Workshop() {
         const text = contentRef.current
         const doc = prevDocInfo.doc
         if (doc.type === 'scene') {
-          if (prevDocInfo.mode === 'beats' && prevDocInfo.beatIndex !== undefined) {
-            if (prevDocInfo.subMode === 'prose') {
-              const currentProse = sceneData?.generated_content || ''
-              const segments = currentProse.split(/\n\s*---\s*\n/)
-              while (segments.length <= prevDocInfo.beatIndex) {
-                segments.push('')
-              }
-              segments[prevDocInfo.beatIndex] = text
-              const updatedContent = segments.join('\n\n---\n\n')
-              fetch(`http://127.0.0.1:8000/scenes/${doc.sceneId}/content`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ content: updatedContent }),
-                keepalive: true
-              })
-            } else {
-              fetch(`http://127.0.0.1:8000/scenes/${doc.sceneId}/beats/${prevDocInfo.beatIndex + 1}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ beat: text }),
-                keepalive: true
-              })
-            }
-          } else {
+          if (prevDocInfo.mode === 'content') {
             fetch(`http://127.0.0.1:8000/scenes/${doc.sceneId}/content`, {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ content: text }),
+              keepalive: true
+            })
+          } else if (prevDocInfo.mode === 'beats' && prevDocInfo.beatIndex !== undefined) {
+            fetch(`http://127.0.0.1:8000/scenes/${doc.sceneId}/beats/${prevDocInfo.beatIndex + 1}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ beat: text }),
               keepalive: true
             })
           }
@@ -534,7 +493,7 @@ export default function Workshop() {
         const docInfo = {
           doc: activeDoc,
           mode: activeDoc.type === 'scene' ? sceneViewMode : undefined,
-          beatIndex: activeDoc.type === 'scene' ? currentBeatIndex : undefined
+          beatIndex: activeDoc.type === 'scene' && sceneViewMode === 'beats' ? currentBeatIndex : undefined
         }
         await saveContent(docInfo, contentRef.current)
       }
@@ -598,7 +557,7 @@ export default function Workshop() {
       if (sceneViewMode === 'beats') {
         items.push({ label: `Scene ${activeSceneMeta?.scene_number || ''}`, onClick: () => setSceneViewMode('content') })
         if (sceneData?.scene_events?.length) {
-          items.push({ label: `Beat ${currentBeatIndex + 1}` })
+
         } else {
           items.push({ label: `No Beats` })
         }
@@ -728,33 +687,7 @@ export default function Workshop() {
               </button>
             </div>
 
-            {sceneViewMode === 'beats' && (
-              sceneData?.scene_events?.length ? (
-                <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-sm shrink-0">
-                  <button 
-                    onClick={() => setCurrentBeatIndex(prev => Math.max(0, prev - 1))}
-                    disabled={currentBeatIndex === 0}
-                    className="text-slate-400 hover:text-blue-600 disabled:opacity-30 p-0.5 text-xs font-bold"
-                  >
-                    ◀
-                  </button>
-                  <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider min-w-[75px] text-center select-none">
-                    Beat {currentBeatIndex + 1} / {sceneData.scene_events.length}
-                  </span>
-                  <button 
-                    onClick={() => setCurrentBeatIndex(prev => Math.min(sceneData.scene_events.length - 1, prev + 1))}
-                    disabled={currentBeatIndex >= sceneData.scene_events.length - 1}
-                    className="text-slate-400 hover:text-blue-600 disabled:opacity-30 p-0.5 text-xs font-bold"
-                  >
-                    ▶
-                  </button>
-                </div>
-              ) : (
-                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg select-none shrink-0">
-                  No Beats Yet
-                </span>
-              )
-            )}
+
 
             <span className={`text-[10px] font-mono shrink-0 select-none ${isSaving ? 'text-amber-500 font-bold animate-pulse' : 'text-slate-400'}`}>
               {isSaving ? 'Saving...' : 'Auto-saved'}
@@ -788,32 +721,7 @@ export default function Workshop() {
           }}
         />
         <div className="h-px bg-slate-200 mt-2 animate-fadeIn" />
-        {sceneViewMode === 'beats' && !!sceneData?.generated_content && (
-          <div className="flex border-b border-slate-100 mt-3 -mb-3 animate-fadeIn">
-            <button
-              type="button"
-              onClick={() => setBeatSubMode('outline')}
-              className={`px-4 py-1.5 text-xs font-bold border-b-2 transition-all cursor-pointer ${
-                beatSubMode === 'outline'
-                  ? 'border-indigo-600 text-indigo-600'
-                  : 'border-transparent text-slate-400 hover:text-slate-700'
-              }`}
-            >
-              Beat Outline
-            </button>
-            <button
-              type="button"
-              onClick={() => setBeatSubMode('prose')}
-              className={`px-4 py-1.5 text-xs font-bold border-b-2 transition-all cursor-pointer ${
-                beatSubMode === 'prose'
-                  ? 'border-indigo-600 text-indigo-600'
-                  : 'border-transparent text-slate-400 hover:text-slate-700'
-              }`}
-            >
-              Generated Prose
-            </button>
-          </div>
-        )}
+
       </div>
     )
   }
@@ -1053,9 +961,8 @@ export default function Workshop() {
                     onClick={(e) => {
                       e.preventDefault()
                       e.stopPropagation()
-                      if (confirm(`Delete chapter "${chapter.title}" permanently? This will clear the outline and all generated scenes.`)) {
-                        deleteMutation.mutate(chapter.id)
-                      }
+                      setDeleteConfirmChapter({ id: chapter.id, title: chapter.title })
+                      setDeleteTarget('both')
                     }}
                     className="absolute top-4 right-4 p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors opacity-0 group-hover:opacity-100 z-10 cursor-pointer"
                     title="Delete chapter"
@@ -1067,6 +974,77 @@ export default function Workshop() {
             )}
           </div>
         </div>
+
+        {/* Delete Options Modal Overlay */}
+        {deleteConfirmChapter && (
+          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-white border border-slate-200 rounded-2xl max-w-md w-full p-6 shadow-sm animate-fadeIn">
+              <h3 className="text-xl font-bold text-slate-900 mb-2">
+                Delete Chapter "{deleteConfirmChapter.title}"
+              </h3>
+              <p className="text-sm text-slate-500 mb-5 leading-relaxed">
+                Select which parts of the chapter you would like to permanently delete. This action is irreversible.
+              </p>
+
+              <div className="space-y-3 mb-6">
+                {[
+                  {
+                    value: 'input',
+                    label: 'Input Outline Only',
+                    desc: 'Keep all generated scenes, blueprints, and narrative beats, but delete the raw outline (.md) file.',
+                  },
+                  {
+                    value: 'output',
+                    label: 'Generated Outputs Only',
+                    desc: 'Keep the source outline (.md), but delete all generated scenes, compiled drafts, blueprints, and dramatic beats.',
+                  },
+                  {
+                    value: 'both',
+                    label: 'Both (Full Clean)',
+                    desc: 'Permanently delete the input outline and all generated scenes, blueprints, and dramatic beats.',
+                  },
+                ].map((choice) => (
+                  <button
+                    key={choice.value}
+                    type="button"
+                    onClick={() => setDeleteTarget(choice.value as 'input' | 'output' | 'both')}
+                    className={`w-full text-left p-3.5 rounded-xl border text-sm transition-all flex flex-col gap-1 cursor-pointer ${
+                      deleteTarget === choice.value
+                        ? 'bg-slate-50 border-slate-800 ring-1 ring-slate-800'
+                        : 'bg-white border-slate-200 hover:border-slate-300'
+                    }`}
+                  >
+                    <span className="font-semibold text-slate-900">{choice.label}</span>
+                    <span className="text-xs text-slate-500 leading-relaxed">{choice.desc}</span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setDeleteConfirmChapter(null)}
+                  className="px-4 py-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl text-sm font-medium transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={deleteMutation.isPending}
+                  onClick={async () => {
+                    if (deleteConfirmChapter) {
+                      await deleteMutation.mutateAsync({ id: deleteConfirmChapter.id, target: deleteTarget })
+                      setDeleteConfirmChapter(null)
+                    }
+                  }}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-medium transition-colors shadow-sm disabled:opacity-50 flex items-center gap-1.5 cursor-pointer font-semibold"
+                >
+                  {deleteMutation.isPending ? 'Deleting...' : 'Delete Permanently'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     )
   }
@@ -1095,13 +1073,12 @@ export default function Workshop() {
           <div className="flex items-center gap-2">
             {activeDoc?.type === 'scene' && sceneData && (
               <>
-                {sceneData.scene_events && sceneData.scene_events.length > 0 && (
+                {sceneData.scene_events && sceneData.scene_events.length > 0 && sceneViewMode === 'content' && (
                   <div className="flex items-center gap-1.5 mr-2">
                     <button
                       type="button"
                       onClick={() => {
                         if (!activeSceneId) return
-                        setSceneViewMode('content')
                         generateScene(activeSceneId)
                       }}
                       disabled={isStreaming}
@@ -1110,7 +1087,7 @@ export default function Workshop() {
                           ? 'bg-amber-50 text-amber-700 border-amber-200'
                           : 'bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white border-transparent'
                       }`}
-                      title={sceneViewMode === 'beats' ? 'Use Beats for Generation' : 'Regenerate Scene'}
+                      title="Regenerate Full Scene"
                     >
                       {isStreaming ? (
                         <>
@@ -1120,7 +1097,7 @@ export default function Workshop() {
                       ) : (
                         <>
                           <Play className="w-3.5 h-3.5 fill-current" />
-                          {sceneViewMode === 'beats' ? 'Use Beats for Generation' : 'Regenerate Scene'}
+                          Regenerate Scene
                         </>
                       )}
                     </button>
@@ -1208,12 +1185,16 @@ export default function Workshop() {
         {/* Editor Area or Blueprint Overview */}
         <div className="flex-1 overflow-y-auto">
           {activeDoc ? (
-            <div className="max-w-3xl mx-auto py-10 px-6 flex flex-col gap-0">
+            <div className={`${activeDoc.type === 'scene' && sceneViewMode === 'beats' ? 'max-w-6xl' : 'max-w-3xl'} mx-auto py-10 px-6 flex flex-col gap-0`}>
               {renderEditorHeader()}
 
-              <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
-                <NovelEditor />
-              </div>
+              {activeDoc.type === 'scene' && sceneViewMode === 'beats' ? (
+                <SceneBeatsList />
+              ) : (
+                <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
+                  <NovelEditor />
+                </div>
+              )}
             </div>
           ) : !blueprintData ? (
             <div className="max-w-4xl mx-auto flex flex-col gap-6 py-20 px-6 animate-fadeIn items-center text-center">
@@ -1334,9 +1315,6 @@ export default function Workshop() {
       </div>
 
       <Inspector 
-        sceneViewMode={sceneViewMode} 
-        currentBeatIndex={currentBeatIndex}
-        setCurrentBeatIndex={setCurrentBeatIndex} 
         blueprintData={blueprintData}
         chapterId={chapterId}
       />

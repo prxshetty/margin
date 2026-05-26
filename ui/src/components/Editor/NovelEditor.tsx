@@ -78,7 +78,7 @@ export function NovelEditor() {
   return (
     <div className="bg-white overflow-hidden relative">
       <EditorContent editor={editor} />
-      <InlineSelectionPopup />
+      <InlineSelectionPopup localEditor={editor} />
     </div>
   )
 }

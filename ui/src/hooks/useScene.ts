@@ -60,12 +60,46 @@ export function useScene(sceneId: string | null) {
     }
   }
 
+  const assistMutation = useMutation({
+    mutationFn: async ({
+      message,
+      history,
+      currentBeatIndex,
+      documentContent
+    }: {
+      message: string
+      history: any[]
+      currentBeatIndex?: number
+      documentContent?: string
+    }) => {
+      if (!sceneId) return
+      const res = await fetch(`http://127.0.0.1:8000/scenes/${sceneId}/assist`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message,
+          history,
+          current_beat_index: currentBeatIndex,
+          document_content: documentContent
+        })
+      })
+      if (!res.ok) throw new Error('Failed to run assist')
+      return res.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['scene', sceneId] })
+      queryClient.invalidateQueries({ queryKey: ['blueprint'] })
+    }
+  })
+
   return { 
     sceneData, 
     isLoading,
     decomposeScene,
     isDecomposing: decomposeMutation.isPending,
     approveScene,
-    isApproving: approveMutation.isPending
+    isApproving: approveMutation.isPending,
+    sceneAssist: assistMutation.mutateAsync,
+    isAssisting: assistMutation.isPending
   }
 }

@@ -46,12 +46,31 @@ export function useBlueprint(chapterId: string | null) {
     }
   })
 
+  const assistMutation = useMutation({
+    mutationFn: async ({ message, history }: { message: string; history: any[] }) => {
+      if (!chapterId) return
+      const res = await fetch(`http://127.0.0.1:8000/chapters/${chapterId}/blueprint/assist`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, history })
+      })
+      if (!res.ok) throw new Error('Failed to run assist')
+      return res.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['blueprint', chapterId] })
+      queryClient.invalidateQueries({ queryKey: ['blueprintMarkdown', chapterId] })
+    }
+  })
+
   return {
     blueprintData,
     isLoading,
     generateBlueprint: (isRegenerate: boolean = false) => generateMutation.mutate(isRegenerate),
     isGenerating: generateMutation.isPending,
     confirmBlueprint: () => confirmMutation.mutate(),
-    isConfirming: confirmMutation.isPending
+    isConfirming: confirmMutation.isPending,
+    blueprintAssist: assistMutation.mutateAsync,
+    isAssisting: assistMutation.isPending
   }
 }

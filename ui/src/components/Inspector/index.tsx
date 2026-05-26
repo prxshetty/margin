@@ -2,27 +2,21 @@ import { useState, useEffect } from 'react'
 import { useProjectStore } from '../../stores/projectStore'
 import { useScene } from '../../hooks/useScene'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Wand2, Activity, RotateCcw, Terminal, Sparkles, Settings, Trash2, Plus } from 'lucide-react'
+import { Terminal, Sparkles, Settings, Activity } from 'lucide-react'
 import { Toolbar } from '../Toolbar'
 import { useEditorStore } from '../../stores/editorStore'
 
 export function Inspector({
-  sceneViewMode,
-  currentBeatIndex,
-  setCurrentBeatIndex,
   blueprintData,
   chapterId
 }: {
-  sceneViewMode?: 'content' | 'beats'
-  currentBeatIndex?: number
-  setCurrentBeatIndex?: (updater: any) => void
   blueprintData?: any
   chapterId?: string | null
 }) {
-  const queryClient = useQueryClient()
-  const { activeSceneId, activeDoc, activeChapterId } = useProjectStore()
-  const { sceneData, isLoading, decomposeScene, isDecomposing } = useScene(activeSceneId)
+  const { activeSceneId, activeDoc, activeChapterId, currentBeatIndex } = useProjectStore()
+  const { sceneData, isLoading } = useScene(activeSceneId)
   const [activeTab, setActiveTab] = useState<'metadata' | 'ai' | 'logs'>('metadata')
+  const queryClient = useQueryClient()
   const aiAssistPreload = useEditorStore(state => state.aiAssistPreload)
 
   useEffect(() => {
@@ -38,6 +32,35 @@ export function Inspector({
       return res.json()
     }
   })
+
+  // Mutation to persist beat updates back to file
+  const saveBeatsMutation = useMutation({
+    mutationFn: async (updatedBeats: any[]) => {
+      const res = await fetch(`http://127.0.0.1:8000/scenes/${activeSceneId}/beats`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ beats: updatedBeats })
+      })
+      if (!res.ok) throw new Error('Failed to save beats')
+      return res.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['scene', activeSceneId] })
+    }
+  })
+
+  const beats = sceneData?.scene_events || []
+  const currentBeat = beats[currentBeatIndex] || null
+
+  const handleUpdateCurrentBeatMetadata = (updates: any) => {
+    if (!currentBeat) return
+    const updated = [...beats]
+    updated[currentBeatIndex] = {
+      ...updated[currentBeatIndex],
+      ...updates
+    }
+    saveBeatsMutation.mutate(updated)
+  }
 
   // Fetch blueprint agent logs dynamically when blueprint doc is open
   const { data: blueprintLogs, isLoading: isBlueprintLogsLoading } = useQuery({
@@ -63,9 +86,18 @@ export function Inspector({
     enabled: !!activeSceneId
   })
 
+  // Get document slug/ID for isolated chat histories
+  const docId = activeDoc
+    ? activeDoc.type === 'scene'
+      ? activeSceneId
+      : activeDoc.type === 'character'
+        ? activeDoc.slug
+        : activeDoc.id
+    : ''
+
   // Fetch AI editor logs dynamically
   const { data: aiEditorLogs, isLoading: isAILogsLoading } = useQuery({
-    queryKey: ['aiEditorLogs', activeDoc?.type === 'scene' ? activeSceneId : activeChapterId],
+    queryKey: ['aiEditorLogs', activeDoc?.type, docId || activeChapterId],
     queryFn: async () => {
       const isScene = activeDoc?.type === 'scene'
       if (isScene && !activeSceneId) return []
@@ -73,7 +105,7 @@ export function Inspector({
 
       const url = isScene
         ? `http://127.0.0.1:8000/scenes/${activeSceneId}/ai_editor_logs`
-        : `http://127.0.0.1:8000/chapters/${activeChapterId}/ai_editor_logs`
+        : `http://127.0.0.1:8000/chapters/${activeChapterId}/ai_editor_logs?doc_type=${activeDoc?.type || ''}&doc_id=${docId || ''}`
 
       const res = await fetch(url)
       if (!res.ok) throw new Error('Failed to fetch AI editor logs')
@@ -82,66 +114,7 @@ export function Inspector({
     enabled: activeDoc?.type === 'scene' ? !!activeSceneId : !!activeChapterId
   })
 
-  // Mutation to persist beat updates back to file
-  const saveBeatsMutation = useMutation({
-    mutationFn: async (updatedBeats: any[]) => {
-      const res = await fetch(`http://127.0.0.1:8000/scenes/${activeSceneId}/beats`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ beats: updatedBeats })
-      })
-      if (!res.ok) throw new Error('Failed to update beats')
-      return res.json()
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['scene', activeSceneId] })
-    }
-  })
 
-  // Beat metadata from the current doc
-  const beatMetadata = activeDoc?.type === 'scene' && sceneViewMode === 'beats' && sceneData?.scene_events
-    ? sceneData.scene_events[currentBeatIndex ?? 0] || null
-    : null
-
-  const handleAddBeat = () => {
-    if (!activeSceneId || !sceneData) return
-    const currentBeats = sceneData.scene_events || []
-    const newBeatNum = currentBeats.length + 1
-    const newBeat = {
-      beat: `New Beat ${newBeatNum}`,
-      style: "general",
-      expected_exchanges: "1",
-      conversation_flow: ["New action event here"]
-    }
-    const updated = [...currentBeats, newBeat]
-    saveBeatsMutation.mutate(updated, {
-      onSuccess: () => {
-        if (setCurrentBeatIndex) {
-          setCurrentBeatIndex(currentBeats.length)
-        }
-      }
-    })
-  }
-
-  const handleDeleteBeat = (e: React.MouseEvent, beatNum: number) => {
-    e.stopPropagation()
-    if (!activeSceneId || !sceneData) return
-    
-    const currentBeats = sceneData.scene_events || []
-    const idx = beatNum - 1
-    const updated = currentBeats.filter((_: any, i: number) => i !== idx)
-    
-    saveBeatsMutation.mutate(updated, {
-      onSuccess: () => {
-        if (setCurrentBeatIndex && currentBeatIndex !== undefined) {
-          // Clamp index
-          if (currentBeatIndex >= updated.length) {
-            setCurrentBeatIndex(Math.max(0, updated.length - 1))
-          }
-        }
-      }
-    })
-  }
 
   if (!activeDoc) {
     return (
@@ -162,7 +135,7 @@ export function Inspector({
     )
   }
 
-  const beats = activeDoc.type === 'scene' ? sceneData?.scene_events || [] : []
+
 
   return (
     <div className="w-80 border-l border-slate-200 bg-white h-screen flex flex-col hidden lg:flex shrink-0">
@@ -208,140 +181,79 @@ export function Inspector({
         {activeTab === 'metadata' && (
           <>
             {activeDoc.type === 'scene' && (
-              <>
-                {sceneViewMode === 'beats' && beats.length > 0 ? (
-                  <div>
-                    <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-100">
-                      <h3 className="font-semibold text-slate-900">Beat Metadata</h3>
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (confirm("Are you sure you want to regenerate all beats for this scene outline? This will overwrite any current beats.")) {
-                              decomposeScene()
-                            }
-                          }}
-                          disabled={isDecomposing}
-                          title="Regenerate all beats for this scene"
-                          className="p-1 hover:bg-blue-50 text-blue-500 hover:text-blue-600 rounded transition-all disabled:opacity-45 cursor-pointer"
-                        >
-                          <RotateCcw className={`w-4 h-4 ${isDecomposing ? 'animate-spin' : ''}`} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleAddBeat}
-                          title="Add new beat"
-                          className="p-1 hover:bg-emerald-50 text-emerald-500 hover:text-emerald-600 rounded transition-all cursor-pointer"
-                        >
-                          <Plus className="w-4 h-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(e) => handleDeleteBeat(e, (currentBeatIndex ?? 0) + 1)}
-                          title="Delete this beat"
-                          className="p-1 hover:bg-red-50 text-red-400 hover:text-red-500 rounded transition-all cursor-pointer"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+              <div className="flex flex-col gap-6">
+                <div>
+                  <h3 className="font-semibold text-slate-900 mb-4 pb-2 border-b border-slate-100">Scene Metadata</h3>
+                  <div className="flex flex-col gap-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
+                    <div>
+                      <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Setting</div>
+                      <div className="text-xs text-slate-900 font-mono bg-white border border-slate-100 px-2 py-1 rounded">{sceneData?.scene_setting || "Unknown Setting"}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Characters</div>
+                      <div className="flex flex-wrap gap-1">
+                        {sceneData?.characters?.map((char: string) => (
+                          <span key={char} className="text-[10px] bg-white border border-slate-200 text-slate-700 px-1.5 py-0.5 rounded-full font-semibold">
+                            {char}
+                          </span>
+                        ))}
                       </div>
                     </div>
-                    {beatMetadata && (
-                      <BeatMetadataPanel
-                        key={`${activeSceneId}-${currentBeatIndex}`}
-                        beatIndex={currentBeatIndex ?? 0}
-                        beat={beatMetadata}
-                        styles={styles || []}
-                        saveBeatsMutation={saveBeatsMutation}
-                      />
-                    )}
                   </div>
-                ) : (
+                </div>
+
+                {currentBeat && (
                   <div>
-                    <h3 className="font-semibold text-slate-900 mb-4 pb-2 border-b border-slate-100">Scene Metadata</h3>
-                    <div className="flex flex-col gap-3 mb-6 bg-slate-50 p-3 rounded-lg border border-slate-200">
+                    <h3 className="font-semibold text-slate-900 mb-4 pb-2 border-b border-slate-100 flex items-center justify-between">
+                      <span>Beat {currentBeatIndex + 1} Metadata</span>
+                      <span className="text-[9px] font-mono text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded uppercase">{currentBeat.style || 'general'}</span>
+                    </h3>
+                    <div className="flex flex-col gap-4 bg-slate-50 p-3 rounded-lg border border-slate-200">
                       <div>
-                        <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Setting</div>
-                        <div className="text-xs text-slate-900 font-mono bg-white border border-slate-100 px-2 py-1 rounded">{sceneData?.scene_setting || "Unknown Setting"}</div>
-                      </div>
-                      <div>
-                        <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Characters</div>
-                        <div className="flex flex-wrap gap-1">
-                          {sceneData?.characters?.map((char: string) => (
-                            <span key={char} className="text-[10px] bg-white border border-slate-200 text-slate-700 px-1.5 py-0.5 rounded-full font-semibold">
-                              {char}
-                            </span>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">Generation Style</label>
+                        <select
+                          value={currentBeat.style || 'general'}
+                          onChange={(e) => handleUpdateCurrentBeatMetadata({ style: e.target.value })}
+                          className="w-full text-xs p-2 border border-slate-200 rounded bg-white font-mono outline-none text-indigo-700 shadow-sm cursor-pointer"
+                        >
+                          <option value="general">general</option>
+                          {styles?.map((s: any) => (
+                            s.name !== 'general' && <option key={s.id} value={s.name}>{s.name}</option>
                           ))}
-                        </div>
+                        </select>
                       </div>
+
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">Expected Exchanges (dialogue)</label>
+                        <select
+                          value={String(currentBeat.expected_exchanges ?? '2-3')}
+                          onChange={(e) => handleUpdateCurrentBeatMetadata({ expected_exchanges: e.target.value })}
+                          className="w-full text-xs p-2 border border-slate-200 rounded bg-white font-mono outline-none text-indigo-700 shadow-sm cursor-pointer"
+                        >
+                          <option value="0">0 (No Dialogue)</option>
+                          <option value="1">1</option>
+                          <option value="2-3">2-3</option>
+                          <option value="4+">4+</option>
+                        </select>
+                      </div>
+
+                      {currentBeat.conversation_flow && currentBeat.conversation_flow.length > 0 && (
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 block">Conversation Flow Plan</label>
+                          <div className="flex flex-col gap-1.5 max-h-40 overflow-y-auto pr-1">
+                            {currentBeat.conversation_flow.map((step: string, sIdx: number) => (
+                              <div key={sIdx} className="text-[11px] bg-white border border-slate-100 rounded p-2 text-slate-700 leading-relaxed font-sans shadow-sm flex gap-1.5 items-start">
+                                <span className="text-[9px] font-extrabold text-indigo-500 bg-indigo-50 px-1 py-0.5 rounded shrink-0">{sIdx + 1}</span>
+                                <span className="flex-1">{step}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
-
-                <div>
-                  <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-100">
-                    <h3 className="font-semibold text-slate-900">Beat Events</h3>
-                    {beats.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => decomposeScene()}
-                        disabled={isDecomposing}
-                        title="Re-run decomposer"
-                        className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors disabled:opacity-40 cursor-pointer"
-                      >
-                        <RotateCcw className={`w-3.5 h-3.5 ${isDecomposing ? 'animate-spin' : ''}`} />
-                      </button>
-                    )}
-                  </div>
-
-                  {beats.length === 0 ? (
-                    <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-center flex flex-col items-center gap-3">
-                      <Wand2 className="w-8 h-8 text-slate-400" />
-                      <div className="text-xs text-slate-600 leading-relaxed">
-                        This scene's outline has not been broken down into dramatic beats yet.
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => decomposeScene()}
-                        disabled={isDecomposing}
-                        className="w-full py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg shadow-sm disabled:opacity-50 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
-                      >
-                        {isDecomposing ? (
-                          <>
-                            <Activity className="w-3.5 h-3.5 animate-spin" />
-                            Decomposing...
-                          </>
-                        ) : (
-                          <>
-                            <Wand2 className="w-3.5 h-3.5" />
-                            Decompose Scene Outline
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col gap-3 text-sm">
-                      {beats.map((beat: any, index: number) => {
-                        const beatStyle = beat.style || "general"
-                        const beatDesc = beat.beat || (typeof beat === 'string' ? beat : "")
-
-                        return (
-                          <div
-                            key={index}
-                            onClick={() => setCurrentBeatIndex?.(index)}
-                            className={`p-3 bg-slate-50 border border-slate-200 rounded-lg hover:border-blue-300 hover:bg-blue-50/30 transition-colors cursor-pointer ${
-                              currentBeatIndex === index ? 'border-blue-400 bg-blue-50/20' : ''
-                            }`}
-                          >
-                            <div className="font-medium text-slate-900 leading-relaxed truncate">
-                              {index + 1}. <span className="text-blue-600 font-mono text-xs px-1.5 py-0.5 bg-blue-50 rounded">[{beatStyle}]</span> {beatDesc}
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                </div>
-              </>
+              </div>
             )}
 
             {activeDoc.type === 'blueprint' && (
@@ -404,7 +316,6 @@ export function Inspector({
                 ) : agentLogs && agentLogs.length > 0 ? (
                   <div className="flex flex-col gap-2">
                     {agentLogs
-                      .filter((log: any) => sceneViewMode === 'content' || log.beat_number === ((currentBeatIndex ?? 0) + 1) || log.beat_number === 0)
                       .map((log: any) => (
                         <details key={log.id} className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 group text-xs">
                           <summary className="font-semibold text-slate-700 cursor-pointer list-none flex items-center justify-between hover:text-slate-900 outline-none">
@@ -544,64 +455,7 @@ function CharacterMetadataPanel({ slug, name }: { slug: string; name: string }) 
   )
 }
 
-function BeatMetadataPanel({ beatIndex, beat, styles, saveBeatsMutation }: {
-  beatIndex: number
-  beat: any
-  styles: any[]
-  saveBeatsMutation: any
-}) {
-  const { activeSceneId } = useProjectStore()
-  const { sceneData } = useScene(activeSceneId)
 
-  const [beatStyle, setBeatStyle] = useState(beat.style || 'general')
-  const [exchanges, setExchanges] = useState(beat.expected_exchanges ?? 0)
-
-  const save = () => {
-    const updatedBeats = [...(sceneData?.scene_events || [])]
-    updatedBeats[beatIndex] = {
-      ...updatedBeats[beatIndex],
-      style: beatStyle,
-      expected_exchanges: exchanges
-    }
-    saveBeatsMutation.mutate(updatedBeats)
-  }
-
-  return (
-    <div className="flex flex-col gap-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
-      <div>
-        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Style</label>
-        <select
-          value={beatStyle}
-          onChange={(e) => setBeatStyle(e.target.value)}
-          className="w-full text-xs p-1.5 border border-slate-200 rounded bg-white font-mono outline-none"
-        >
-          <option value="general">general</option>
-          {styles?.map((s: any) => (
-            s.name !== 'general' && <option key={s.id} value={s.name}>{s.name}</option>
-          ))}
-        </select>
-      </div>
-      <div>
-        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Exchanges</label>
-        <input
-          type="number"
-          min={0}
-          value={exchanges}
-          onChange={(e) => setExchanges(parseInt(e.target.value) || 0)}
-          className="w-full text-xs p-1.5 border border-slate-200 rounded bg-white font-mono outline-none"
-        />
-      </div>
-
-      <button
-        onClick={save}
-        disabled={saveBeatsMutation.isPending}
-        className="w-full py-1.5 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 text-white text-xs font-semibold rounded-lg transition-colors mt-2"
-      >
-        {saveBeatsMutation.isPending ? 'Saving...' : 'Save Metadata'}
-      </button>
-    </div>
-  )
-}
 
 function StyleMetadataPanel({ styleId, styleName }: { styleId: string; styleName: string }) {
   const { setActiveDoc } = useProjectStore()

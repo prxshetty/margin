@@ -4,9 +4,9 @@ import { useEditorStore } from '../../stores/editorStore'
 import { useProjectStore } from '../../stores/projectStore'
 import { useQueryClient } from '@tanstack/react-query'
 
-export function InlineSelectionPopup() {
+export function InlineSelectionPopup({ localEditor }: { localEditor?: any }) {
   const { editor, selectionRange, selectedText, setAIAssistPreload } = useEditorStore()
-  const { activeSceneId, activeDoc } = useProjectStore()
+  const { activeSceneId, activeDoc, activeChapterId } = useProjectStore()
   const queryClient = useQueryClient()
   const [isLoading, setIsLoading] = useState<'expand' | 'rewrite' | null>(null)
   const [dismissedRange, setDismissedRange] = useState<{from: number, to: number} | null>(null)
@@ -14,9 +14,12 @@ export function InlineSelectionPopup() {
 
   useEffect(() => {
     const handleMouseDown = (e: MouseEvent) => {
-      // Only trigger a state change if they click inside the editor content
-      if (document.querySelector('.prose')?.contains(e.target as Node)) {
-        setIsMouseDown(true)
+      try {
+        if (editor?.view?.dom?.contains(e.target as Node)) {
+          setIsMouseDown(true)
+        }
+      } catch {
+        // editor view not yet mounted
       }
     }
     const handleMouseUp = () => {
@@ -42,16 +45,28 @@ export function InlineSelectionPopup() {
     }
   }, [editor, selectionRange])
 
-  // Don't show if mouse is still held (dragging), no selection, not in a scene, or dismissed
-  if (isMouseDown || !selectedText || !selectionRange || activeDoc?.type !== 'scene' || !coords) return null
+  // Only render the popup that belongs to the currently active focused editor
+  if (localEditor && editor !== localEditor) return null
+
+  // Don't show if mouse is still held (dragging), no selection, not in a document, or dismissed
+  if (isMouseDown || !selectedText || !selectionRange || !activeDoc || !coords) return null
   
   // If the user dismissed the popup for this exact selection, hide it
   if (dismissedRange && dismissedRange.from === selectionRange.from && dismissedRange.to === selectionRange.to) {
     return null
   }
 
+  const isScene = activeDoc?.type === 'scene'
+  const docId = activeDoc
+    ? activeDoc.type === 'scene'
+      ? activeSceneId
+      : activeDoc.type === 'character'
+        ? activeDoc.slug
+        : activeDoc.id
+    : ''
+
   const handleExpand = async () => {
-    if (!selectionRange || !editor || !activeSceneId) return
+    if (!selectionRange || !editor || (isScene ? !activeSceneId : !activeChapterId)) return
     setIsLoading('expand')
     try {
       const docSize = editor.state.doc.content.size
@@ -60,7 +75,11 @@ export function InlineSelectionPopup() {
       const resolvedPos = editor.state.doc.resolve(selectionRange.to)
       const blockType = resolvedPos.parent.type.name
 
-      const response = await fetch(`http://localhost:8000/scenes/${activeSceneId}/insert_after`, {
+      const url = isScene
+        ? `http://localhost:8000/scenes/${activeSceneId}/insert_after`
+        : `http://localhost:8000/chapters/${activeChapterId}/insert_after`
+
+      const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -68,7 +87,9 @@ export function InlineSelectionPopup() {
           text_after: textAfter,
           block_type: blockType,
           feedback: '',
-          context: editor.state.doc.textBetween(0, docSize, '\n')
+          context: editor.state.doc.textBetween(0, docSize, '\n'),
+          doc_type: activeDoc?.type,
+          doc_id: docId
         })
       })
 
@@ -98,24 +119,29 @@ export function InlineSelectionPopup() {
       console.error(err)
     } finally {
       setIsLoading(null)
-      queryClient.invalidateQueries({ queryKey: ['aiEditorLogs', activeSceneId] })
+      queryClient.invalidateQueries({ queryKey: ['aiEditorLogs', activeDoc?.type, docId || activeChapterId] })
       setDismissedRange(selectionRange)
     }
   }
 
   const handleRewrite = async () => {
-    if (!selectionRange || !selectedText || !editor || !activeSceneId) return
+    if (!selectionRange || !selectedText || !editor || (isScene ? !activeSceneId : !activeChapterId)) return
     setIsLoading('rewrite')
     try {
       const docSize = editor.state.doc.content.size
-      const url = `http://localhost:8000/scenes/${activeSceneId}/rewrite_selection`
+      const url = isScene
+        ? `http://localhost:8000/scenes/${activeSceneId}/rewrite_selection`
+        : `http://localhost:8000/chapters/${activeChapterId}/rewrite_selection`
+
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           selected_text: selectedText,
           feedback: '',
-          context: editor.state.doc.textBetween(0, docSize, '\n')
+          context: editor.state.doc.textBetween(0, docSize, '\n'),
+          doc_type: activeDoc?.type,
+          doc_id: docId
         })
       })
 
@@ -135,7 +161,7 @@ export function InlineSelectionPopup() {
       console.error(err)
     } finally {
       setIsLoading(null)
-      queryClient.invalidateQueries({ queryKey: ['aiEditorLogs', activeSceneId] })
+      queryClient.invalidateQueries({ queryKey: ['aiEditorLogs', activeDoc?.type, docId || activeChapterId] })
       setDismissedRange(selectionRange)
     }
   }
@@ -154,7 +180,7 @@ export function InlineSelectionPopup() {
   // Since we render inside the relative wrapper, we just need offsetTop/offsetLeft.
   // Actually, standard tiptap way is to use a tiptap extension (BubbleMenu).
   // But doing it this way: get bounding client rect of the wrapper.
-  const wrapper = document.querySelector('.prose')?.parentElement
+  const wrapper = editor?.view?.dom?.parentElement
   const wrapperRect = wrapper?.getBoundingClientRect()
   
   const top = coords.bottom - (wrapperRect?.top || 0) + 10

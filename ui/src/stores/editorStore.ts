@@ -20,6 +20,9 @@ interface EditorState {
   setAnchorPosition: (pos: number) => void
   aiAssistPreload: { text: string; range: { from: number; to: number } } | null
   setAIAssistPreload: (preload: { text: string; range: { from: number; to: number } } | null) => void
+  // Signal to force Workshop to reload the current document from disk
+  reloadDocSignal: number
+  triggerReload: () => void
 }
 
 export const useEditorStore = create<EditorState>((set) => ({
@@ -41,4 +44,6 @@ export const useEditorStore = create<EditorState>((set) => ({
   setAnchorPosition: (anchorPosition) => set({ anchorPosition }),
   aiAssistPreload: null,
   setAIAssistPreload: (aiAssistPreload) => set({ aiAssistPreload }),
+  reloadDocSignal: 0,
+  triggerReload: () => set((state) => ({ reloadDocSignal: state.reloadDocSignal + 1 })),
 }))
