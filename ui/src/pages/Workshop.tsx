@@ -17,6 +17,7 @@ import type { ActiveDoc } from '../stores/projectStore'
 import { useProjectStore } from '../stores/projectStore'
 import { useEditorStore } from '../stores/editorStore'
 import { API_BASE } from '../lib/api'
+import { getSaveEndpoint } from '../lib/save'
  
 export default function Workshop() {
   const [searchParams] = useSearchParams()
@@ -197,49 +198,21 @@ export default function Workshop() {
 
   // Auto-save callback
   const saveContent = useCallback(async (docInfo: {doc: ActiveDoc, mode?: string, beatIndex?: number}, text: string) => {
-    if (!docInfo || !docInfo.doc || !text.trim()) return
-    const doc = docInfo.doc
+    if (!docInfo?.doc || !text.trim()) return
     setIsSaving(true)
     try {
-      if (doc.type === 'scene') {
-        if (docInfo.mode === 'content') {
-          await fetch(`${API_BASE}/scenes/${doc.sceneId}/content`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ content: text })
-          })
-        } else if (docInfo.mode === 'beats' && docInfo.beatIndex !== undefined) {
-          await fetch(`${API_BASE}/scenes/${doc.sceneId}/beats/${docInfo.beatIndex + 1}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ beat: text })
-          })
-          queryClient.invalidateQueries({ queryKey: ['scene', doc.sceneId] })
-        }
-      } else if (doc.type === 'character') {
-        await fetch(`${API_BASE}/characters/${doc.slug}/content`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: text })
-        })
-      } else if (doc.type === 'style') {
-        await fetch(`${API_BASE}/styles/${doc.id}/content`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: text })
-        })
-      } else if (doc.type === 'outline') {
-        await fetch(`${API_BASE}/chapters/${chapterId}/content`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: text })
-        })
-      } else if (doc.type === 'blueprint') {
-        await fetch(`${API_BASE}/chapters/${chapterId}/blueprint/markdown`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: text })
-        })
+      const target = getSaveEndpoint(docInfo.doc, chapterId, docInfo.mode, docInfo.beatIndex)
+      if (!target) return
+      const bodyKey = target.url.endsWith('/beats/') ? 'beat' : 'content'
+      const res = await fetch(target.url, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [bodyKey]: text })
+      })
+      if (!res.ok) throw new Error('Save failed')
+      if (docInfo.doc.type === 'scene') {
+        queryClient.invalidateQueries({ queryKey: ['scene', docInfo.doc.sceneId] })
+      } else if (docInfo.doc.type === 'blueprint') {
         queryClient.invalidateQueries({ queryKey: ['blueprint', chapterId] })
       }
     } catch (err) {
@@ -247,7 +220,7 @@ export default function Workshop() {
     } finally {
       setIsSaving(false)
     }
-  }, [])
+  }, [chapterId, queryClient])
 
   const { data: chapterData } = useQuery({
     queryKey: ['chapter', chapterId],
@@ -427,60 +400,19 @@ export default function Workshop() {
   useEffect(() => {
     const handleBeforeUnload = () => {
       const prevDocInfo = prevDocInfoRef.current
-      if (prevDocInfo && prevDocInfo.doc && contentRef.current.trim()) {
-        const text = contentRef.current
-        const doc = prevDocInfo.doc
-        if (doc.type === 'scene') {
-          if (prevDocInfo.mode === 'content') {
-            fetch(`${API_BASE}/scenes/${doc.sceneId}/content`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ content: text }),
-              keepalive: true
-            })
-          } else if (prevDocInfo.mode === 'beats' && prevDocInfo.beatIndex !== undefined) {
-            fetch(`${API_BASE}/scenes/${doc.sceneId}/beats/${prevDocInfo.beatIndex + 1}`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ beat: text }),
-              keepalive: true
-            })
-          }
-        } else if (doc.type === 'character') {
-          fetch(`${API_BASE}/characters/${doc.slug}/content`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ content: text }),
-            keepalive: true
-          })
-        } else if (doc.type === 'style') {
-          fetch(`${API_BASE}/styles/${doc.id}/content`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ content: text }),
-            keepalive: true
-          })
-        } else if (doc.type === 'outline') {
-          fetch(`${API_BASE}/chapters/${chapterId}/content`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ content: text }),
-            keepalive: true
-          })
-        } else if (doc.type === 'blueprint') {
-          fetch(`${API_BASE}/chapters/${chapterId}/blueprint/markdown`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ content: text }),
-            keepalive: true
-          })
-        }
-      }
+      if (!prevDocInfo?.doc || !contentRef.current.trim()) return
+      const target = getSaveEndpoint(prevDocInfo.doc, chapterId, prevDocInfo.mode, prevDocInfo.beatIndex)
+      if (!target) return
+      const bodyKey = target.url.endsWith('/beats/') ? 'beat' : 'content'
+      fetch(target.url, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [bodyKey]: contentRef.current }),
+        keepalive: true
+      })
     }
     window.addEventListener('beforeunload', handleBeforeUnload)
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload)
-    }
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
   }, [chapterId])
 
   // Approve scene
