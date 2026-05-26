@@ -13,10 +13,7 @@ every scene must include:
 - scene_description: 2–4 concise sentences covering narrative purpose and how this scene connects to the previous one.
 - consecutive scenes must form a logical sequence: characters move between locations, time passes naturally, no unexplained jumps or teleportation
 
-The characters list may be empty or contain hints. Infer which characters
-appear from the chapter description text. Use their full names in the
-blueprint. Infer chapter title, background/setting, and tone from the raw
-text if not explicitly provided.
+Use the provided CHARACTER PROFILE CONTEXT to decide which characters are present in each scene, and to ground act/scene descriptions in their specific motivations and relationships. Infer chapter title, background/setting, and tone from the raw text if not explicitly provided.
 
 Output ONLY the chapter skeleton — no scene_events, no style tags.
 scene_events are generated later per-scene.

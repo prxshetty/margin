@@ -29,6 +29,7 @@ class BlueprintAgent:
         chapter_title: str,
         user_outline: str,
         characters: list[str],
+        characters_context: Dict[str, str],
         background: str = "",
         user_answers: str = "",
         writing_focus: str = "",
@@ -39,6 +40,7 @@ class BlueprintAgent:
             chapter_title=chapter_title,
             user_outline=user_outline,
             characters=characters,
+            characters_context=characters_context,
             background=background,
             user_answers=user_answers,
             writing_focus=writing_focus,
@@ -119,6 +121,7 @@ Please revise only this act's scenes based on the feedback. Output ONLY valid JS
         chapter_title: str,
         user_outline: str,
         characters: list[str],
+        characters_context: Dict[str, str],
         background: str,
         user_answers: str = "",
         writing_focus: str = "",
@@ -129,6 +132,13 @@ Please revise only this act's scenes based on the feedback. Output ONLY valid JS
             f"Chapter Title: {chapter_title}",
             f"Characters: {char_line}",
         ]
+        
+        if characters_context:
+            chars_block = "\n\n".join(
+                f"### {name}\n{profile.strip()}" for name, profile in characters_context.items()
+            )
+            parts.append(f"\nCHARACTERS PROFILE CONTEXT:\n{chars_block}")
+            
         if background:
             parts.append(f"Background: {background}")
         parts.append(f"\nUser's Chapter Description:\n{user_outline}")

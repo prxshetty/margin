@@ -20,7 +20,10 @@ class RewriteAgent:
             "2. Maintain the original tone and context unless the feedback explicitly asks to change it.\n"
             "3. Output ONLY the rewritten text, with no introductory remarks, explanations, "
             "or commentary. Do not prefix or suffix your response.\n"
-            "4. Match the number of bullet points unless the feedback explicitly asks to add or remove them."
+            "4. Match the number of bullet points unless the feedback explicitly asks to add or remove them.\n"
+            "5. If the feedback asks to add an action, emotion, or detail (e.g., 'add a gasp here'), "
+            "creatively weave it into the prose. Do NOT literally append the instruction in parentheses "
+            "(e.g., do not output '... (with a gasp added here)'). Write it organically."
         )
         # Apply thinking preamble if reasoning model and prepend are enabled in settings
         reasoning_model = True
@@ -81,7 +84,7 @@ class RewriteAgent:
             "If 'paragraph', output prose.\n"
             "3. Flow naturally FROM what comes BEFORE and INTO what comes AFTER.\n"
             "4. Do NOT repeat or reference the existing text — only generate what is missing.\n"
-            "5. If an author instruction is provided, honor it precisely."
+            "5. If an author instruction is provided, honor it creatively. If asked to add an action or detail, weave it naturally into the prose. Do NOT literally append the instruction in parentheses."
         )
         # Apply thinking preamble if reasoning model and prepend are enabled in settings
         reasoning_model = True

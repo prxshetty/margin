@@ -1,0 +1,24 @@
+description: "A single dramatic beat within a scene"
+
+fields:
+  beat:
+    type: str
+    required: true
+    description: "The dramatic action, description, or event in this beat"
+
+  style:
+    type: str
+    required: true
+    description: "Writing style/tone for this beat (e.g. 'general', 'dialogue', 'action')"
+
+  expected_exchanges:
+    type: str
+    required: false
+    default: "2-3"
+    description: "Expected dialogue exchanges: '0', '1', '2-3', or '4+'"
+
+  conversation_flow:
+    type: list[str]
+    required: false
+    default: []
+    description: "2-6 micro-steps or dialogue sub-bullets describing the flow of conversation in this beat"

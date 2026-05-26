@@ -1,3 +1,5 @@
+import uuid
+from datetime import datetime
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -27,11 +29,33 @@ def generate_blueprint(chapter_id: str):
     characters = storage.get_characters()
     char_names = [c.name for c in characters]
 
+    # Filter characters based on outline mentions
+    outline_lower = chapter.raw_outline.lower()
+    title_lower = chapter.title.lower()
+
+    characters_context = {}
+    for char in characters:
+        name_lower = char.name.lower()
+        parts = [p.strip() for p in name_lower.split() if len(p.strip()) > 2]
+        
+        mentioned = (
+            name_lower in outline_lower 
+            or name_lower in title_lower
+            or char.slug in outline_lower
+            or any(part in outline_lower or part in title_lower for part in parts)
+        )
+        
+        if mentioned:
+            content = storage.get_character_content(char.slug)
+            if content:
+                characters_context[char.name] = content
+
     agent = BlueprintAgent()
     result = agent.generate(
         chapter_title=chapter.title,
         user_outline=chapter.raw_outline,
-        characters=char_names
+        characters=char_names,
+        characters_context=characters_context
     )
     
     if isinstance(result, list):
@@ -152,11 +176,33 @@ def regenerate_blueprint(chapter_id: str):
     characters = storage.get_characters()
     char_names = [c.name for c in characters]
 
+    # Filter characters based on outline mentions
+    outline_lower = chapter.raw_outline.lower()
+    title_lower = chapter.title.lower()
+
+    characters_context = {}
+    for char in characters:
+        name_lower = char.name.lower()
+        parts = [p.strip() for p in name_lower.split() if len(p.strip()) > 2]
+        
+        mentioned = (
+            name_lower in outline_lower 
+            or name_lower in title_lower
+            or char.slug in outline_lower
+            or any(part in outline_lower or part in title_lower for part in parts)
+        )
+        
+        if mentioned:
+            content = storage.get_character_content(char.slug)
+            if content:
+                characters_context[char.name] = content
+
     agent = BlueprintAgent()
     result = agent.generate(
         chapter_title=chapter.title,
         user_outline=chapter.raw_outline,
-        characters=char_names
+        characters=char_names,
+        characters_context=characters_context
     )
     
     if isinstance(result, list):
@@ -219,3 +265,82 @@ def confirm_blueprint(chapter_id: str):
 @router.get("/logs")
 def get_blueprint_logs(chapter_id: str):
     return storage.get_blueprint_logs(chapter_id)
+
+
+class DocumentAssistRequest(BaseModel):
+    message: str
+    history: list = []
+
+
+@router.post("/assist")
+def blueprint_assist(chapter_id: str, payload: DocumentAssistRequest):
+    blueprint = storage.get_blueprint(chapter_id)
+    if not blueprint:
+        raise HTTPException(status_code=404, detail="Blueprint not found")
+        
+    from agents.document_edit_agent import DocumentEditAgent
+    from schema_loader import get_schema
+    
+    loader = get_schema()
+    schema_dict = loader.get_schema_for_document_type("blueprint")
+    
+    agent = DocumentEditAgent()
+    operation = agent.generate_operation(
+        document_type="blueprint",
+        current_data=blueprint.data,
+        schema_dict=schema_dict,
+        user_message=payload.message,
+        history=payload.history
+    )
+    
+    op_type = operation.get("op")
+    if op_type == "clarify":
+        return {
+            "type": "clarification_needed",
+            "question": operation.get("question", "Could you clarify your request?"),
+            "options": operation.get("options", [])
+        }
+        
+    try:
+        if op_type == "create":
+            updated_data = storage.apply_blueprint_create(
+                chapter_id=chapter_id,
+                parent_path=operation.get("parent_path", ""),
+                element_type=operation.get("element_type", "scene"),
+                item_data=operation.get("data", {}),
+                position=operation.get("position")
+            )
+            msg = f"Successfully created {operation.get('element_type')}."
+        elif op_type == "update":
+            updated_data = storage.apply_blueprint_update(
+                chapter_id=chapter_id,
+                path=operation.get("path", ""),
+                fields=operation.get("fields", {})
+            )
+            msg = f"Successfully updated {operation.get('element_type')}."
+        elif op_type == "delete":
+            updated_data = storage.apply_blueprint_delete(
+                chapter_id=chapter_id,
+                path=operation.get("path", "")
+            )
+            msg = f"Successfully deleted {operation.get('element_type')}."
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported operation: {op_type}")
+            
+        storage.save_chapter_ai_editor_log(chapter_id, {
+            "id": str(uuid.uuid4()),
+            "operation": op_type,
+            "feedback": payload.message,
+            "output": msg,
+            "timestamp": datetime.utcnow().isoformat(),
+            "isAI": True
+        }, doc_type="blueprint")
+
+        return {
+            "type": "applied",
+            "message": msg,
+            "data": updated_data
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+

@@ -427,17 +427,19 @@ class FileStorageService:
             f.write(chapter.raw_outline)
         return chapter
 
-    def delete_chapter(self, chapter_id: str) -> bool:
-        # Delete the input outline markdown file
-        fpath = self.inputs_dir / "chapters" / f"{chapter_id}.md"
-        if fpath.exists():
-            fpath.unlink()
-
-        # Delete the entire generated outputs directory
+    def delete_chapter(self, chapter_id: str, target: str = "both") -> bool:
         import shutil
-        out_dir = self.outputs_dir / chapter_id
-        if out_dir.exists():
-            shutil.rmtree(out_dir)
+        if target in ("input", "both"):
+            # Delete the input outline markdown file
+            fpath = self.inputs_dir / "chapters" / f"{chapter_id}.md"
+            if fpath.exists():
+                fpath.unlink()
+
+        if target in ("output", "both"):
+            # Delete the entire generated outputs directory
+            out_dir = self.outputs_dir / chapter_id
+            if out_dir.exists():
+                shutil.rmtree(out_dir)
         return True
 
     # --- Blueprints (JSON in outputs) ---
@@ -714,10 +716,14 @@ class FileStorageService:
         with open(logs_path, "r", encoding="utf-8") as f:
             return json.load(f)
 
-    def save_chapter_ai_editor_log(self, chapter_id: str, log: dict):
+    def save_chapter_ai_editor_log(self, chapter_id: str, log: dict, doc_type: str = None, doc_id: str = None):
         chapter_dir = self.outputs_dir / chapter_id
         chapter_dir.mkdir(parents=True, exist_ok=True)
-        logs_path = chapter_dir / "ai_editor_logs.json"
+        if doc_type:
+            suffix = f"_{doc_type}_{doc_id}" if doc_id else f"_{doc_type}"
+            logs_path = chapter_dir / f"ai_editor_logs{suffix}.json"
+        else:
+            logs_path = chapter_dir / "ai_editor_logs.json"
         logs = []
         if logs_path.exists():
             try:
@@ -730,8 +736,12 @@ class FileStorageService:
         with open(logs_path, "w", encoding="utf-8") as f:
             json.dump(logs, f, indent=2)
 
-    def get_chapter_ai_editor_logs(self, chapter_id: str) -> list:
-        logs_path = self.outputs_dir / chapter_id / "ai_editor_logs.json"
+    def get_chapter_ai_editor_logs(self, chapter_id: str, doc_type: str = None, doc_id: str = None) -> list:
+        if doc_type:
+            suffix = f"_{doc_type}_{doc_id}" if doc_id else f"_{doc_type}"
+            logs_path = self.outputs_dir / chapter_id / f"ai_editor_logs{suffix}.json"
+        else:
+            logs_path = self.outputs_dir / chapter_id / "ai_editor_logs.json"
         if not logs_path.exists():
             return []
         try:
@@ -861,6 +871,49 @@ class FileStorageService:
         self.save_scene(scene)
         return self.get_beat(scene_id, beat_num)
 
+    # --- Individual Beat Sidecars ---
+    def get_beat_draft(self, scene_id: str, beat_num: int, draft_type: str) -> Optional[str]:
+        parts = scene_id.split("_")
+        if len(parts) != 3:
+            return None
+        chapter_id, act_str, scene_str = parts
+        scene_dir = self.outputs_dir / chapter_id / act_str / scene_str
+        fpath = scene_dir / f"beat_{beat_num}_{draft_type}.md"
+        if fpath.exists():
+            return fpath.read_text(encoding="utf-8").strip()
+        return None
+
+    def save_beat_draft(self, scene_id: str, beat_num: int, draft_type: str, content: str) -> None:
+        parts = scene_id.split("_")
+        if len(parts) != 3:
+            return
+        chapter_id, act_str, scene_str = parts
+        scene_dir = self.outputs_dir / chapter_id / act_str / scene_str
+        scene_dir.mkdir(parents=True, exist_ok=True)
+        fpath = scene_dir / f"beat_{beat_num}_{draft_type}.md"
+        fpath.write_text(content.strip() + "\n", encoding="utf-8")
+
+    def assemble_scene_prose(self, scene_id: str) -> Optional[str]:
+        scene = self.get_scene(scene_id)
+        if not scene or not scene.scene_events:
+            return None
+        
+        parts = scene_id.split("_")
+        if len(parts) != 3:
+            return None
+        chapter_id, act_str, scene_str = parts
+        scene_dir = self.outputs_dir / chapter_id / act_str / scene_str
+        
+        beat_prose_blocks = []
+        for idx in range(len(scene.scene_events)):
+            fpath = scene_dir / f"beat_{idx + 1}_prose.md"
+            if fpath.exists():
+                beat_prose_blocks.append(fpath.read_text(encoding="utf-8").strip())
+            else:
+                beat_prose_blocks.append(f"*[Beat {idx + 1} not yet drafted]*")
+                
+        return "\n\n---\n\n".join(beat_prose_blocks)
+
     # --- Style Content ---
     def get_style_content(self, id: str) -> Optional[str]:
         fpath = self.inputs_dir / "styles" / f"{id}.md"
@@ -977,6 +1030,195 @@ class FileStorageService:
                 continue
                 
         return data
+
+    def _resolve_json_path(self, data: Any, path: str) -> tuple:
+        """
+        Helper to resolve a path like 'acts[0].scenes[1]' to (parent, target, last_key).
+        """
+        if not path:
+            return None, data, None
+            
+        parts = re.split(r'\.|(?=\[)', path)
+        parts = [p for p in parts if p]
+        
+        curr = data
+        parent = None
+        last_key = None
+        
+        for part in parts:
+            parent = curr
+            if part.endswith(']'):
+                idx_str = part.rstrip(']')
+                if '[' in idx_str:
+                    arr_name, idx_val = idx_str.split('[')
+                    if arr_name:
+                        parent = curr
+                        curr = curr[arr_name]
+                        idx_val = int(idx_val)
+                        last_key = idx_val
+                        curr = curr[idx_val]
+                    else:
+                        idx_val = int(idx_val)
+                        last_key = idx_val
+                        curr = curr[idx_val]
+                else:
+                    idx_val = int(idx_str)
+                    last_key = idx_val
+                    curr = curr[idx_val]
+            else:
+                last_key = part
+                curr = curr[part]
+                
+        return parent, curr, last_key
+
+    def _renumber_blueprint_scenes(self, blueprint_data: dict):
+        """Re-assign scene numbers within each act to be sequential (1-indexed)."""
+        for act in blueprint_data.get("acts", []):
+            for idx, scene in enumerate(act.get("scenes", [])):
+                scene["scene_number"] = idx + 1
+
+    def apply_blueprint_create(self, chapter_id: str, parent_path: str, element_type: str, item_data: dict, position: Optional[str] = None) -> dict:
+        blueprint = self.get_blueprint(chapter_id)
+        if not blueprint:
+            raise ValueError("Blueprint not found")
+            
+        data = blueprint.data
+        parent, target, last_key = self._resolve_json_path(data, parent_path)
+        
+        # If target is a dict and has key of element_type+'s' or plural form
+        target_arr = None
+        if isinstance(target, dict):
+            plural = element_type + "s"
+            if plural in target:
+                target_arr = target[plural]
+        elif isinstance(target, list):
+            target_arr = target
+            
+        if target_arr is None:
+            raise ValueError(f"Could not resolve array for {element_type} inside {parent_path}")
+            
+        # Append/insert
+        if not position or position == "end":
+            target_arr.append(item_data)
+        elif position.startswith("before:"):
+            idx = int(position.split(":")[1])
+            target_arr.insert(idx, item_data)
+        elif position.startswith("after:"):
+            idx = int(position.split(":")[1])
+            target_arr.insert(idx + 1, item_data)
+        else:
+            target_arr.append(item_data)
+            
+        # Re-number blueprint scenes
+        self._renumber_blueprint_scenes(data)
+        
+        # Reset confirmed status to force reconfirm
+        blueprint.confirmed = False
+        self.save_blueprint(blueprint)
+        return data
+
+    def apply_blueprint_update(self, chapter_id: str, path: str, fields: dict) -> dict:
+        blueprint = self.get_blueprint(chapter_id)
+        if not blueprint:
+            raise ValueError("Blueprint not found")
+            
+        data = blueprint.data
+        parent, target, last_key = self._resolve_json_path(data, path)
+        
+        if not isinstance(target, dict):
+            raise ValueError(f"Target at {path} is not a dictionary")
+            
+        # Patch specific fields
+        for k, v in fields.items():
+            target[k] = v
+            
+        self.save_blueprint(blueprint)
+        return data
+
+    def apply_blueprint_delete(self, chapter_id: str, path: str) -> dict:
+        blueprint = self.get_blueprint(chapter_id)
+        if not blueprint:
+            raise ValueError("Blueprint not found")
+            
+        data = blueprint.data
+        parent, target, last_key = self._resolve_json_path(data, path)
+        
+        if parent is None or last_key is None:
+            raise ValueError(f"Invalid path to delete: {path}")
+            
+        if isinstance(parent, list) and isinstance(last_key, int):
+            parent.pop(last_key)
+        elif isinstance(parent, dict):
+            parent.pop(last_key, None)
+            
+        # Re-number blueprint scenes
+        self._renumber_blueprint_scenes(data)
+        
+        # Reset confirmed status to force reconfirm
+        blueprint.confirmed = False
+        self.save_blueprint(blueprint)
+        return data
+
+    def apply_scene_operation(self, scene_id: str, operation: dict) -> dict:
+        """
+        Generic dispatcher for scene-level structured edits from DocumentEditAgent.
+        Accepts the raw operation dict and applies it against scene.scene_events.
+        Replaces separate apply_scene_create/update/delete methods.
+        """
+        scene = self.get_scene(scene_id)
+        if not scene:
+            raise ValueError("Scene not found")
+
+        op = operation.get("op")
+        beats = list(scene.scene_events or [])
+
+        if op == "create":
+            item_data = operation.get("data", {})
+            position = operation.get("position", "end")
+
+            if not position or position == "end":
+                beats.append(item_data)
+            elif position.startswith("before:"):
+                idx = int(position.split(":")[1])
+                beats.insert(idx, item_data)
+            elif position.startswith("after:"):
+                idx = int(position.split(":")[1])
+                beats.insert(idx + 1, item_data)
+            else:
+                beats.append(item_data)
+
+        elif op == "update":
+            # path is relative to scene_events, e.g. "[2]" or "scene_events[2]"
+            raw_path = operation.get("path", "")
+            # Strip leading "scene_events" prefix if LLM included it
+            path = re.sub(r'^scene_events\.?', '', raw_path).strip()
+            if path:
+                parent, target, last_key = self._resolve_json_path(beats, path)
+                if not isinstance(target, dict):
+                    raise ValueError(f"Target beat at '{raw_path}' is not a dict")
+                for k, v in operation.get("fields", {}).items():
+                    target[k] = v
+            else:
+                raise ValueError(f"No valid path for update operation: {raw_path}")
+
+        elif op == "delete":
+            raw_path = operation.get("path", "")
+            path = re.sub(r'^scene_events\.?', '', raw_path).strip()
+            parent, target, last_key = self._resolve_json_path(beats, path)
+            if parent is None or last_key is None:
+                raise ValueError(f"Invalid path to delete: {raw_path}")
+            if isinstance(parent, list) and isinstance(last_key, int):
+                parent.pop(last_key)
+            elif isinstance(parent, dict):
+                parent.pop(last_key, None)
+
+        else:
+            raise ValueError(f"Unsupported scene operation: {op}")
+
+        # Persist updated beats via save_scene
+        scene.scene_events = beats
+        self.save_scene(scene)
+        return {"scene_events": beats}
 
     def save_style_content(self, id: str, body: str) -> None:
         fpath = self.inputs_dir / "styles" / f"{id}.md"

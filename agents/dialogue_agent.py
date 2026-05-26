@@ -35,11 +35,6 @@ class DialogueAgent:
         if narration_draft:
             parts.append(f"\nNARRATION PROSE WITH PLACEHOLDERS:\n{narration_draft}")
 
-        conversation_flow = event.get("conversation_flow")
-        if conversation_flow:
-            flow_lines = "\n".join(f"  {i+1}. {step}" for i, step in enumerate(conversation_flow))
-            parts.append(f"\nCONVERSATION FLOW:\n{flow_lines}")
-
         expected_exchanges = event.get("expected_exchanges")
         if expected_exchanges:
             if expected_exchanges == "0":

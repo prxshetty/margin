@@ -23,6 +23,7 @@ class DecomposerAgent:
         scene_description: str,
         style_descriptions: Optional[Dict[str, str]] = None,
         min_dialogues: Union[int, Dict[str, int]] = 2,
+        characters_context: Optional[Dict[str, str]] = None,
     ) -> list:
         """Generate scene_events with style tags for a single scene."""
         styles_block = "\n".join(
@@ -37,7 +38,16 @@ class DecomposerAgent:
         else:
             min_prompt = f"MINIMUM DIALOGUES FOR DIALOGUE-HEAVY BEATS: {min_dialogues}+"
 
+        if characters_context:
+            chars_block = "\n\n".join(
+                f"### {name}\n{profile.strip()}" for name, profile in characters_context.items()
+            )
+            characters_section = f"CHARACTERS IN THIS SCENE:\n{chars_block}\n\n"
+        else:
+            characters_section = ""
+
         user_prompt = (
+            f"{characters_section}"
             f"SCENE DESCRIPTION:\n{scene_description}\n\n"
             f"AVAILABLE STYLE TAGS:\n{styles_block}\n\n"
             f"{min_prompt}"

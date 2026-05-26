@@ -38,12 +38,15 @@ def get_chapter(chapter_id: str):
     return chapter
 
 @router.delete("/{chapter_id}")
-def delete_chapter(chapter_id: str):
-    chapter = storage.get_chapter(chapter_id)
-    if not chapter:
+def delete_chapter(chapter_id: str, target: str = "both"):
+    # Check if either the chapter input outline file or output directory exists
+    fpath = storage.inputs_dir / "chapters" / f"{chapter_id}.md"
+    out_dir = storage.outputs_dir / chapter_id
+
+    if not fpath.exists() and not out_dir.exists():
         raise HTTPException(status_code=404, detail="Chapter not found")
 
-    storage.delete_chapter(chapter_id)
+    storage.delete_chapter(chapter_id, target=target)
     return {"status": "deleted", "id": chapter_id}
 
 
@@ -140,6 +143,8 @@ class RewriteSelectionGenericRequest(BaseModel):
     selected_text: str
     feedback: str
     context: Optional[str] = ""
+    doc_type: Optional[str] = None
+    doc_id: Optional[str] = None
 
 @router.post("/{chapter_id}/rewrite_selection")
 def rewrite_selection_generic(chapter_id: str, payload: RewriteSelectionGenericRequest):
@@ -150,6 +155,16 @@ def rewrite_selection_generic(chapter_id: str, payload: RewriteSelectionGenericR
         feedback=payload.feedback,
         context_text=context
     )
+    
+    storage.save_chapter_ai_editor_log(chapter_id, {
+        "id": str(uuid.uuid4()),
+        "operation": "rewrite",
+        "feedback": payload.feedback or "(one-click rewrite)",
+        "selected_text_preview": payload.selected_text[:120],
+        "output": rewritten_text,
+        "timestamp": datetime.utcnow().isoformat()
+    }, doc_type=payload.doc_type, doc_id=payload.doc_id)
+
     return {"rewritten_text": rewritten_text}
 
 
@@ -165,6 +180,8 @@ class InsertAfterRequest(BaseModel):
     block_type: str
     feedback: str
     context: Optional[str] = ""
+    doc_type: Optional[str] = None
+    doc_id: Optional[str] = None
 
 @router.post("/{chapter_id}/insert_after")
 async def insert_after_generic(chapter_id: str, request: InsertAfterRequest):
@@ -191,13 +208,13 @@ async def insert_after_generic(chapter_id: str, request: InsertAfterRequest):
             "block_type": request.block_type,
             "output": result,
             "timestamp": datetime.utcnow().isoformat()
-        })
+        }, doc_type=request.doc_type, doc_id=request.doc_id)
         yield {"data": json.dumps({"generated_text": result, "done": True})}
 
     return EventSourceResponse(insert_generator())
 
 @router.get("/{chapter_id}/ai_editor_logs")
-def get_chapter_ai_editor_logs(chapter_id: str):
-    return storage.get_chapter_ai_editor_logs(chapter_id)
+def get_chapter_ai_editor_logs(chapter_id: str, doc_type: Optional[str] = None, doc_id: Optional[str] = None):
+    return storage.get_chapter_ai_editor_logs(chapter_id, doc_type, doc_id)
 
 

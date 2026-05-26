@@ -239,6 +239,20 @@ class SchemaLoader:
         return extra
 
 
+    def get_schema_for_document_type(self, doc_type: str) -> Optional[dict]:
+        """Return the actual schema dict for a specific doc type."""
+        SCHEMA_MAP = {
+            "blueprint": "blueprint_skeleton",
+            "scene": "scene",
+            "beat": "beat",
+            "act": "act"
+        }
+        entity = SCHEMA_MAP.get(doc_type)
+        if not entity:
+            return None
+        return self.schema.get(entity)
+
+
 def get_schema(schema_path: str = None) -> SchemaLoader:
     """Get a SchemaLoader instance."""
     return SchemaLoader(schema_path)

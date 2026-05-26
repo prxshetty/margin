@@ -23,6 +23,8 @@ from agents.narration_agent import NarrationAgent
 from agents.dialogue_agent import DialogueAgent
 from agents.writer_agent import WriterAgent
 from agents.rewrite_agent import RewriteAgent
+from agents.document_edit_agent import DocumentEditAgent
+from schema_loader import get_schema
 
 # Data models & state
 from models import StoryContext
@@ -62,6 +64,18 @@ def _load_styles() -> Dict[str, Dict]:
             "output_size": None,  # respect DISABLE_TOKEN_LIMITS setting from config
         }
     return loaded
+
+
+def _load_character_context(scene: Scene) -> Dict[str, str]:
+    """Load character profile content for each character listed in the scene."""
+    characters_context = {}
+    for char_name in scene.characters:
+        # Convert "Elara Vance" -> "elara_vance" to find the file
+        slug = char_name.lower().replace(" ", "_")
+        content = storage.get_character_content(slug)
+        if content:
+            characters_context[char_name] = content
+    return characters_context
 
 
 def _build_story_context(scene: Scene) -> StoryContext:
@@ -150,31 +164,8 @@ async def stream_generator(scene_id: str):
 
     # 2. Decompose scene into beats if not already done
     if not scene.scene_events:
-        yield {"data": json.dumps({"status": "Decomposing scene into beats..."})}
-        await asyncio.sleep(0)
-
-        decomposer = DecomposerAgent()
-        decomposed_events = await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: decomposer.generate(
-                scene_description=scene.scene_description,
-                style_descriptions=style_descriptions,
-            )
-        )
-
-        scene.scene_events = decomposed_events
-        storage.save_scene(scene)
-
-        # Log decomposer run
-        storage.save_agent_log(AgentLog(
-            id=str(uuid.uuid4()),
-            scene_id=scene.id,
-            beat_number=0,
-            agent_name="DecomposerAgent",
-            system_prompt=config.SYSTEM_PROMPTS.get("decomposer", ""),
-            user_prompt=scene.scene_description,
-            output=json.dumps(decomposed_events, indent=2),
-        ))
+        yield {"data": json.dumps({"error": "Scene must be decomposed into beats before generation."})}
+        return
 
     events = _normalize_events(scene.scene_events)
 
@@ -262,6 +253,7 @@ async def stream_generator(scene_id: str):
                 lambda g=guidelines: narration_agent.generate(context, beat_desc, g)
             )
             drafts["narration"] = narration_draft
+            storage.save_beat_draft(scene.id, beat_num, "narration", narration_draft)
 
             storage.save_agent_log(AgentLog(
                 id=str(uuid.uuid4()),
@@ -284,6 +276,7 @@ async def stream_generator(scene_id: str):
                 lambda g=guidelines: dialogue_agent.generate(context, event, g, narration_draft)
             )
             drafts["dialogue"] = dialogue_draft
+            storage.save_beat_draft(scene.id, beat_num, "dialogue", dialogue_draft)
 
             storage.save_agent_log(AgentLog(
                 id=str(uuid.uuid4()),
@@ -317,6 +310,8 @@ async def stream_generator(scene_id: str):
                 token_limit=beat_token_limit,
             )
         )
+
+        storage.save_beat_draft(scene.id, beat_num, "prose", beat_text)
 
         storage.save_agent_log(AgentLog(
             id=str(uuid.uuid4()),
@@ -371,9 +366,221 @@ class InsertAfterRequest(BaseModel):
     context: Optional[str] = ""
 
 
+class DraftsUpdatePayload(BaseModel):
+    narration_draft: Optional[str] = None
+    dialogue_draft: Optional[str] = None
+    beat_prose: Optional[str] = None
+
+
 # ---------------------------------------------------------------------------
 # Endpoints (specific routes first, generic catch-all last)
 # ---------------------------------------------------------------------------
+
+@router.get("/{scene_id:path}/beats/{beat_num}/drafts")
+def get_beat_drafts(scene_id: str, beat_num: int):
+    narration = storage.get_beat_draft(scene_id, beat_num, "narration") or ""
+    dialogue = storage.get_beat_draft(scene_id, beat_num, "dialogue") or ""
+    prose = storage.get_beat_draft(scene_id, beat_num, "prose") or ""
+    return {
+        "narration_draft": narration,
+        "dialogue_draft": dialogue,
+        "beat_prose": prose
+    }
+
+@router.patch("/{scene_id:path}/beats/{beat_num}/drafts")
+def update_beat_drafts(scene_id: str, beat_num: int, payload: DraftsUpdatePayload):
+    scene = storage.get_scene(scene_id)
+    if not scene:
+        raise HTTPException(status_code=404, detail="Scene not found")
+        
+    if payload.narration_draft is not None:
+        storage.save_beat_draft(scene_id, beat_num, "narration", payload.narration_draft)
+    if payload.dialogue_draft is not None:
+        storage.save_beat_draft(scene_id, beat_num, "dialogue", payload.dialogue_draft)
+    if payload.beat_prose is not None:
+        storage.save_beat_draft(scene_id, beat_num, "prose", payload.beat_prose)
+        
+        # Auto-compile scene prose
+        compiled_prose = storage.assemble_scene_prose(scene_id)
+        if compiled_prose:
+            scene.generated_content = compiled_prose
+            storage.save_scene(scene)
+            
+    return {"status": "success"}
+
+@router.post("/{scene_id:path}/beats/{beat_num}/draft")
+async def generate_beat_drafts(scene_id: str, beat_num: int):
+    scene = storage.get_scene(scene_id)
+    if not scene:
+        raise HTTPException(status_code=404, detail="Scene not found")
+        
+    events = _normalize_events(scene.scene_events)
+    idx = beat_num - 1
+    if idx < 0 or idx >= len(events):
+        raise HTTPException(status_code=404, detail="Beat index out of bounds")
+        
+    event = events[idx]
+    beat_desc = event.get("beat", "")
+    beat_style = event.get("style", "general")
+    
+    context = _build_story_context(scene)
+    loaded_styles = _load_styles()
+    style_data = loaded_styles.get(beat_style, {})
+    agent_sections = style_data.get("agent_sections", {})
+    
+    narration_agent = NarrationAgent()
+    dialogue_agent = DialogueAgent()
+    
+    # 1. Narration
+    narration_draft = ""
+    if "narration" in agent_sections:
+        guidelines = agent_sections["narration"]
+        narration_draft = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: narration_agent.generate(context, beat_desc, guidelines)
+        )
+        storage.save_beat_draft(scene_id, beat_num, "narration", narration_draft)
+        
+        storage.save_agent_log(AgentLog(
+            id=str(uuid.uuid4()),
+            scene_id=scene.id,
+            beat_number=beat_num,
+            agent_name="NarrationAgent",
+            system_prompt=narration_agent.system_prompt,
+            user_prompt=narration_agent._build_prompt(context, beat_desc, guidelines),
+            output=narration_draft,
+        ))
+    
+    # 2. Dialogue
+    dialogue_draft = ""
+    if "dialogue" in agent_sections:
+        guidelines = agent_sections["dialogue"]
+        dialogue_draft = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: dialogue_agent.generate(context, event, guidelines, narration_draft)
+        )
+        storage.save_beat_draft(scene_id, beat_num, "dialogue", dialogue_draft)
+        
+        storage.save_agent_log(AgentLog(
+            id=str(uuid.uuid4()),
+            scene_id=scene.id,
+            beat_number=beat_num,
+            agent_name="DialogueAgent",
+            system_prompt=dialogue_agent.system_prompt,
+            user_prompt=dialogue_agent._build_prompt(context, event, guidelines, narration_draft),
+            output=dialogue_draft,
+        ))
+        
+    return {
+        "narration_draft": narration_draft,
+        "dialogue_draft": dialogue_draft
+    }
+
+@router.post("/{scene_id:path}/beats/{beat_num}/merge")
+async def merge_beat_drafts(scene_id: str, beat_num: int):
+    scene = storage.get_scene(scene_id)
+    if not scene:
+        raise HTTPException(status_code=404, detail="Scene not found")
+        
+    events = _normalize_events(scene.scene_events)
+    idx = beat_num - 1
+    if idx < 0 or idx >= len(events):
+        raise HTTPException(status_code=404, detail="Beat index out of bounds")
+        
+    event = events[idx]
+    beat_style = event.get("style", "general")
+    total_beats = len(events)
+    
+    context = _build_story_context(scene)
+    loaded_styles = _load_styles()
+    style_data = loaded_styles.get(beat_style, {})
+    agent_sections = style_data.get("agent_sections", {})
+    writer_guidelines = agent_sections.get("writer", "")
+    beat_token_limit = None if config.DISABLE_TOKEN_LIMITS else style_data.get("output_size")
+    
+    # Determine mode
+    mode = _determine_mode(
+        scene_index=context.scene_number - 1,
+        beat_index=idx,
+        total_beats=total_beats,
+        scene=scene
+    )
+    
+    # Resolve prev_tail
+    prev_tail = ""
+    if beat_num > 1:
+        prev_prose = storage.get_beat_draft(scene_id, beat_num - 1, "prose")
+        if prev_prose:
+            prev_tail = _extract_tail(prev_prose, 2)
+    else:
+        prev_tail = scene.setting_draft or ""
+        
+    # Load saved drafts
+    drafts = {}
+    narration_draft = storage.get_beat_draft(scene_id, beat_num, "narration")
+    if narration_draft:
+        drafts["narration"] = narration_draft
+    dialogue_draft = storage.get_beat_draft(scene_id, beat_num, "dialogue")
+    if dialogue_draft:
+        drafts["dialogue"] = dialogue_draft
+        
+    # Run WriterAgent
+    writer_agent = WriterAgent()
+    beat_setting_draft = scene.setting_draft if (idx == 0 and mode == "opening_with_setting") else ""
+    
+    beat_text = await asyncio.get_event_loop().run_in_executor(
+        None,
+        lambda: writer_agent.generate_beat(
+            context=context,
+            beat=event,
+            beat_index=idx,
+            total_beats=total_beats,
+            prev_tail=prev_tail,
+            setting_draft=beat_setting_draft,
+            drafts=drafts,
+            writer_guidelines=writer_guidelines,
+            mode=mode,
+            token_limit=beat_token_limit,
+        )
+    )
+    
+    # Save final prose sidecar for this beat
+    storage.save_beat_draft(scene_id, beat_num, "prose", beat_text)
+    
+    storage.save_agent_log(AgentLog(
+        id=str(uuid.uuid4()),
+        scene_id=scene.id,
+        beat_number=beat_num,
+        agent_name="WriterAgent",
+        system_prompt=writer_agent.system_prompt,
+        user_prompt=getattr(writer_agent, "last_user_prompt", ""),
+        output=beat_text,
+    ))
+    
+    # Attempt to auto-compile scene prose if all beats are done
+    compiled_prose = storage.assemble_scene_prose(scene_id)
+    if compiled_prose:
+        scene.generated_content = compiled_prose
+        storage.save_scene(scene)
+        
+    return {
+        "beat_prose": beat_text,
+        "scene_compiled": compiled_prose is not None
+    }
+
+@router.post("/{scene_id:path}/compile")
+def compile_scene_prose(scene_id: str):
+    scene = storage.get_scene(scene_id)
+    if not scene:
+        raise HTTPException(status_code=404, detail="Scene not found")
+        
+    compiled_prose = storage.assemble_scene_prose(scene_id)
+    if not compiled_prose:
+        raise HTTPException(status_code=400, detail="Some beats are missing generated prose. Please generate all beats first.")
+        
+    scene.generated_content = compiled_prose
+    storage.save_scene(scene)
+    return {"status": "success", "content": compiled_prose}
 
 @router.post("/{scene_id:path}/decompose")
 def decompose_scene(scene_id: str):
@@ -385,9 +592,11 @@ def decompose_scene(scene_id: str):
     style_descriptions = {name: data["description"] for name, data in loaded_styles.items()}
 
     decomposer = DecomposerAgent()
+    characters_context = _load_character_context(scene)
     decomposed_events = decomposer.generate(
         scene_description=scene.scene_description,
         style_descriptions=style_descriptions,
+        characters_context=characters_context or None,
     )
 
     scene.scene_events = decomposed_events
@@ -572,3 +781,85 @@ def get_scene(scene_id: str):
     if not scene:
         raise HTTPException(status_code=404, detail="Scene not found")
     return scene
+
+
+class SceneAssistRequest(BaseModel):
+    message: str
+    history: list = []
+    current_beat_index: Optional[int] = None
+    document_content: Optional[str] = None
+
+
+@router.post("/{scene_id:path}/assist")
+def scene_assist(scene_id: str, payload: SceneAssistRequest):
+    scene = storage.get_scene(scene_id)
+    if not scene:
+        raise HTTPException(status_code=404, detail="Scene not found")
+
+    # Parse act/scene numbers from scene_id (e.g. chapter-1_act-1_scene-3)
+    parts = scene_id.split("_")
+    act_num = parts[1].replace("act-", "") if len(parts) > 1 else "?"
+    scene_num = parts[2].replace("scene-", "") if len(parts) > 2 else "?"
+
+    loader = get_schema()
+    schema_dict = loader.get_schema_for_document_type("beat")
+
+    focused_beat_str = (
+        f"FOCUSED BEAT: index {payload.current_beat_index} (Beat {payload.current_beat_index + 1}).\n"
+        if payload.current_beat_index is not None else ""
+    )
+    doc_content_str = (
+        f"CURRENT BEAT CONTENT (as the user sees it):\n{payload.document_content}\n"
+        if payload.document_content else ""
+    )
+
+    agent = DocumentEditAgent()
+    operation = agent.generate_operation(
+        document_type="beat",
+        current_data=scene.scene_events or [],
+        schema_dict=schema_dict,
+        user_message=payload.message,
+        history=payload.history,
+        context_str=(
+            f"You are editing Act {act_num}, Scene {scene_num}.\n"
+            f"Scene Setting: {scene.scene_setting}\n"
+            f"Scene Description: {scene.scene_description}\n"
+            f"Characters: {', '.join(scene.characters or [])}\n"
+            f"{focused_beat_str}"
+            f"{doc_content_str}"
+            f"Note: The focused beat's TipTap markdown shows its current text. The paragraph text is the 'beat' description field. Lines starting with '*' or '-' are the beat's sub-bullets, which correspond to the 'conversation_flow' list field. In your 'conversation_flow' list updates, you must store these as clean strings WITHOUT the '*' or '-' prefix. Do NOT move or copy the existing 'beat' description field content into the 'conversation_flow' list. If the user request is a normal prose addition (without requesting a bullet), append it directly to the 'beat' description field string instead.\n"
+            f"CRITICAL RULE: When a beat is FOCUSED (e.g., FOCUSED BEAT: index {payload.current_beat_index}), any instruction to 'add here', 'add to this', 'insert here', or 'edit this' must be interpreted as modifying that focused beat (an UPDATE operation on index [{payload.current_beat_index}], path='scene_events[{payload.current_beat_index}]' or '[{payload.current_beat_index}]'). You can modify the 'beat' description or 'conversation_flow' list fields as appropriate. Do NOT create a new beat unless the user explicitly requests a 'new beat' or to 'add a beat after/before'.\n"
+            f"For 'create', use parent_path='scene_events' or leave it empty. "
+            f"For 'update'/'delete', use path='[N]' (0-indexed) referencing the beat index directly."
+        )
+    )
+
+    op_type = operation.get("op")
+    if op_type == "clarify":
+        return {
+            "type": "clarification_needed",
+            "question": operation.get("question", "Could you clarify your request?"),
+            "options": operation.get("options", [])
+        }
+
+    try:
+        updated_data = storage.apply_scene_operation(scene_id, operation)
+        msg = f"Successfully applied '{op_type}' to scene beat."
+
+        storage.save_ai_editor_log(scene_id, {
+            "id": str(uuid.uuid4()),
+            "operation": op_type,
+            "feedback": payload.message,
+            "output": msg,
+            "timestamp": datetime.utcnow().isoformat(),
+            "isAI": True
+        })
+
+        return {
+            "type": "applied",
+            "message": msg,
+            "data": updated_data
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
