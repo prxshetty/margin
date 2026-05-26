@@ -4,3 +4,15 @@ outputs/
 __pycache__/
 .env
 slm_engine.db
+opencode.json
+docs/
+todo.md
+backend-handoff.md
+frontend-handoff.md
+handoff.md
+concepts.md
+settings.json
+chapter-1.md
+final_prose_test.md
+skills-lock.json
+.agents/

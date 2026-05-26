@@ -210,27 +210,24 @@ Dr. Lena Hayes arrives later. Kaelen suggests dinner outside to clear the air.
 Lena is skeptical but agrees. The chapter ends with the three of them leaving.
 ```
 
-Characters are detected by matching names against YAML files in `inputs/characters/`.
-If the blueprint gets anything wrong, the feedback loop at approval time lets you correct it.
+Characters are dynamically detected and matched against Markdown profile files in `inputs/characters/` (e.g. `elara_vance.md`).
 
-### Character Profile (`inputs/characters/name.yaml`)
+During chapter blueprint generation, the system scans the chapter title and user outline to detect which characters are active. It uses a case-insensitive mention scanner that checks for:
+- The character's full name (e.g., `"Elara Vance"`)
+- The file slug (e.g., `"elara_vance"`)
+- Key name components (e.g., `"Elara"` or `"Vance"`, ignoring short noise words like `"Dr"`)
 
-Character YAML filenames must be a prefix of the character name used in the chapter.
+When a mention is found, the system dynamically loads the character's profile and injects it directly into the `BlueprintAgent` prompt context, enabling the SLM to perform character-informed act and scene structure generation.
 
-```yaml
-name: Elara
-description: A determined woman with sharp features
-traits:
-  - Brave
-  - Intelligent
-  - Secretive
-goals:
-  - Uncover the truth
-  - Protect her sister
-flaws:
-  - Trust issues
-  - Impulsive
-current_state: ""
+### Character Profile (`inputs/characters/name_slug.md`)
+
+Each character profile is a simple Markdown file containing their background, traits, and description in plain text.
+
+Example file `inputs/characters/elara_vance.md`:
+```markdown
+Elara Vance is a fiercely independent, enigmatic artist. She is intense, passionate, highly observant, and guarded in her interactions with others.
+
+She struggles with reconciling her need for control with her growing connection to those around her.
 ```
 
 ## Generation Workflow
@@ -325,7 +322,7 @@ Final approved content — one file per act.
 
 **No chapters found**: Create a `.md` file in `inputs/chapters/`
 
-**Character profiles not loading**: Filename must be a prefix of the character name in the chapter (e.g., `elara.yaml` matches "Elara Vance")
+**Character profiles not loading**: Ensure the character's name, slug, or key parts of their name (e.g. `"Elara"` or `"Vance"`) are explicitly mentioned in the chapter title or outline so they can be matched by the mention scanner.
 
 **Model not responding**: Check LM Studio is running and model is loaded
 
