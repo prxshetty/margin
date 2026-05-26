@@ -408,8 +408,8 @@ def update_beat_drafts(scene_id: str, beat_num: int, payload: DraftsUpdatePayloa
             
     return {"status": "success"}
 
-@router.post("/{scene_id:path}/beats/{beat_num}/draft")
-async def generate_beat_drafts(scene_id: str, beat_num: int):
+@router.post("/{scene_id:path}/beats/{beat_num}/draft/narration")
+async def generate_narration_draft(scene_id: str, beat_num: int):
     scene = storage.get_scene(scene_id)
     if not scene:
         raise HTTPException(status_code=404, detail="Scene not found")
@@ -429,52 +429,70 @@ async def generate_beat_drafts(scene_id: str, beat_num: int):
     agent_sections = style_data.get("agent_sections", {})
     
     narration_agent = NarrationAgent()
+    
+    narration_draft = ""
+    guidelines = agent_sections.get("narration", "")
+    narration_draft = await asyncio.get_event_loop().run_in_executor(
+        None,
+        lambda: narration_agent.generate(context, beat_desc, guidelines)
+    )
+    storage.save_beat_draft(scene_id, beat_num, "narration", narration_draft)
+    
+    storage.save_agent_log(AgentLog(
+        id=str(uuid.uuid4()),
+        scene_id=scene.id,
+        beat_number=beat_num,
+        agent_name="NarrationAgent",
+        system_prompt=narration_agent.system_prompt,
+        user_prompt=narration_agent._build_prompt(context, beat_desc, guidelines),
+        output=narration_draft,
+    ))
+    
+    return {"narration_draft": narration_draft}
+
+@router.post("/{scene_id:path}/beats/{beat_num}/draft/dialogue")
+async def generate_dialogue_draft(scene_id: str, beat_num: int):
+    scene = storage.get_scene(scene_id)
+    if not scene:
+        raise HTTPException(status_code=404, detail="Scene not found")
+        
+    events = _normalize_events(scene.scene_events)
+    idx = beat_num - 1
+    if idx < 0 or idx >= len(events):
+        raise HTTPException(status_code=404, detail="Beat index out of bounds")
+        
+    event = events[idx]
+    beat_style = event.get("style", "general")
+    
+    context = _build_story_context(scene)
+    loaded_styles = _load_styles()
+    style_data = loaded_styles.get(beat_style, {})
+    agent_sections = style_data.get("agent_sections", {})
+    
+    # Load the narration draft currently saved on disk (includes any manual edits)
+    narration_draft = storage.get_beat_draft(scene_id, beat_num, "narration") or ""
+    
     dialogue_agent = DialogueAgent()
     
-    # 1. Narration
-    narration_draft = ""
-    if "narration" in agent_sections:
-        guidelines = agent_sections["narration"]
-        narration_draft = await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: narration_agent.generate(context, beat_desc, guidelines)
-        )
-        storage.save_beat_draft(scene_id, beat_num, "narration", narration_draft)
-        
-        storage.save_agent_log(AgentLog(
-            id=str(uuid.uuid4()),
-            scene_id=scene.id,
-            beat_number=beat_num,
-            agent_name="NarrationAgent",
-            system_prompt=narration_agent.system_prompt,
-            user_prompt=narration_agent._build_prompt(context, beat_desc, guidelines),
-            output=narration_draft,
-        ))
-    
-    # 2. Dialogue
     dialogue_draft = ""
-    if "dialogue" in agent_sections:
-        guidelines = agent_sections["dialogue"]
-        dialogue_draft = await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: dialogue_agent.generate(context, event, guidelines, narration_draft)
-        )
-        storage.save_beat_draft(scene_id, beat_num, "dialogue", dialogue_draft)
-        
-        storage.save_agent_log(AgentLog(
-            id=str(uuid.uuid4()),
-            scene_id=scene.id,
-            beat_number=beat_num,
-            agent_name="DialogueAgent",
-            system_prompt=dialogue_agent.system_prompt,
-            user_prompt=dialogue_agent._build_prompt(context, event, guidelines, narration_draft),
-            output=dialogue_draft,
-        ))
-        
-    return {
-        "narration_draft": narration_draft,
-        "dialogue_draft": dialogue_draft
-    }
+    guidelines = agent_sections.get("dialogue", "")
+    dialogue_draft = await asyncio.get_event_loop().run_in_executor(
+        None,
+        lambda: dialogue_agent.generate(context, event, guidelines, narration_draft)
+    )
+    storage.save_beat_draft(scene_id, beat_num, "dialogue", dialogue_draft)
+    
+    storage.save_agent_log(AgentLog(
+        id=str(uuid.uuid4()),
+        scene_id=scene.id,
+        beat_number=beat_num,
+        agent_name="DialogueAgent",
+        system_prompt=dialogue_agent.system_prompt,
+        user_prompt=dialogue_agent._build_prompt(context, event, guidelines, narration_draft),
+        output=dialogue_draft,
+    ))
+    
+    return {"dialogue_draft": dialogue_draft}
 
 @router.post("/{scene_id:path}/beats/{beat_num}/merge")
 async def merge_beat_drafts(scene_id: str, beat_num: int):

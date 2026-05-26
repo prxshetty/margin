@@ -185,13 +185,20 @@ export function InlineSelectionPopup({ localEditor }: { localEditor?: any }) {
   const wrapperRect = wrapper?.getBoundingClientRect()
   
   const top = coords.bottom - (wrapperRect?.top || 0) + 10
-  const left = Math.max(0, coords.left - (wrapperRect?.left || 0) - 100)
+  
+  // Constrain left position to prevent cutoff by container/window width
+  const wrapperWidth = wrapperRect?.width || window.innerWidth
+  const popupWidth = 320 // safe approximation of popup width
+  const maxLeft = Math.max(10, wrapperWidth - popupWidth - 16)
+  
+  let left = coords.left - (wrapperRect?.left || 0) - 100
+  left = Math.max(10, Math.min(left, maxLeft))
 
   return (
     <div 
       onMouseDown={(e) => e.preventDefault()}  // prevent editor losing selection when clicking popup
       style={{ top, left }}
-      className="absolute z-50 flex items-center gap-1 p-1 bg-slate-900 rounded-lg shadow-xl border border-slate-700 animate-in fade-in zoom-in-95 duration-200"
+      className="absolute z-[9999] flex items-center gap-1 p-1 bg-slate-900 rounded-lg shadow-xl border border-slate-700 animate-in fade-in zoom-in-95 duration-200"
     >
       <button
         onClick={handleExpand}
