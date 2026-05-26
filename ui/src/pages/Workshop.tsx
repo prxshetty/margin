@@ -16,7 +16,8 @@ import { Inspector } from '../components/Inspector'
 import type { ActiveDoc } from '../stores/projectStore'
 import { useProjectStore } from '../stores/projectStore'
 import { useEditorStore } from '../stores/editorStore'
-
+import { API_BASE } from '../lib/api'
+ 
 export default function Workshop() {
   const [searchParams] = useSearchParams()
   const chapterId = searchParams.get('chapter')
@@ -36,7 +37,7 @@ export default function Workshop() {
   const { data: chapters, isLoading: isChaptersLoading } = useQuery({
     queryKey: ['chapters'],
     queryFn: async () => {
-      const res = await fetch('http://127.0.0.1:8000/chapters/')
+      const res = await fetch(`${API_BASE}/chapters/`)
       if (!res.ok) throw new Error('Failed to fetch chapters')
       return res.json() as Promise<Chapter[]>
     }
@@ -45,7 +46,7 @@ export default function Workshop() {
   const { data: settingsStatus, refetch: refetchSettings } = useQuery({
     queryKey: ['settingsStatus'],
     queryFn: async () => {
-      const res = await fetch('http://127.0.0.1:8000/settings/status')
+      const res = await fetch(`${API_BASE}/settings/status`)
       if (!res.ok) throw new Error('Failed to fetch settings status')
       return res.json() as Promise<{
         is_linked: boolean
@@ -67,7 +68,7 @@ export default function Workshop() {
   const { data: llmSettings, refetch: refetchLlmSettings } = useQuery({
     queryKey: ['llmSettings'],
     queryFn: async () => {
-      const res = await fetch('http://127.0.0.1:8000/settings')
+      const res = await fetch(`${API_BASE}/settings`)
       if (!res.ok) throw new Error('Failed to fetch LLM settings')
       return res.json() as Promise<{
         reasoning_model: boolean
@@ -78,7 +79,7 @@ export default function Workshop() {
 
   const updateLlmSettingsMutation = useMutation({
     mutationFn: async (updated: { reasoning_model: boolean; prepend_thinking_preamble: boolean }) => {
-      const res = await fetch('http://127.0.0.1:8000/settings', {
+      const res = await fetch(`${API_BASE}/settings`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updated)
@@ -93,7 +94,7 @@ export default function Workshop() {
 
   const deleteMutation = useMutation({
     mutationFn: async ({ id, target }: { id: string, target: 'input' | 'output' | 'both' }) => {
-      const res = await fetch(`http://127.0.0.1:8000/chapters/${id}?target=${target}`, {
+      const res = await fetch(`${API_BASE}/chapters/${id}?target=${target}`, {
         method: 'DELETE'
       })
       if (!res.ok) throw new Error('Failed to delete chapter')
@@ -108,7 +109,7 @@ export default function Workshop() {
     mutationFn: async (path: string) => {
       setErrorMsg('')
       setSuccessMsg('')
-      const res = await fetch('http://127.0.0.1:8000/settings/link', {
+      const res = await fetch(`${API_BASE}/settings/link`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ inputs_path: path })
@@ -124,7 +125,7 @@ export default function Workshop() {
       const chaptersResult = await queryClient.fetchQuery({
         queryKey: ['chapters'],
         queryFn: async () => {
-          const res = await fetch('http://127.0.0.1:8000/chapters/')
+          const res = await fetch(`${API_BASE}/chapters/`)
           if (!res.ok) throw new Error('Failed to fetch chapters')
           return res.json() as Promise<Chapter[]>
         }
@@ -148,7 +149,7 @@ export default function Workshop() {
     mutationFn: async () => {
       setErrorMsg('')
       setSuccessMsg('')
-      const res = await fetch('http://127.0.0.1:8000/settings/unlink', {
+      const res = await fetch(`${API_BASE}/settings/unlink`, {
         method: 'POST'
       })
       if (!res.ok) throw new Error('Failed to restore default workspace')
@@ -202,13 +203,13 @@ export default function Workshop() {
     try {
       if (doc.type === 'scene') {
         if (docInfo.mode === 'content') {
-          await fetch(`http://127.0.0.1:8000/scenes/${doc.sceneId}/content`, {
+          await fetch(`${API_BASE}/scenes/${doc.sceneId}/content`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ content: text })
           })
         } else if (docInfo.mode === 'beats' && docInfo.beatIndex !== undefined) {
-          await fetch(`http://127.0.0.1:8000/scenes/${doc.sceneId}/beats/${docInfo.beatIndex + 1}`, {
+          await fetch(`${API_BASE}/scenes/${doc.sceneId}/beats/${docInfo.beatIndex + 1}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ beat: text })
@@ -216,25 +217,25 @@ export default function Workshop() {
           queryClient.invalidateQueries({ queryKey: ['scene', doc.sceneId] })
         }
       } else if (doc.type === 'character') {
-        await fetch(`http://127.0.0.1:8000/characters/${doc.slug}/content`, {
+        await fetch(`${API_BASE}/characters/${doc.slug}/content`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ content: text })
         })
       } else if (doc.type === 'style') {
-        await fetch(`http://127.0.0.1:8000/styles/${doc.id}/content`, {
+        await fetch(`${API_BASE}/styles/${doc.id}/content`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ content: text })
         })
       } else if (doc.type === 'outline') {
-        await fetch(`http://127.0.0.1:8000/chapters/${chapterId}/content`, {
+        await fetch(`${API_BASE}/chapters/${chapterId}/content`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ content: text })
         })
       } else if (doc.type === 'blueprint') {
-        await fetch(`http://127.0.0.1:8000/chapters/${chapterId}/blueprint/markdown`, {
+        await fetch(`${API_BASE}/chapters/${chapterId}/blueprint/markdown`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ content: text })
@@ -252,7 +253,7 @@ export default function Workshop() {
     queryKey: ['chapter', chapterId],
     queryFn: async () => {
       if (!chapterId) return null
-      const res = await fetch(`http://127.0.0.1:8000/chapters/${chapterId}`)
+      const res = await fetch(`${API_BASE}/chapters/${chapterId}`)
       if (!res.ok) throw new Error('Failed to fetch chapter')
       return res.json()
     },
@@ -354,13 +355,13 @@ export default function Workshop() {
       if (sceneViewMode === 'content' && activeSceneId) {
         // Always fetch fresh from server so newly compiled beat prose is reflected immediately
         hasLoadedRef.current = true
-        fetch(`http://127.0.0.1:8000/scenes/${activeSceneId}`)
+        fetch(`${API_BASE}/scenes/${activeSceneId}`)
           .then(res => res.json())
           .then(data => { setContent(data.generated_content || '') })
           .catch(() => { setContent('') })
       } else if (sceneViewMode === 'beats' && activeSceneId) {
         hasLoadedRef.current = true
-        fetch(`http://127.0.0.1:8000/scenes/${activeSceneId}/beats/${currentBeatIndex + 1}`)
+        fetch(`${API_BASE}/scenes/${activeSceneId}/beats/${currentBeatIndex + 1}`)
           .then(res => res.json())
           .then(data => { setContent(data.beat || '') })
           .catch(() => { setContent('') })
@@ -374,7 +375,7 @@ export default function Workshop() {
         hasLoadedRef.current = true
       } else {
         hasLoadedRef.current = true
-        fetch(`http://127.0.0.1:8000/chapters/${chapterId}`)
+        fetch(`${API_BASE}/chapters/${chapterId}`)
           .then(res => res.json())
           .then(data => { setContent(data.raw_outline || '') })
           .catch(() => { setContent('') })
@@ -384,7 +385,7 @@ export default function Workshop() {
 
     if (activeDoc.type === 'character') {
       hasLoadedRef.current = true
-      fetch(`http://127.0.0.1:8000/characters/${activeDoc.slug}/content`)
+      fetch(`${API_BASE}/characters/${activeDoc.slug}/content`)
         .then(res => res.json())
         .then(data => { setContent(data.content || '') })
         .catch(() => { setContent('') })
@@ -393,7 +394,7 @@ export default function Workshop() {
 
     if (activeDoc.type === 'style') {
       hasLoadedRef.current = true
-      fetch(`http://127.0.0.1:8000/styles/${activeDoc.id}/content`)
+      fetch(`${API_BASE}/styles/${activeDoc.id}/content`)
         .then(res => res.json())
         .then(data => { setContent(data.content || '') })
         .catch(() => { setContent('') })
@@ -403,7 +404,7 @@ export default function Workshop() {
 
     if (activeDoc.type === 'chapter') {
       hasLoadedRef.current = true
-      fetch(`http://127.0.0.1:8000/chapters/${chapterId}/export`)
+      fetch(`${API_BASE}/chapters/${chapterId}/export`)
         .then(res => res.json())
         .then(data => { setContent(data.content || '') })
         .catch(() => { setContent('') })
@@ -412,7 +413,7 @@ export default function Workshop() {
 
     if (activeDoc.type === 'blueprint') {
       hasLoadedRef.current = true
-      fetch(`http://127.0.0.1:8000/chapters/${chapterId}/blueprint/markdown`)
+      fetch(`${API_BASE}/chapters/${chapterId}/blueprint/markdown`)
         .then(res => res.json())
         .then(data => { setContent(data.content || '') })
         .catch(() => { setContent('') })
@@ -431,14 +432,14 @@ export default function Workshop() {
         const doc = prevDocInfo.doc
         if (doc.type === 'scene') {
           if (prevDocInfo.mode === 'content') {
-            fetch(`http://127.0.0.1:8000/scenes/${doc.sceneId}/content`, {
+            fetch(`${API_BASE}/scenes/${doc.sceneId}/content`, {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ content: text }),
               keepalive: true
             })
           } else if (prevDocInfo.mode === 'beats' && prevDocInfo.beatIndex !== undefined) {
-            fetch(`http://127.0.0.1:8000/scenes/${doc.sceneId}/beats/${prevDocInfo.beatIndex + 1}`, {
+            fetch(`${API_BASE}/scenes/${doc.sceneId}/beats/${prevDocInfo.beatIndex + 1}`, {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ beat: text }),
@@ -446,28 +447,28 @@ export default function Workshop() {
             })
           }
         } else if (doc.type === 'character') {
-          fetch(`http://127.0.0.1:8000/characters/${doc.slug}/content`, {
+          fetch(`${API_BASE}/characters/${doc.slug}/content`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ content: text }),
             keepalive: true
           })
         } else if (doc.type === 'style') {
-          fetch(`http://127.0.0.1:8000/styles/${doc.id}/content`, {
+          fetch(`${API_BASE}/styles/${doc.id}/content`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ content: text }),
             keepalive: true
           })
         } else if (doc.type === 'outline') {
-          fetch(`http://127.0.0.1:8000/chapters/${chapterId}/content`, {
+          fetch(`${API_BASE}/chapters/${chapterId}/content`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ content: text }),
             keepalive: true
           })
         } else if (doc.type === 'blueprint') {
-          fetch(`http://127.0.0.1:8000/chapters/${chapterId}/blueprint/markdown`, {
+          fetch(`${API_BASE}/chapters/${chapterId}/blueprint/markdown`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ content: text }),
@@ -497,7 +498,7 @@ export default function Workshop() {
         }
         await saveContent(docInfo, contentRef.current)
       }
-      const res = await fetch(`http://127.0.0.1:8000/scenes/${activeSceneId}/approve`, { method: 'POST' })
+      const res = await fetch(`${API_BASE}/scenes/${activeSceneId}/approve`, { method: 'POST' })
       if (res.ok) {
         queryClient.invalidateQueries({ queryKey: ['scene', activeSceneId] })
         queryClient.invalidateQueries({ queryKey: ['blueprint', chapterId] })
@@ -512,7 +513,7 @@ export default function Workshop() {
     if (!chapterId) return
     setIsExporting(true)
     try {
-      const res = await fetch(`http://127.0.0.1:8000/chapters/${chapterId}/export`, { method: 'POST' })
+      const res = await fetch(`${API_BASE}/chapters/${chapterId}/export`, { method: 'POST' })
       if (res.ok) {
         const data = await res.json()
         setExportedChapterDoc(true)
@@ -709,7 +710,7 @@ export default function Workshop() {
           onBlur={async (e) => {
             const newDesc = e.target.value
             if (newDesc === activeSceneMeta?.scene_description) return
-            const res = await fetch(`http://127.0.0.1:8000/scenes/${activeSceneId}`, {
+            const res = await fetch(`${API_BASE}/scenes/${activeSceneId}`, {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ scene_description: newDesc })
