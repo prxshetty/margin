@@ -16,7 +16,6 @@ import { Inspector } from '../components/Inspector'
 import type { ActiveDoc } from '../stores/projectStore'
 import { useProjectStore } from '../stores/projectStore'
 import { useEditorStore } from '../stores/editorStore'
-import { API_BASE } from '../lib/api'
 
 export default function Workshop() {
   const [searchParams] = useSearchParams()
@@ -37,7 +36,7 @@ export default function Workshop() {
   const { data: chapters, isLoading: isChaptersLoading } = useQuery({
     queryKey: ['chapters'],
     queryFn: async () => {
-      const res = await fetch(`${API_BASE}/chapters/`)
+      const res = await fetch('http://127.0.0.1:8000/chapters/')
       if (!res.ok) throw new Error('Failed to fetch chapters')
       return res.json() as Promise<Chapter[]>
     }
@@ -46,7 +45,7 @@ export default function Workshop() {
   const { data: settingsStatus, refetch: refetchSettings } = useQuery({
     queryKey: ['settingsStatus'],
     queryFn: async () => {
-      const res = await fetch(`${API_BASE}/settings/status`)
+      const res = await fetch('http://127.0.0.1:8000/settings/status')
       if (!res.ok) throw new Error('Failed to fetch settings status')
       return res.json() as Promise<{
         is_linked: boolean
@@ -68,7 +67,7 @@ export default function Workshop() {
   const { data: llmSettings, refetch: refetchLlmSettings } = useQuery({
     queryKey: ['llmSettings'],
     queryFn: async () => {
-      const res = await fetch(`${API_BASE}/settings`)
+      const res = await fetch('http://127.0.0.1:8000/settings')
       if (!res.ok) throw new Error('Failed to fetch LLM settings')
       return res.json() as Promise<{
         reasoning_model: boolean
@@ -79,7 +78,7 @@ export default function Workshop() {
 
   const updateLlmSettingsMutation = useMutation({
     mutationFn: async (updated: { reasoning_model: boolean; prepend_thinking_preamble: boolean }) => {
-      const res = await fetch(`${API_BASE}/settings`, {
+      const res = await fetch('http://127.0.0.1:8000/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updated)
@@ -94,7 +93,7 @@ export default function Workshop() {
 
   const deleteMutation = useMutation({
     mutationFn: async ({ id, target }: { id: string, target: 'input' | 'output' | 'both' }) => {
-      const res = await fetch(`${API_BASE}/chapters/${id}?target=${target}`, {
+      const res = await fetch(`http://127.0.0.1:8000/chapters/${id}?target=${target}`, {
         method: 'DELETE'
       })
       if (!res.ok) throw new Error('Failed to delete chapter')
@@ -109,7 +108,7 @@ export default function Workshop() {
     mutationFn: async (path: string) => {
       setErrorMsg('')
       setSuccessMsg('')
-      const res = await fetch(`${API_BASE}/settings/link`, {
+      const res = await fetch('http://127.0.0.1:8000/settings/link', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ inputs_path: path })
@@ -125,7 +124,7 @@ export default function Workshop() {
       const chaptersResult = await queryClient.fetchQuery({
         queryKey: ['chapters'],
         queryFn: async () => {
-          const res = await fetch(`${API_BASE}/chapters/`)
+          const res = await fetch('http://127.0.0.1:8000/chapters/')
           if (!res.ok) throw new Error('Failed to fetch chapters')
           return res.json() as Promise<Chapter[]>
         }
@@ -149,7 +148,7 @@ export default function Workshop() {
     mutationFn: async () => {
       setErrorMsg('')
       setSuccessMsg('')
-      const res = await fetch(`${API_BASE}/settings/unlink`, {
+      const res = await fetch('http://127.0.0.1:8000/settings/unlink', {
         method: 'POST'
       })
       if (!res.ok) throw new Error('Failed to restore default workspace')
@@ -185,7 +184,6 @@ export default function Workshop() {
   // Track previous document and live content for exit/unload saving
   const prevDocInfoRef = useRef<{doc: ActiveDoc, mode?: string, beatIndex?: number} | null>(null)
   const contentRef = useRef<string>('')
-  const lastSavedContentRef = useRef<string>('')  // tracks what was last persisted to disk
   const lastDocKeyRef = useRef<string>('')
   const hasLoadedRef = useRef<boolean>(false)
 
@@ -196,7 +194,7 @@ export default function Workshop() {
     // The content-loading effect will pick this up on next render since deps include activeDoc
   }, [reloadDocSignal])
 
-  // Auto-save callback — updates lastSavedContentRef on success to prevent redundant saves
+  // Auto-save callback
   const saveContent = useCallback(async (docInfo: {doc: ActiveDoc, mode?: string, beatIndex?: number}, text: string) => {
     if (!docInfo || !docInfo.doc || !text.trim()) return
     const doc = docInfo.doc
@@ -204,13 +202,13 @@ export default function Workshop() {
     try {
       if (doc.type === 'scene') {
         if (docInfo.mode === 'content') {
-          await fetch(`${API_BASE}/scenes/${doc.sceneId}/content`, {
+          await fetch(`http://127.0.0.1:8000/scenes/${doc.sceneId}/content`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ content: text })
           })
         } else if (docInfo.mode === 'beats' && docInfo.beatIndex !== undefined) {
-          await fetch(`${API_BASE}/scenes/${doc.sceneId}/beats/${docInfo.beatIndex + 1}`, {
+          await fetch(`http://127.0.0.1:8000/scenes/${doc.sceneId}/beats/${docInfo.beatIndex + 1}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ beat: text })
@@ -218,47 +216,43 @@ export default function Workshop() {
           queryClient.invalidateQueries({ queryKey: ['scene', doc.sceneId] })
         }
       } else if (doc.type === 'character') {
-        await fetch(`${API_BASE}/characters/${doc.slug}/content`, {
+        await fetch(`http://127.0.0.1:8000/characters/${doc.slug}/content`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ content: text })
         })
       } else if (doc.type === 'style') {
-        await fetch(`${API_BASE}/styles/${doc.id}/content`, {
+        await fetch(`http://127.0.0.1:8000/styles/${doc.id}/content`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ content: text })
         })
       } else if (doc.type === 'outline') {
-        await fetch(`${API_BASE}/chapters/${chapterId}/content`, {
+        await fetch(`http://127.0.0.1:8000/chapters/${chapterId}/content`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ content: text })
         })
-        queryClient.invalidateQueries({ queryKey: ['chapter', chapterId] })
-        queryClient.invalidateQueries({ queryKey: ['chapters'] })
       } else if (doc.type === 'blueprint') {
-        await fetch(`${API_BASE}/chapters/${chapterId}/blueprint/markdown`, {
+        await fetch(`http://127.0.0.1:8000/chapters/${chapterId}/blueprint/markdown`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ content: text })
         })
         queryClient.invalidateQueries({ queryKey: ['blueprint', chapterId] })
       }
-      // Mark this content as persisted to disk
-      lastSavedContentRef.current = text
     } catch (err) {
       console.error('Auto-save failed:', err)
     } finally {
       setIsSaving(false)
     }
-  }, [chapterId, queryClient])
+  }, [])
 
   const { data: chapterData } = useQuery({
     queryKey: ['chapter', chapterId],
     queryFn: async () => {
       if (!chapterId) return null
-      const res = await fetch(`${API_BASE}/chapters/${chapterId}`)
+      const res = await fetch(`http://127.0.0.1:8000/chapters/${chapterId}`)
       if (!res.ok) throw new Error('Failed to fetch chapter')
       return res.json()
     },
@@ -304,37 +298,6 @@ export default function Workshop() {
     contentRef.current = content
   }, [content])
 
-  // Debounced autosave: fires 2.5s after the user stops typing if content differs from last save
-  useEffect(() => {
-    if (!activeDoc) return
-    // Do not debounce-save scene beats (structural, handled on beat switch) or read-only types
-    if (activeDoc.type === 'chapter') return
-    if (!content || content === lastSavedContentRef.current) return
-
-    const timer = setTimeout(() => {
-      const currentDocInfo = {
-        doc: activeDoc,
-        mode: activeDoc.type === 'scene' ? sceneViewMode : undefined,
-        beatIndex: activeDoc.type === 'scene' && sceneViewMode === 'beats' ? currentBeatIndex : undefined
-      }
-      saveContent(currentDocInfo, content)
-    }, 2500)
-
-    return () => clearTimeout(timer)
-  }, [content, activeDoc, sceneViewMode, currentBeatIndex, saveContent])
-
-  // Force-save the currently active document synchronously before major backend actions
-  const handleSaveActiveDoc = useCallback(async () => {
-    const text = contentRef.current
-    if (!activeDoc || !text.trim() || text === lastSavedContentRef.current) return
-    const docInfo = {
-      doc: activeDoc,
-      mode: activeDoc.type === 'scene' ? sceneViewMode : undefined,
-      beatIndex: activeDoc.type === 'scene' && sceneViewMode === 'beats' ? currentBeatIndex : undefined
-    }
-    await saveContent(docInfo, text)
-  }, [activeDoc, sceneViewMode, currentBeatIndex, saveContent])
-
   // Load content into editor when activeDoc changes, and save the previous doc on switch
   useEffect(() => {
     const currentDocInfo = activeDoc ? {
@@ -375,7 +338,6 @@ export default function Workshop() {
 
       if (!activeDoc) {
         setContent('')
-        lastSavedContentRef.current = ''
         return
       }
       docChangeRef.current = Date.now()
@@ -388,24 +350,19 @@ export default function Workshop() {
 
     if (!activeDoc) return
 
-    // Helper: once a fresh load arrives, stamp it as the "already saved" baseline
-    const initSaved = (text: string) => {
-      lastSavedContentRef.current = text
-    }
-
     if (activeDoc.type === 'scene') {
       if (sceneViewMode === 'content' && activeSceneId) {
         // Always fetch fresh from server so newly compiled beat prose is reflected immediately
         hasLoadedRef.current = true
-        fetch(`${API_BASE}/scenes/${activeSceneId}`)
+        fetch(`http://127.0.0.1:8000/scenes/${activeSceneId}`)
           .then(res => res.json())
-          .then(data => { const t = data.generated_content || ''; initSaved(t); setContent(t) })
+          .then(data => { setContent(data.generated_content || '') })
           .catch(() => { setContent('') })
       } else if (sceneViewMode === 'beats' && activeSceneId) {
         hasLoadedRef.current = true
-        fetch(`${API_BASE}/scenes/${activeSceneId}/beats/${currentBeatIndex + 1}`)
+        fetch(`http://127.0.0.1:8000/scenes/${activeSceneId}/beats/${currentBeatIndex + 1}`)
           .then(res => res.json())
-          .then(data => { const t = data.beat || ''; initSaved(t); setContent(t) })
+          .then(data => { setContent(data.beat || '') })
           .catch(() => { setContent('') })
       }
       return
@@ -413,15 +370,13 @@ export default function Workshop() {
 
     if (activeDoc.type === 'outline') {
       if (chapterData) {
-        const t = chapterData.raw_outline || ''
-        initSaved(t)
-        setContent(t)
+        setContent(chapterData.raw_outline || '')
         hasLoadedRef.current = true
       } else {
         hasLoadedRef.current = true
-        fetch(`${API_BASE}/chapters/${chapterId}`)
+        fetch(`http://127.0.0.1:8000/chapters/${chapterId}`)
           .then(res => res.json())
-          .then(data => { const t = data.raw_outline || ''; initSaved(t); setContent(t) })
+          .then(data => { setContent(data.raw_outline || '') })
           .catch(() => { setContent('') })
       }
       return
@@ -429,18 +384,18 @@ export default function Workshop() {
 
     if (activeDoc.type === 'character') {
       hasLoadedRef.current = true
-      fetch(`${API_BASE}/characters/${activeDoc.slug}/content`)
+      fetch(`http://127.0.0.1:8000/characters/${activeDoc.slug}/content`)
         .then(res => res.json())
-        .then(data => { const t = data.content || ''; initSaved(t); setContent(t) })
+        .then(data => { setContent(data.content || '') })
         .catch(() => { setContent('') })
       return
     }
 
     if (activeDoc.type === 'style') {
       hasLoadedRef.current = true
-      fetch(`${API_BASE}/styles/${activeDoc.id}/content`)
+      fetch(`http://127.0.0.1:8000/styles/${activeDoc.id}/content`)
         .then(res => res.json())
-        .then(data => { const t = data.content || ''; initSaved(t); setContent(t) })
+        .then(data => { setContent(data.content || '') })
         .catch(() => { setContent('') })
       return
     }
@@ -448,18 +403,18 @@ export default function Workshop() {
 
     if (activeDoc.type === 'chapter') {
       hasLoadedRef.current = true
-      fetch(`${API_BASE}/chapters/${chapterId}/export`)
+      fetch(`http://127.0.0.1:8000/chapters/${chapterId}/export`)
         .then(res => res.json())
-        .then(data => { const t = data.content || ''; initSaved(t); setContent(t) })
+        .then(data => { setContent(data.content || '') })
         .catch(() => { setContent('') })
       return
     }
 
     if (activeDoc.type === 'blueprint') {
       hasLoadedRef.current = true
-      fetch(`${API_BASE}/chapters/${chapterId}/blueprint/markdown`)
+      fetch(`http://127.0.0.1:8000/chapters/${chapterId}/blueprint/markdown`)
         .then(res => res.json())
-        .then(data => { const t = data.content || ''; initSaved(t); setContent(t) })
+        .then(data => { setContent(data.content || '') })
         .catch(() => { setContent('') })
       return
     }
@@ -476,14 +431,14 @@ export default function Workshop() {
         const doc = prevDocInfo.doc
         if (doc.type === 'scene') {
           if (prevDocInfo.mode === 'content') {
-            fetch(`${API_BASE}/scenes/${doc.sceneId}/content`, {
+            fetch(`http://127.0.0.1:8000/scenes/${doc.sceneId}/content`, {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ content: text }),
               keepalive: true
             })
           } else if (prevDocInfo.mode === 'beats' && prevDocInfo.beatIndex !== undefined) {
-            fetch(`${API_BASE}/scenes/${doc.sceneId}/beats/${prevDocInfo.beatIndex + 1}`, {
+            fetch(`http://127.0.0.1:8000/scenes/${doc.sceneId}/beats/${prevDocInfo.beatIndex + 1}`, {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ beat: text }),
@@ -491,28 +446,28 @@ export default function Workshop() {
             })
           }
         } else if (doc.type === 'character') {
-          fetch(`${API_BASE}/characters/${doc.slug}/content`, {
+          fetch(`http://127.0.0.1:8000/characters/${doc.slug}/content`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ content: text }),
             keepalive: true
           })
         } else if (doc.type === 'style') {
-          fetch(`${API_BASE}/styles/${doc.id}/content`, {
+          fetch(`http://127.0.0.1:8000/styles/${doc.id}/content`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ content: text }),
             keepalive: true
           })
         } else if (doc.type === 'outline') {
-          fetch(`${API_BASE}/chapters/${chapterId}/content`, {
+          fetch(`http://127.0.0.1:8000/chapters/${chapterId}/content`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ content: text }),
             keepalive: true
           })
         } else if (doc.type === 'blueprint') {
-          fetch(`${API_BASE}/chapters/${chapterId}/blueprint/markdown`, {
+          fetch(`http://127.0.0.1:8000/chapters/${chapterId}/blueprint/markdown`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ content: text }),
@@ -542,7 +497,7 @@ export default function Workshop() {
         }
         await saveContent(docInfo, contentRef.current)
       }
-      const res = await fetch(`${API_BASE}/scenes/${activeSceneId}/approve`, { method: 'POST' })
+      const res = await fetch(`http://127.0.0.1:8000/scenes/${activeSceneId}/approve`, { method: 'POST' })
       if (res.ok) {
         queryClient.invalidateQueries({ queryKey: ['scene', activeSceneId] })
         queryClient.invalidateQueries({ queryKey: ['blueprint', chapterId] })
@@ -555,11 +510,9 @@ export default function Workshop() {
   // Export / compile chapter
   const exportChapter = async () => {
     if (!chapterId) return
-    // Flush any unsaved editor content before assembling the compiled chapter
-    await handleSaveActiveDoc()
     setIsExporting(true)
     try {
-      const res = await fetch(`${API_BASE}/chapters/${chapterId}/export`, { method: 'POST' })
+      const res = await fetch(`http://127.0.0.1:8000/chapters/${chapterId}/export`, { method: 'POST' })
       if (res.ok) {
         const data = await res.json()
         setExportedChapterDoc(true)
@@ -756,7 +709,7 @@ export default function Workshop() {
           onBlur={async (e) => {
             const newDesc = e.target.value
             if (newDesc === activeSceneMeta?.scene_description) return
-            const res = await fetch(`${API_BASE}/scenes/${activeSceneId}`, {
+            const res = await fetch(`http://127.0.0.1:8000/scenes/${activeSceneId}`, {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ scene_description: newDesc })
@@ -1124,9 +1077,8 @@ export default function Workshop() {
                   <div className="flex items-center gap-1.5 mr-2">
                     <button
                       type="button"
-                      onClick={async () => {
+                      onClick={() => {
                         if (!activeSceneId) return
-                        await handleSaveActiveDoc()
                         generateScene(activeSceneId)
                       }}
                       disabled={isStreaming}
@@ -1184,7 +1136,7 @@ export default function Workshop() {
               <div className="flex items-center gap-2 mr-2">
                 <button
                   type="button"
-                  onClick={async () => { await handleSaveActiveDoc(); generateBlueprint(true) }}
+                  onClick={() => generateBlueprint(true)}
                   disabled={isGenerating}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm transition-all border shrink-0 cursor-pointer disabled:opacity-50 ${
                     !blueprintData
@@ -1206,7 +1158,7 @@ export default function Workshop() {
                   ) : (
                     <button
                       type="button"
-                      onClick={async () => { await handleSaveActiveDoc(); confirmBlueprint() }}
+                      onClick={() => confirmBlueprint()}
                       disabled={isConfirming}
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 disabled:from-amber-400 disabled:to-orange-400 text-white border-transparent rounded-lg text-xs font-extrabold shadow-sm transition-all shrink-0 cursor-pointer"
                       title="Lock this blueprint structure to generate scenes"
