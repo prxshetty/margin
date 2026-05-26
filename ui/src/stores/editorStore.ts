@@ -6,6 +6,8 @@ interface EditorState {
   setContent: (content: string) => void
   isStreaming: boolean
   setIsStreaming: (isStreaming: boolean) => void
+  isSaving: boolean
+  setIsSaving: (saving: boolean) => void
   isApproved: boolean
   setIsApproved: (isApproved: boolean) => void
   eventSource: EventSource | null
@@ -30,6 +32,8 @@ export const useEditorStore = create<EditorState>((set) => ({
   setContent: (content) => set({ content }),
   isStreaming: false,
   setIsStreaming: (isStreaming) => set({ isStreaming }),
+  isSaving: false,
+  setIsSaving: (saving) => set({ isSaving: saving }),
   isApproved: false,
   setIsApproved: (isApproved) => set({ isApproved }),
   eventSource: null,
