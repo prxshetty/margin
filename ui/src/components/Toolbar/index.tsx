@@ -4,20 +4,36 @@ import { useScene } from '../../hooks/useScene'
 import { useBlueprint } from '../../hooks/useBlueprint'
 import { useEditorStore } from '../../stores/editorStore'
 import { useProjectStore } from '../../stores/projectStore'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQueryClient, useQuery } from '@tanstack/react-query'
+import { getDocInfo } from '../../lib/docInfo'
+import { API_BASE } from '../../lib/api'
 
-export function Toolbar({
-  aiEditorLogs = [],
-  isLoadingLogs = false
-}: {
-  aiEditorLogs?: any[]
-  isLoadingLogs?: boolean
-}) {
+export function Toolbar() {
   const { content, editor, anchorPosition, aiAssistPreload, setAIAssistPreload, triggerReload } = useEditorStore()
   const { activeSceneId, activeDoc, activeChapterId, currentBeatIndex } = useProjectStore()
   const { sceneAssist } = useScene(activeSceneId)
   const { blueprintAssist } = useBlueprint(activeChapterId)
   const queryClient = useQueryClient()
+
+  const { docType, docId } = getDocInfo(activeDoc, activeSceneId)
+
+  const { data: aiEditorLogs, isLoading: isLoadingLogs } = useQuery({
+    queryKey: ['aiEditorLogs', activeDoc?.type, docId],
+    queryFn: async () => {
+      const isScene = activeDoc?.type === 'scene'
+      if (isScene && !activeSceneId) return []
+      if (!isScene && !activeChapterId) return []
+
+      const url = isScene
+        ? `${API_BASE}/scenes/${activeSceneId}/ai_editor_logs`
+        : `${API_BASE}/chapters/${activeChapterId}/ai_editor_logs?doc_type=${docType}&doc_id=${docId}`
+
+      const res = await fetch(url)
+      if (!res.ok) throw new Error('Failed to fetch AI editor logs')
+      return res.json()
+    },
+    enabled: activeDoc?.type === 'scene' ? !!activeSceneId : !!activeChapterId
+  })
 
   const [feedback, setFeedback] = useState('')
   const [isWorking, setIsWorking] = useState(false)
@@ -57,16 +73,8 @@ export function Toolbar({
     setIsWorking(true)
     try {
       const url = activeDoc?.type === 'scene'
-        ? `http://localhost:8000/scenes/${activeSceneId}/rewrite_selection`
-        : `http://localhost:8000/chapters/${activeChapterId}/rewrite_selection`
-
-      const docId = activeDoc
-        ? activeDoc.type === 'scene'
-          ? activeSceneId
-          : activeDoc.type === 'character'
-            ? activeDoc.slug
-            : activeDoc.id
-        : ''
+        ? `${API_BASE}/scenes/${activeSceneId}/rewrite_selection`
+        : `${API_BASE}/chapters/${activeChapterId}/rewrite_selection`
 
       const response = await fetch(url, {
         method: 'POST',
@@ -75,7 +83,7 @@ export function Toolbar({
           selected_text: aiAssistPreload.text,
           feedback: feedback,
           context: content,
-          doc_type: activeDoc?.type,
+          doc_type: docType,
           doc_id: docId
         }),
       })
@@ -112,7 +120,7 @@ export function Toolbar({
     
     // Build clean user/assistant history from current state
     const history = [
-      ...aiEditorLogs.flatMap(log => [
+      ...aiEditorLogs.flatMap((log: any) => [
         { role: 'user', content: log.feedback || '' },
         { role: 'assistant', content: log.output || '' }
       ]),
@@ -233,16 +241,8 @@ export function Toolbar({
       const blockType = resolvedPos.parent.type.name
 
       const url = isScene
-        ? `http://localhost:8000/scenes/${activeSceneId}/insert_after`
-        : `http://localhost:8000/chapters/${activeChapterId}/insert_after`
-
-      const docId = activeDoc
-        ? activeDoc.type === 'scene'
-          ? activeSceneId
-          : activeDoc.type === 'character'
-            ? activeDoc.slug
-            : activeDoc.id
-        : ''
+        ? `${API_BASE}/scenes/${activeSceneId}/insert_after`
+        : `${API_BASE}/chapters/${activeChapterId}/insert_after`
 
       const response = await fetch(url, {
         method: 'POST',
@@ -253,7 +253,7 @@ export function Toolbar({
           block_type: blockType,
           feedback,
           context: content,
-          doc_type: activeDoc?.type,
+          doc_type: docType,
           doc_id: docId
         })
       })

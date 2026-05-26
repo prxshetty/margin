@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Terminal, Sparkles, Settings, Activity } from 'lucide-react'
 import { Toolbar } from '../Toolbar'
 import { useEditorStore } from '../../stores/editorStore'
+import { API_BASE } from '../../lib/api'
 
 export function Inspector({
   blueprintData,
@@ -13,7 +14,7 @@ export function Inspector({
   blueprintData?: any
   chapterId?: string | null
 }) {
-  const { activeSceneId, activeDoc, activeChapterId, currentBeatIndex } = useProjectStore()
+  const { activeSceneId, activeDoc, currentBeatIndex } = useProjectStore()
   const { sceneData, isLoading } = useScene(activeSceneId)
   const [activeTab, setActiveTab] = useState<'metadata' | 'ai' | 'logs'>('metadata')
   const queryClient = useQueryClient()
@@ -27,7 +28,7 @@ export function Inspector({
   const { data: styles } = useQuery({
     queryKey: ['styles'],
     queryFn: async () => {
-      const res = await fetch('http://127.0.0.1:8000/styles/')
+      const res = await fetch(`${API_BASE}/styles/`)
       if (!res.ok) throw new Error('Failed to fetch styles')
       return res.json()
     }
@@ -36,7 +37,7 @@ export function Inspector({
   // Mutation to persist beat updates back to file
   const saveBeatsMutation = useMutation({
     mutationFn: async (updatedBeats: any[]) => {
-      const res = await fetch(`http://127.0.0.1:8000/scenes/${activeSceneId}/beats`, {
+      const res = await fetch(`${API_BASE}/scenes/${activeSceneId}/beats`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ beats: updatedBeats })
@@ -67,7 +68,7 @@ export function Inspector({
     queryKey: ['blueprintLogs', chapterId],
     queryFn: async () => {
       if (!chapterId) return []
-      const res = await fetch(`http://127.0.0.1:8000/chapters/${chapterId}/blueprint/logs`)
+      const res = await fetch(`${API_BASE}/chapters/${chapterId}/blueprint/logs`)
       if (!res.ok) throw new Error('Failed to fetch blueprint logs')
       return res.json()
     },
@@ -79,41 +80,12 @@ export function Inspector({
     queryKey: ['sceneLogs', activeSceneId],
     queryFn: async () => {
       if (!activeSceneId) return []
-      const res = await fetch(`http://127.0.0.1:8000/scenes/${activeSceneId}/logs`)
+      const res = await fetch(`${API_BASE}/scenes/${activeSceneId}/logs`)
       if (!res.ok) throw new Error('Failed to fetch logs')
       return res.json()
     },
     enabled: !!activeSceneId
   })
-
-  // Get document slug/ID for isolated chat histories
-  const docId = activeDoc
-    ? activeDoc.type === 'scene'
-      ? activeSceneId
-      : activeDoc.type === 'character'
-        ? activeDoc.slug
-        : activeDoc.id
-    : ''
-
-  // Fetch AI editor logs dynamically
-  const { data: aiEditorLogs, isLoading: isAILogsLoading } = useQuery({
-    queryKey: ['aiEditorLogs', activeDoc?.type, docId || activeChapterId],
-    queryFn: async () => {
-      const isScene = activeDoc?.type === 'scene'
-      if (isScene && !activeSceneId) return []
-      if (!isScene && !activeChapterId) return []
-
-      const url = isScene
-        ? `http://127.0.0.1:8000/scenes/${activeSceneId}/ai_editor_logs`
-        : `http://127.0.0.1:8000/chapters/${activeChapterId}/ai_editor_logs?doc_type=${activeDoc?.type || ''}&doc_id=${docId || ''}`
-
-      const res = await fetch(url)
-      if (!res.ok) throw new Error('Failed to fetch AI editor logs')
-      return res.json()
-    },
-    enabled: activeDoc?.type === 'scene' ? !!activeSceneId : !!activeChapterId
-  })
-
 
 
   if (!activeDoc) {
@@ -289,15 +261,7 @@ export function Inspector({
           </>
         )}
 
-        {activeTab === 'ai' && (
-          <div>
-            <h3 className="font-semibold text-slate-900 mb-4 pb-2 border-b border-slate-100 flex items-center gap-1.5">
-              <Sparkles className="w-4 h-4 text-indigo-500" />
-              AI Writing Assist
-            </h3>
-            <Toolbar aiEditorLogs={aiEditorLogs} isLoadingLogs={isAILogsLoading} />
-          </div>
-        )}
+        {activeTab === 'ai' && <Toolbar />}
 
         {activeTab === 'logs' && (
           <div className="flex flex-col gap-6">
@@ -418,7 +382,7 @@ function CharacterMetadataPanel({ slug, name }: { slug: string; name: string }) 
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch(`http://127.0.0.1:8000/characters/${slug}`, {
+      const res = await fetch(`${API_BASE}/characters/${slug}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: charName })
@@ -464,7 +428,7 @@ function StyleMetadataPanel({ styleId, styleName }: { styleId: string; styleName
   const { data: styleData, isLoading } = useQuery({
     queryKey: ['styleMetadata', styleId],
     queryFn: async () => {
-      const res = await fetch(`http://127.0.0.1:8000/styles/${styleId}/content`)
+      const res = await fetch(`${API_BASE}/styles/${styleId}/content`)
       if (!res.ok) throw new Error('Failed to fetch style metadata')
       return res.json()
     }
@@ -486,7 +450,7 @@ function StyleMetadataPanel({ styleId, styleName }: { styleId: string; styleName
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch(`http://127.0.0.1:8000/styles/${styleId}`, {
+      const res = await fetch(`${API_BASE}/styles/${styleId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

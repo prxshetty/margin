@@ -3,6 +3,7 @@ import { Sparkles, PenLine, Plus, X, Loader2 } from 'lucide-react'
 import { useEditorStore } from '../../stores/editorStore'
 import { useProjectStore } from '../../stores/projectStore'
 import { useQueryClient } from '@tanstack/react-query'
+import { API_BASE } from '../../lib/api'
 
 export function InlineSelectionPopup({ localEditor }: { localEditor?: any }) {
   const { editor, selectionRange, selectedText, setAIAssistPreload } = useEditorStore()
@@ -76,8 +77,8 @@ export function InlineSelectionPopup({ localEditor }: { localEditor?: any }) {
       const blockType = resolvedPos.parent.type.name
 
       const url = isScene
-        ? `http://localhost:8000/scenes/${activeSceneId}/insert_after`
-        : `http://localhost:8000/chapters/${activeChapterId}/insert_after`
+        ? `${API_BASE}/scenes/${activeSceneId}/insert_after`
+        : `${API_BASE}/chapters/${activeChapterId}/insert_after`
 
       const response = await fetch(url, {
         method: 'POST',
@@ -130,8 +131,8 @@ export function InlineSelectionPopup({ localEditor }: { localEditor?: any }) {
     try {
       const docSize = editor.state.doc.content.size
       const url = isScene
-        ? `http://localhost:8000/scenes/${activeSceneId}/rewrite_selection`
-        : `http://localhost:8000/chapters/${activeChapterId}/rewrite_selection`
+        ? `${API_BASE}/scenes/${activeSceneId}/rewrite_selection`
+        : `${API_BASE}/chapters/${activeChapterId}/rewrite_selection`
 
       const response = await fetch(url, {
         method: 'POST',

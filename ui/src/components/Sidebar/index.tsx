@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useProjectStore } from '../../stores/projectStore'
+import { API_BASE } from '../../lib/api'
 
 // ── tiny inline SVGs ──────────────────────────────────────────────────────────
 function FolderOpen({ className = '' }: { className?: string }) {
@@ -82,7 +83,7 @@ export function Sidebar({
   const { data: characters } = useQuery({
     queryKey: ['characters'],
     queryFn: async () => {
-      const res = await fetch('http://127.0.0.1:8000/characters/')
+      const res = await fetch(`${API_BASE}/characters/`)
       if (!res.ok) throw new Error('Failed to fetch')
       return res.json()
     }
@@ -91,7 +92,7 @@ export function Sidebar({
   const { data: styles } = useQuery({
     queryKey: ['styles'],
     queryFn: async () => {
-      const res = await fetch('http://127.0.0.1:8000/styles/')
+      const res = await fetch(`${API_BASE}/styles/`)
       if (!res.ok) throw new Error('Failed to fetch')
       return res.json()
     }

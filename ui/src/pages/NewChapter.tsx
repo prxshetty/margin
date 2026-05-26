@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { ArrowLeft, Wand2 } from 'lucide-react'
+import { API_BASE } from '../lib/api'
 
 export default function NewChapter() {
   const [title, setTitle] = useState('')
@@ -14,7 +15,7 @@ export default function NewChapter() {
 
     setIsSubmitting(true)
     try {
-      const res = await fetch('http://127.0.0.1:8000/chapters/', {
+      const res = await fetch(`${API_BASE}/chapters/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title, raw_outline: outline })

@@ -1,5 +1,6 @@
 import { useEditorStore } from '../stores/editorStore'
 import { useQueryClient } from '@tanstack/react-query'
+import { API_BASE } from '../lib/api'
 
 export function useStream() {
   const { setContent, setIsStreaming, eventSource, setEventSource } = useEditorStore()
@@ -14,7 +15,7 @@ export function useStream() {
       eventSource.close()
     }
 
-    const es = new EventSource(`http://127.0.0.1:8000/scenes/${sceneId}/generate`)
+    const es = new EventSource(`${API_BASE}/scenes/${sceneId}/generate`)
     setEventSource(es)
 
     es.onmessage = (event) => {

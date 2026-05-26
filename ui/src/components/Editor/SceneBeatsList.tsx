@@ -9,6 +9,7 @@ import StarterKit from '@tiptap/starter-kit'
 import { Markdown } from 'tiptap-markdown'
 import { NovelEditor } from './NovelEditor'
 import { InlineSelectionPopup } from './InlineSelectionPopup'
+import { API_BASE } from '../../lib/api'
 
 interface MiniDraftEditorProps {
   value: string
@@ -109,7 +110,7 @@ export function SceneBeatsList() {
 
   const [activeTab, setActiveTab] = useState<'blueprint' | 'drafts'>('blueprint')
   const [drafts, setDrafts] = useState({ narration_draft: '', dialogue_draft: '' })
-  const [isLoadingDrafts, setIsLoadingDrafts] = useState(false)
+  const [, setIsLoadingDrafts] = useState(false)
   const [isGeneratingDrafts, setIsGeneratingDrafts] = useState(false)
   const [isMergingDrafts, setIsMergingDrafts] = useState(false)
   const [mergeSuccess, setMergeSuccess] = useState(false)
@@ -119,7 +120,7 @@ export function SceneBeatsList() {
     if (!activeSceneId || currentBeatIndex === undefined || currentBeatIndex < 0) return
     setIsLoadingDrafts(true)
     setMergeSuccess(false)
-    fetch(`http://127.0.0.1:8000/scenes/${activeSceneId}/beats/${currentBeatIndex + 1}/drafts`)
+    fetch(`${API_BASE}/scenes/${activeSceneId}/beats/${currentBeatIndex + 1}/drafts`)
       .then(res => res.json())
       .then(data => {
         setDrafts({
@@ -135,7 +136,7 @@ export function SceneBeatsList() {
   const handleUpdateDraft = async (key: 'narration_draft' | 'dialogue_draft', value: string) => {
     setDrafts(prev => ({ ...prev, [key]: value }))
     try {
-      await fetch(`http://127.0.0.1:8000/scenes/${activeSceneId}/beats/${currentBeatIndex + 1}/drafts`, {
+      await fetch(`${API_BASE}/scenes/${activeSceneId}/beats/${currentBeatIndex + 1}/drafts`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ [key]: value })
@@ -150,7 +151,7 @@ export function SceneBeatsList() {
     setIsGeneratingDrafts(true)
     setMergeSuccess(false)
     try {
-      const res = await fetch(`http://127.0.0.1:8000/scenes/${activeSceneId}/beats/${currentBeatIndex + 1}/draft`, {
+      const res = await fetch(`${API_BASE}/scenes/${activeSceneId}/beats/${currentBeatIndex + 1}/draft`, {
         method: 'POST'
       })
       if (!res.ok) throw new Error('Failed to generate drafts')
@@ -171,7 +172,7 @@ export function SceneBeatsList() {
     setIsMergingDrafts(true)
     setMergeSuccess(false)
     try {
-      const res = await fetch(`http://127.0.0.1:8000/scenes/${activeSceneId}/beats/${currentBeatIndex + 1}/merge`, {
+      const res = await fetch(`${API_BASE}/scenes/${activeSceneId}/beats/${currentBeatIndex + 1}/merge`, {
         method: 'POST'
       })
       if (!res.ok) throw new Error('Failed to merge drafts')
@@ -188,7 +189,7 @@ export function SceneBeatsList() {
   // Mutation to persist beat metadata
   const saveBeatsMutation = useMutation({
     mutationFn: async (updatedBeats: any[]) => {
-      const res = await fetch(`http://127.0.0.1:8000/scenes/${activeSceneId}/beats`, {
+      const res = await fetch(`${API_BASE}/scenes/${activeSceneId}/beats`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ beats: updatedBeats })
