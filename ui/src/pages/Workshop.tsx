@@ -203,7 +203,7 @@ export default function Workshop() {
     try {
       const target = getSaveEndpoint(docInfo.doc, chapterId, docInfo.mode, docInfo.beatIndex)
       if (!target) return
-      const bodyKey = target.url.endsWith('/beats/') ? 'beat' : 'content'
+      const { bodyKey } = target
       const res = await fetch(target.url, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -403,7 +403,7 @@ export default function Workshop() {
       if (!prevDocInfo?.doc || !contentRef.current.trim()) return
       const target = getSaveEndpoint(prevDocInfo.doc, chapterId, prevDocInfo.mode, prevDocInfo.beatIndex)
       if (!target) return
-      const bodyKey = target.url.endsWith('/beats/') ? 'beat' : 'content'
+      const { bodyKey } = target
       fetch(target.url, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
