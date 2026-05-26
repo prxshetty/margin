@@ -9,6 +9,13 @@ min_dialogues: 2
 - Maintain consistent voice and pacing
 - Use natural paragraph breaks for scene shifts
 
+## Narration Guidelines
+- Ground the scene physically before any emotional interiority
+- Use concrete, sensory detail — what characters see, hear, and feel
+- Keep action beats tight; one action per sentence for tension
+- Use character interiority sparingly: one key internal reaction per beat
+- Placeholder dialogue as [Dialogue: CharacterName - brief subtext/action] for the Dialogue agent to fill
+
 ## Dialogue Guidelines
 - Characters speak in declarations, not questions
 - Dialogue builds toward a rallying cry or turning point
