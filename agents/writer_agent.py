@@ -38,6 +38,24 @@ MODE_CLOSING_NOTES = {
     "closing": "Write this beat and close the scene naturally. Do not leave loose threads — end with a sense of completion or a pointed transition to whatever comes next.",
 }
 
+PROSE_DIRECTIVES = {
+    "light": (
+        "PROSE DIRECTIVE: This is an action-forward beat. Keep narration functional and minimal — "
+        "describe only what is necessary to ground the action. Compress atmosphere. "
+        "Preserve all dialogue exchanges in full; do not trim spoken lines."
+    ),
+    "balanced": (
+        "PROSE DIRECTIVE: This beat calls for a natural mix of action and atmosphere. "
+        "Apply light seam-fixing between narration and dialogue. Preserve all dialogue exchanges from the DIALOGUE DRAFT in full; "
+        "do not trim spoken lines. No aggressive compression or expansion."
+    ),
+    "heavy": (
+        "PROSE DIRECTIVE: This is an atmosphere-forward beat. Expand sensory and environmental detail — "
+        "let the world breathe before and after action. Preserve all dialogue exchanges from the DIALOGUE DRAFT in full; "
+        "do not trim spoken lines. Prioritize mood and texture."
+    ),
+}
+
 
 class WriterAgent:
     """Merges sub-agent drafts into a single polished beat."""
@@ -64,10 +82,12 @@ class WriterAgent:
         """Merge sub-agent drafts into a single polished beat."""
         beat_desc = beat.get("beat", "") if isinstance(beat, dict) else str(beat)
         beat_style = beat.get("style", "general") if isinstance(beat, dict) else "general"
+        prose_weight = beat.get("prose_weight", "balanced") if isinstance(beat, dict) else "balanced"
 
         self.last_token_limit = token_limit or config.TOKEN_LIMITS["writer"]
         intro = MODE_INTROS[mode].format(setting_draft=setting_draft, prev_tail=prev_tail)
         closing_note = MODE_CLOSING_NOTES[mode]
+        prose_directive = PROSE_DIRECTIVES.get(prose_weight, PROSE_DIRECTIVES["balanced"])
 
         drafts_block = ""
         if drafts:
@@ -80,6 +100,7 @@ class WriterAgent:
 
         self.last_user_prompt = (
             f"{intro}\n\n"
+            f"{prose_directive}\n\n"
             f"BEAT DESCRIPTION:\n{beat_desc}\n\n"
             f"STYLE: {beat_style}\n"
             f"STYLE GUIDELINES:\n{writer_guidelines}\n"
