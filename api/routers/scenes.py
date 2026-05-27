@@ -245,12 +245,15 @@ async def stream_generator(scene_id: str):
         narration_draft = ""
         if "narration" in agent_sections:
             guidelines = agent_sections["narration"]
+            prose_weight = event.get("prose_weight", "balanced") if isinstance(event, dict) else "balanced"
             yield {"data": json.dumps({"status": f"  Beat {beat_num}: Running NarrationAgent..."})}
             await asyncio.sleep(0)
 
             narration_draft = await asyncio.get_event_loop().run_in_executor(
                 None,
-                lambda g=guidelines: narration_agent.generate(context, beat_desc, g)
+                lambda g=guidelines, pw=prose_weight: narration_agent.generate(
+                    context, beat_desc, g, prose_weight=pw
+                )
             )
             drafts["narration"] = narration_draft
             storage.save_beat_draft(scene.id, beat_num, "narration", narration_draft)
@@ -261,19 +264,25 @@ async def stream_generator(scene_id: str):
                 beat_number=beat_num,
                 agent_name="NarrationAgent",
                 system_prompt=narration_agent.system_prompt,
-                user_prompt=narration_agent._build_prompt(context, beat_desc, guidelines),
+                user_prompt=narration_agent._build_prompt(
+                    context, beat_desc, guidelines,
+                    prose_weight=prose_weight
+                ),
                 output=narration_draft,
             ))
 
         # ---- DialogueAgent -------------------------------------------------
-        if "dialogue" in agent_sections:
+        # Skip in the auto pipeline when expected_exchanges is "0".
+        # The individual /draft/dialogue endpoint remains open for user-triggered overrides.
+        expected_exchanges_for_dialogue = event.get("expected_exchanges", "0") if isinstance(event, dict) else "0"
+        if "dialogue" in agent_sections and expected_exchanges_for_dialogue != "0":
             guidelines = agent_sections["dialogue"]
             yield {"data": json.dumps({"status": f"  Beat {beat_num}: Running DialogueAgent..."})}
             await asyncio.sleep(0)
 
             dialogue_draft = await asyncio.get_event_loop().run_in_executor(
                 None,
-                lambda g=guidelines: dialogue_agent.generate(context, event, g, narration_draft)
+                lambda g=guidelines: dialogue_agent.generate(context, event, g)
             )
             drafts["dialogue"] = dialogue_draft
             storage.save_beat_draft(scene.id, beat_num, "dialogue", dialogue_draft)
@@ -284,7 +293,7 @@ async def stream_generator(scene_id: str):
                 beat_number=beat_num,
                 agent_name="DialogueAgent",
                 system_prompt=dialogue_agent.system_prompt,
-                user_prompt=dialogue_agent._build_prompt(context, event, guidelines, narration_draft),
+                user_prompt=dialogue_agent._build_prompt(context, event, guidelines),
                 output=dialogue_draft,
             ))
 
@@ -430,24 +439,30 @@ async def generate_narration_draft(scene_id: str, beat_num: int):
     
     narration_agent = NarrationAgent()
     
-    narration_draft = ""
     guidelines = agent_sections.get("narration", "")
+    prose_weight = event.get("prose_weight", "balanced") if isinstance(event, dict) else "balanced"
     narration_draft = await asyncio.get_event_loop().run_in_executor(
         None,
-        lambda: narration_agent.generate(context, beat_desc, guidelines)
+        lambda: narration_agent.generate(
+            context, beat_desc, guidelines,
+            prose_weight=prose_weight
+        )
     )
     storage.save_beat_draft(scene_id, beat_num, "narration", narration_draft)
-    
+
     storage.save_agent_log(AgentLog(
         id=str(uuid.uuid4()),
         scene_id=scene.id,
         beat_number=beat_num,
         agent_name="NarrationAgent",
         system_prompt=narration_agent.system_prompt,
-        user_prompt=narration_agent._build_prompt(context, beat_desc, guidelines),
+        user_prompt=narration_agent._build_prompt(
+            context, beat_desc, guidelines,
+            prose_weight=prose_weight
+        ),
         output=narration_draft,
     ))
-    
+
     return {"narration_draft": narration_draft}
 
 @router.post("/{scene_id:path}/beats/{beat_num}/draft/dialogue")
@@ -473,25 +488,24 @@ async def generate_dialogue_draft(scene_id: str, beat_num: int):
     narration_draft = storage.get_beat_draft(scene_id, beat_num, "narration") or ""
     
     dialogue_agent = DialogueAgent()
-    
-    dialogue_draft = ""
+
     guidelines = agent_sections.get("dialogue", "")
     dialogue_draft = await asyncio.get_event_loop().run_in_executor(
         None,
-        lambda: dialogue_agent.generate(context, event, guidelines, narration_draft)
+        lambda: dialogue_agent.generate(context, event, guidelines)
     )
     storage.save_beat_draft(scene_id, beat_num, "dialogue", dialogue_draft)
-    
+
     storage.save_agent_log(AgentLog(
         id=str(uuid.uuid4()),
         scene_id=scene.id,
         beat_number=beat_num,
         agent_name="DialogueAgent",
         system_prompt=dialogue_agent.system_prompt,
-        user_prompt=dialogue_agent._build_prompt(context, event, guidelines, narration_draft),
+        user_prompt=dialogue_agent._build_prompt(context, event, guidelines),
         output=dialogue_draft,
     ))
-    
+
     return {"dialogue_draft": dialogue_draft}
 
 @router.post("/{scene_id:path}/beats/{beat_num}/merge")

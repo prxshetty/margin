@@ -247,11 +247,14 @@ class StoryOrchestrator:
             narration_draft = ""
             if "narration" in agent_sections:
                 guidelines = agent_sections["narration"]
+                prose_weight = event.get("prose_weight", "balanced") if isinstance(event, dict) else "balanced"
                 n_input = self.narration_agent._build_prompt(
-                    scene_context, beat_desc, guidelines
+                    scene_context, beat_desc, guidelines,
+                    prose_weight=prose_weight
                 )
                 narration_draft = self.narration_agent.generate(
-                    scene_context, beat_desc, guidelines
+                    scene_context, beat_desc, guidelines,
+                    prose_weight=prose_weight
                 )
                 drafts["narration"] = narration_draft
                 narration_per_beat_logs.append({
@@ -260,14 +263,16 @@ class StoryOrchestrator:
                 })
                 print(f"    narration draft ({len(narration_draft)} chars)")
 
-            # 2. Run Dialogue Agent second, passing the narration draft if both exist
-            if "dialogue" in agent_sections:
+            # 2. Run Dialogue Agent second, skipping when expected_exchanges is "0".
+            # The per-beat API endpoints remain open for user-triggered overrides.
+            expected_exchanges_for_dialogue = event.get("expected_exchanges", "0") if isinstance(event, dict) else "0"
+            if "dialogue" in agent_sections and expected_exchanges_for_dialogue != "0":
                 guidelines = agent_sections["dialogue"]
                 d_input = self.dialogue_agent._build_prompt(
-                    scene_context, event, guidelines, narration_draft=narration_draft
+                    scene_context, event, guidelines
                 )
                 draft = self.dialogue_agent.generate(
-                    scene_context, event, guidelines, narration_draft=narration_draft
+                    scene_context, event, guidelines
                 )
                 drafts["dialogue"] = draft
                 dialogue_per_beat_logs.append({
@@ -456,11 +461,14 @@ class StoryOrchestrator:
             narration_draft = ""
             if "narration" in agent_sections:
                 guidelines = agent_sections["narration"]
+                prose_weight = event.get("prose_weight", "balanced") if isinstance(event, dict) else "balanced"
                 n_input = self.narration_agent._build_prompt(
-                    scene_context, beat_desc, guidelines
+                    scene_context, beat_desc, guidelines,
+                    prose_weight=prose_weight
                 )
                 narration_draft = self.narration_agent.generate(
-                    scene_context, beat_desc, guidelines
+                    scene_context, beat_desc, guidelines,
+                    prose_weight=prose_weight
                 )
                 drafts["narration"] = narration_draft
                 narration_per_beat_logs.append({
@@ -469,14 +477,16 @@ class StoryOrchestrator:
                 })
                 print(f"    narration draft ({len(narration_draft)} chars)")
 
-            # 2. Run Dialogue Agent second, passing the narration draft if both exist
-            if "dialogue" in agent_sections:
+            # 2. Run Dialogue Agent second, skipping when expected_exchanges is "0".
+            # The per-beat API endpoints remain open for user-triggered overrides.
+            expected_exchanges_for_dialogue = event.get("expected_exchanges", "0") if isinstance(event, dict) else "0"
+            if "dialogue" in agent_sections and expected_exchanges_for_dialogue != "0":
                 guidelines = agent_sections["dialogue"]
                 d_input = self.dialogue_agent._build_prompt(
-                    scene_context, event, guidelines, narration_draft=narration_draft
+                    scene_context, event, guidelines
                 )
                 draft = self.dialogue_agent.generate(
-                    scene_context, event, guidelines, narration_draft=narration_draft
+                    scene_context, event, guidelines
                 )
                 drafts["dialogue"] = draft
                 dialogue_per_beat_logs.append({
