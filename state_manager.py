@@ -101,15 +101,20 @@ class StateManager:
         return context
 
     def get_character_profile(self, character_name: str) -> Optional[Dict]:
-        """Read a character markdown profile and return name + description."""
+        """Read a character markdown profile and return name and description."""
         path = self._name_to_file.get(character_name.lower())
         if path and path.exists():
             with open(path, "r", encoding="utf-8") as f:
                 content = f.read()
             body = self._strip_frontmatter(content)
             name = path.stem.replace("_", " ").title()
-            return {"name": name, "description": body.strip()}
+            return {
+                "name": name,
+                "description": body.strip(),
+            }
         return None
+
+
 
     def get_character_state(
         self,
