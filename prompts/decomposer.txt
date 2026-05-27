@@ -50,6 +50,10 @@ Each object must contain:
 - "beat": a descriptive overview of the scene event, detailing what happens, character actions, conversational topics, and emotional progression (e.g. "A confronts B about the missing ledger; B tries to deflect with humor; A refuses to laugh, forcing B to confess"). Make this description rich enough that downstream agents have sufficient context.
 - "style": matching style tag or "general"
 - "expected_exchanges": rough dialogue exchange count — "1", "2-3", "4+", or "0". Ensure the count meets or exceeds any provided MINIMUM DIALOGUES preference when dialogue is appropriate for the beat.
+- "prose_weight": how much atmospheric/descriptive narration this beat warrants. Must be exactly one of:
+  - "light" — action-forward beat; minimal environment description, keep narration functional
+  - "balanced" — mix of action and atmosphere; standard narration depth
+  - "heavy" — atmosphere-forward beat; expand sensory and environmental detail, let the world breathe
 
 Requirements:
 - 2-6 beats per scene

@@ -28,7 +28,7 @@ class SceneEvent(BaseModel):
     beat: str
     style: str = "general"
     expected_exchanges: str = "0"
-    conversation_flow: List[str] = Field(default_factory=list)
+    prose_weight: str = "balanced"  # "light" | "balanced" | "heavy"
 
 class Scene(BaseModel):
     id: str # {chapter_slug}_act-{act_number}_scene-{scene_number}

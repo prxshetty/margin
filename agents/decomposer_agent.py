@@ -124,7 +124,7 @@ class DecomposerAgent:
                         "beat": str(item.get("beat", item)),
                         "style": str(item.get("style", "general")),
                         "expected_exchanges": str(item.get("expected_exchanges", "0")),
-                        "conversation_flow": list(item.get("conversation_flow", []))
+                        "prose_weight": str(item.get("prose_weight", "balanced")),
                     })
             else:
                 validated_events.append(SceneEvent(beat=str(item)).model_dump())
