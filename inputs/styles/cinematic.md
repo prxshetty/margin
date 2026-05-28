@@ -1,7 +1,6 @@
 ---
 description: "Full cinematic scene — narration sets the atmosphere, dialogue drives the conflict, writer blends both"
 output_size: expansive
-min_dialogues: 4
 ---
 
 ## Narration Guidelines

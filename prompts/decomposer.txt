@@ -17,6 +17,11 @@ Focus on:
 - topic shifts
 - pacing progression
 
+If a DIALOGUE/NARRATION BALANCE PREFERENCE is provided, use it as an author preference:
+- Higher dialogue preference means beats should let speech carry more decisions, persuasion, conflict, reveals, and emotional turns when natural.
+- Lower dialogue preference means beats may let narration, atmosphere, action summary, and physical texture carry more of the scene.
+- Treat the percentage as guidance, not a rigid quota. Do not force dialogue into beats that should remain physical, silent, or atmospheric.
+
 A beat should end when:
 - the conversation changes direction
 - a new action changes the flow
@@ -49,7 +54,7 @@ Output a JSON array called scene_events.
 Each object must contain:
 - "beat": a descriptive overview of the scene event, detailing what happens, character actions, conversational topics, and emotional progression (e.g. "A confronts B about the missing ledger; B tries to deflect with humor; A refuses to laugh, forcing B to confess"). Make this description rich enough that downstream agents have sufficient context.
 - "style": matching style tag or "general"
-- "expected_exchanges": rough dialogue exchange count — "1", "2-3", "4+", or "0". Ensure the count meets or exceeds any provided MINIMUM DIALOGUES preference when dialogue is appropriate for the beat.
+- "expected_exchanges": rough dialogue exchange count — "1", "2-3", "4+", or "0". Ensure the count meets or exceeds the MINIMUM DIALOGUES preference when dialogue is appropriate for the beat.
 - "prose_weight": how much atmospheric/descriptive narration this beat warrants. Must be exactly one of:
   - "light" — action-forward beat; minimal environment description, keep narration functional
   - "balanced" — mix of action and atmosphere; standard narration depth
