@@ -62,12 +62,13 @@ export default function WorkshopLanding() {
       return res.json() as Promise<{
         reasoning_model: boolean
         prepend_thinking_preamble: boolean
+        dialogue_density: number
       }>
     }
   })
 
   const updateLlmSettingsMutation = useMutation({
-    mutationFn: async (updated: { reasoning_model: boolean; prepend_thinking_preamble: boolean }) => {
+    mutationFn: async (updated: { reasoning_model?: boolean; prepend_thinking_preamble?: boolean; dialogue_density?: number }) => {
       const res = await fetch(`${API_BASE}/settings`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -239,6 +240,36 @@ export default function WorkshopLanding() {
 
               {llmSettings && (
                 <div className="mt-4 pt-4 border-t border-slate-100 grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="bg-slate-50/50 border border-slate-100 rounded-xl p-4 shadow-sm md:col-span-2">
+                    <div className="flex items-center justify-between gap-4 mb-3">
+                      <div>
+                        <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                          <BookPlus className="w-4 h-4 text-indigo-500" />
+                          Dialogue / Narration Balance
+                        </span>
+                        <p className="text-[10px] text-slate-500 mt-0.5 leading-relaxed">
+                          Global writing preference used during beat decomposition and final prose merge.
+                        </p>
+                      </div>
+                      <span className="text-[11px] font-bold text-indigo-700 bg-white border border-indigo-100 rounded-lg px-2 py-1 shrink-0">
+                        {Math.round((llmSettings.dialogue_density ?? 0.5) * 100)}% dialogue
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Narration</span>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        step="5"
+                        value={Math.round((llmSettings.dialogue_density ?? 0.5) * 100)}
+                        onChange={(e) => updateLlmSettingsMutation.mutate({ dialogue_density: Number(e.target.value) / 100 })}
+                        className="w-full accent-indigo-600 cursor-pointer"
+                      />
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Dialogue</span>
+                    </div>
+                  </div>
+
                   <div className="bg-slate-50/50 border border-slate-100 rounded-xl p-4 flex items-center justify-between shadow-sm">
                     <div className="pr-4">
                       <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">

@@ -4,8 +4,8 @@ import { useEditorStore } from '../../stores/editorStore'
 import { API_BASE } from '../../lib/api'
 import { List, BookOpen } from 'lucide-react'
 
-export default function EditorHeader({ chapterId, blueprintData }: { chapterId: string | null, blueprintData: any }) {
-  const { activeDoc, activeSceneId, sceneViewMode, setSceneViewMode, setActiveDoc } = useProjectStore()
+export default function EditorHeader({ chapterId, blueprintData, totalBeats }: { chapterId: string | null, blueprintData: any, totalBeats?: number }) {
+  const { activeDoc, activeSceneId, sceneViewMode, setSceneViewMode, setActiveDoc, currentBeatIndex } = useProjectStore()
   const { isSaving } = useEditorStore()
   const queryClient = useQueryClient()
 
@@ -56,8 +56,8 @@ export default function EditorHeader({ chapterId, blueprintData }: { chapterId: 
   }
 
   return (
-    <div className="mb-6 flex flex-col gap-1.5">
-      <div className="flex flex-wrap items-center justify-between mb-1">
+    <div className="mb-3 flex flex-col gap-1">
+      <div className="flex flex-wrap items-center justify-between">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs font-mono text-slate-500 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded">
             {activeSceneMeta?.scene_setting || '—'}
@@ -74,6 +74,11 @@ export default function EditorHeader({ chapterId, blueprintData }: { chapterId: 
               {char}
             </button>
           ))}
+          {sceneViewMode === 'beats' && totalBeats ? (
+            <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-100 px-1.5 py-0.5 rounded">
+              Beat {currentBeatIndex + 1} of {totalBeats}
+            </span>
+          ) : null}
         </div>
         <div className="flex items-center gap-3">
           <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 shadow-sm shrink-0">
@@ -110,10 +115,10 @@ export default function EditorHeader({ chapterId, blueprintData }: { chapterId: 
 
       <textarea
         key={activeSceneId}
-        className="w-full text-slate-700 text-base leading-relaxed outline-none bg-transparent resize-none placeholder:text-slate-300"
+        className="w-full text-slate-700 text-sm leading-relaxed outline-none bg-transparent resize-none placeholder:text-slate-300"
         defaultValue={activeSceneMeta?.scene_description || ''}
         placeholder="Describe what happens in this scene…"
-        rows={3}
+        rows={1}
         onInput={(e) => {
           const t = e.currentTarget
           t.style.height = 'auto'

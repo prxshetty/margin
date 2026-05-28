@@ -1,9 +1,11 @@
 import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { useEditorStore } from '../../stores/editorStore'
+import { useProjectStore } from '../../stores/projectStore'
 import { useEffect, useRef } from 'react'
 import { Markdown } from 'tiptap-markdown'
 import { InlineSelectionPopup } from './InlineSelectionPopup'
+import { getDocPath } from '../../lib/docInfo'
 
 export function NovelEditor() {
   const content = useEditorStore(state => state.content)
@@ -12,6 +14,8 @@ export function NovelEditor() {
   const setSelectedText = useEditorStore(state => state.setSelectedText)
   const setSelectionRange = useEditorStore(state => state.setSelectionRange)
   const setAnchorPosition = useEditorStore(state => state.setAnchorPosition)
+  const setActiveContextPath = useEditorStore(state => state.setActiveContextPath)
+  const { activeDoc, activeSceneId, activeChapterId, sceneViewMode, currentBeatIndex } = useProjectStore()
   const lastContentRef = useRef('')
   // Flag: true while we are programmatically calling setContent so onUpdate
   // doesn't echo the change back into Zustand and cause an infinite loop.
@@ -48,6 +52,10 @@ export function NovelEditor() {
         setSelectionRange({ from, to })
       }
     },
+    onFocus: ({ editor }) => {
+      setEditor(editor)
+      setActiveContextPath(resolveContextPath())
+    },
     editorProps: {
       attributes: {
         class: 'prose prose-slate max-w-none focus:outline-none min-h-[500px] px-8 py-6',
@@ -58,8 +66,17 @@ export function NovelEditor() {
   useEffect(() => {
     if (editor) {
       setEditor(editor)
+      setActiveContextPath(resolveContextPath())
     }
-  }, [editor, setEditor])
+  }, [editor, setEditor, activeDoc, activeSceneId, activeChapterId, sceneViewMode, currentBeatIndex])
+
+  const resolveContextPath = () => {
+    if (activeDoc?.type === 'scene') {
+      if (sceneViewMode === 'content') return `scenes/${activeSceneId || activeDoc.sceneId}/prose`
+      return `scenes/${activeSceneId || activeDoc.sceneId}/beats/${currentBeatIndex + 1}`
+    }
+    return getDocPath(activeDoc, activeSceneId, activeChapterId) || null
+  }
 
   // Sync external content changes (e.g. doc switch, streaming) into the editor.
   // Pass raw markdown — tiptap-markdown parses it, no html intermediary needed.

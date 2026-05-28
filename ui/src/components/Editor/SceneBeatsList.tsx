@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2, Wand2, BookOpen, Layers, Edit3, ArrowRight, CheckCircle, RotateCcw } from 'lucide-react'
+import { Plus, Trash2, Wand2, BookOpen, Layers, Edit3, ArrowRight, CheckCircle, RotateCcw, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react'
 import { useScene } from '../../hooks/useScene'
 import { useProjectStore } from '../../stores/projectStore'
 import { useEditorStore } from '../../stores/editorStore'
@@ -16,14 +16,16 @@ interface MiniDraftEditorProps {
   onChange: (value: string) => void
   onBlur: (value: string) => void
   placeholder: string
+  contextPath: string
 }
 
-function MiniDraftEditor({ value, onChange, onBlur, placeholder }: MiniDraftEditorProps) {
+function MiniDraftEditor({ value, onChange, onBlur, placeholder, contextPath }: MiniDraftEditorProps) {
   const setEditor = useEditorStore(state => state.setEditor)
   const setContent = useEditorStore(state => state.setContent)
   const setSelectedText = useEditorStore(state => state.setSelectedText)
   const setSelectionRange = useEditorStore(state => state.setSelectionRange)
   const setAnchorPosition = useEditorStore(state => state.setAnchorPosition)
+  const setActiveContextPath = useEditorStore(state => state.setActiveContextPath)
 
   const lastContentRef = useRef('')
   const isProgrammaticUpdateRef = useRef(false)
@@ -60,10 +62,8 @@ function MiniDraftEditor({ value, onChange, onBlur, placeholder }: MiniDraftEdit
     },
     onFocus: ({ editor }) => {
       setEditor(editor)
-      if ((editor.storage as any)?.markdown) {
-        const currentMarkdown = (editor.storage as any).markdown.getMarkdown()
-        setContent(currentMarkdown)
-      }
+      setContent((editor.storage as any)?.markdown?.getMarkdown?.() || value || '')
+      setActiveContextPath(contextPath)
     },
     onBlur: ({ editor }) => {
       if ((editor.storage as any)?.markdown) {
@@ -90,6 +90,13 @@ function MiniDraftEditor({ value, onChange, onBlur, placeholder }: MiniDraftEdit
     }
   }, [value, editor])
 
+  useEffect(() => {
+    if (editor?.isFocused) {
+      setActiveContextPath(contextPath)
+      setContent(value || '')
+    }
+  }, [contextPath, editor, setActiveContextPath, setContent, value])
+
   return (
     <div className="flex-1 bg-white flex flex-col min-h-0 relative h-full">
       <EditorContent editor={editor} className="flex-1 flex flex-col min-h-0" />
@@ -106,6 +113,7 @@ function MiniDraftEditor({ value, onChange, onBlur, placeholder }: MiniDraftEdit
 export function SceneBeatsList() {
   const queryClient = useQueryClient()
   const { activeSceneId, currentBeatIndex, setCurrentBeatIndex, setSceneViewMode } = useProjectStore()
+  const { content, setContent, editor, triggerReload } = useEditorStore()
   const { sceneData, decomposeScene, isDecomposing } = useScene(activeSceneId)
 
   const [activeTab, setActiveTab] = useState<'blueprint' | 'drafts'>('blueprint')
@@ -115,6 +123,11 @@ export function SceneBeatsList() {
   const [isGeneratingDialogue, setIsGeneratingDialogue] = useState(false)
   const [isMergingDrafts, setIsMergingDrafts] = useState(false)
   const [mergeSuccess, setMergeSuccess] = useState(false)
+  const [isGeneratingAllDrafts, setIsGeneratingAllDrafts] = useState(false)
+  const [generateAllProgress, setGenerateAllProgress] = useState('')
+  const [isMergingAllBeats, setIsMergingAllBeats] = useState(false)
+  const [mergeAllProgress, setMergeAllProgress] = useState('')
+  const [beatListCollapsed, setBeatListCollapsed] = useState(false)
 
   // Fetch drafts when beat changes
   useEffect(() => {
@@ -196,6 +209,133 @@ export function SceneBeatsList() {
     }
   }
 
+  // Generate narration + dialogue drafts for ALL beats via SSE
+  const handleGenerateAllDrafts = async () => {
+    setIsGeneratingAllDrafts(true)
+    setGenerateAllProgress('')
+
+    try {
+      const response = await fetch(`${API_BASE}/scenes/${activeSceneId}/beats/generate-all-drafts`, {
+        method: 'POST',
+      })
+
+      if (!response.ok) throw new Error('Failed to start draft generation')
+      if (!response.body) throw new Error('No response body')
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6))
+              if (data.status) {
+                setGenerateAllProgress(data.status)
+              }
+              if (data.done) {
+                setIsGeneratingAllDrafts(false)
+                setGenerateAllProgress('')
+                setMergeSuccess(false)
+                if (activeSceneId && currentBeatIndex !== undefined && currentBeatIndex >= 0) {
+                  fetch(`${API_BASE}/scenes/${activeSceneId}/beats/${currentBeatIndex + 1}/drafts`)
+                    .then(res => res.json())
+                    .then(data => {
+                      setDrafts({
+                        narration_draft: data.narration_draft || '',
+                        dialogue_draft: data.dialogue_draft || '',
+                      })
+                    })
+                    .catch(err => console.error('Error refreshing drafts:', err))
+                }
+                return
+              }
+            } catch (e) {
+              // skip malformed JSON
+            }
+          }
+        }
+      }
+    } catch (err) {
+      alert('Error generating all drafts: ' + err)
+    } finally {
+      setIsGeneratingAllDrafts(false)
+      setGenerateAllProgress('')
+    }
+  }
+
+  // Merge ALL beats via SSE — runs WriterAgent for every beat
+  const handleMergeAllBeats = async () => {
+    setIsMergingAllBeats(true)
+    setMergeAllProgress('')
+
+    try {
+      const response = await fetch(`${API_BASE}/scenes/${activeSceneId}/beats/merge-all`, {
+        method: 'POST',
+      })
+
+      if (!response.ok) throw new Error('Failed to start merge')
+      if (!response.body) throw new Error('No response body')
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6))
+              if (data.status) {
+                setMergeAllProgress(data.status)
+              }
+              if (data.done) {
+                setIsMergingAllBeats(false)
+                setMergeAllProgress('')
+                setMergeSuccess(false)
+                queryClient.invalidateQueries({ queryKey: ['scene', activeSceneId] })
+                if (activeSceneId && currentBeatIndex !== undefined && currentBeatIndex >= 0) {
+                  fetch(`${API_BASE}/scenes/${activeSceneId}/beats/${currentBeatIndex + 1}/drafts`)
+                    .then(res => res.json())
+                    .then(data => {
+                      setDrafts({
+                        narration_draft: data.narration_draft || '',
+                        dialogue_draft: data.dialogue_draft || '',
+                      })
+                    })
+                    .catch(err => console.error('Error refreshing drafts:', err))
+                }
+                return
+              }
+            } catch (e) {
+              // skip malformed JSON
+            }
+          }
+        }
+      }
+    } catch (err) {
+      alert('Error merging all beats: ' + err)
+    } finally {
+      setIsMergingAllBeats(false)
+      setMergeAllProgress('')
+    }
+  }
+
   // Mutation to persist beat metadata
   const saveBeatsMutation = useMutation({
     mutationFn: async (updatedBeats: any[]) => {
@@ -215,7 +355,7 @@ export function SceneBeatsList() {
   const beats = sceneData?.scene_events || []
 
   const handleAddBeat = () => {
-    const newBeat = { beat: 'New beat', style: 'general', expected_exchanges: 2 }
+    const newBeat = { beat: 'New beat', style: 'general', expected_exchanges: '2-3', dialogue_density: null }
     const updated = [...beats, newBeat]
     saveBeatsMutation.mutate(updated, {
       onSuccess: () => {
@@ -225,15 +365,51 @@ export function SceneBeatsList() {
     })
   }
 
-  const handleDeleteBeat = (index: number) => {
+  const handleDeleteBeat = async (index: number) => {
     if (confirm('Are you sure you want to delete this beat?')) {
       const updated = [...beats]
       updated.splice(index, 1)
+
+      let newBeatIndex = currentBeatIndex
+
+      if (index === currentBeatIndex) {
+        // Deleting the active beat: clear editor content to prevent switch autosave
+        setContent('')
+        editor?.commands.setContent('')
+        if (updated.length === 0) {
+          newBeatIndex = 0
+        } else if (index >= updated.length) {
+          newBeatIndex = Math.max(0, updated.length - 1)
+        }
+      } else {
+        // Deleting a different beat: save the active beat's unsaved text first
+        if (content.trim()) {
+          try {
+            await fetch(`${API_BASE}/scenes/${activeSceneId}/beats/${currentBeatIndex + 1}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ beat: content })
+            })
+          } catch (err) {
+            console.error('Failed to save active beat before deletion:', err)
+          }
+        }
+
+        // Shift active index down by 1 if the deleted beat precedes it
+        if (index < currentBeatIndex) {
+          newBeatIndex = currentBeatIndex - 1
+        }
+      }
+
+      // Clear local content temporarily to prevent any switch race condition autosaves
+      setContent('')
+      editor?.commands.setContent('')
+
       saveBeatsMutation.mutate(updated, {
         onSuccess: () => {
-          if (currentBeatIndex >= updated.length) {
-            setCurrentBeatIndex(Math.max(0, updated.length - 1))
-          }
+          setCurrentBeatIndex(newBeatIndex)
+          // Force active document reloading from server
+          triggerReload()
         }
       })
     }
@@ -280,93 +456,118 @@ export function SceneBeatsList() {
 
   return (
     <div className="flex gap-6 h-[calc(100vh-250px)] mt-4 items-stretch animate-fadeIn">
-      {/* Left Sidebar: Master Beat List */}
-      <div className="w-80 flex flex-col gap-3 shrink-0 bg-slate-50 border border-slate-200 p-3 rounded-xl">
-        <div className="flex justify-between items-center px-1 mb-1">
-          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Dramatic Beats</span>
-          <button
-            onClick={handleAddBeat}
-            title="Add beat"
-            className="p-1 text-slate-500 hover:text-indigo-600 hover:bg-white border border-transparent hover:border-slate-200 rounded transition-all cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto flex flex-col gap-2 pr-1 scrollbar-thin">
-          {beats.map((beat: any, idx: number) => (
-            <div
-              key={idx}
-              onClick={() => { setCurrentBeatIndex(idx); setMergeSuccess(false) }}
-              className={`p-3 border rounded-xl transition-all cursor-pointer relative group ${
-                currentBeatIndex === idx
-                  ? 'bg-white border-indigo-500 shadow-sm ring-1 ring-indigo-500/10'
-                  : 'bg-white/60 border-slate-200 hover:border-slate-300 hover:bg-white'
-              }`}
-            >
-              <div className="flex justify-between items-center gap-2 mb-1.5">
-                <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded ${
-                  currentBeatIndex === idx
-                    ? 'text-indigo-600 bg-indigo-50'
-                    : 'text-slate-500 bg-slate-100'
-                }`}>
-                  Beat {idx + 1}
-                </span>
-                <span className="text-[9px] font-mono text-slate-400 bg-slate-200/50 px-1 py-0.5 rounded uppercase max-w-[120px] truncate">
-                  {beat.style || 'general'}
-                </span>
-              </div>
-              <p className="text-xs text-slate-600 font-medium leading-relaxed line-clamp-2">
-                {beat.beat || 'Describe the beat...'}
-              </p>
-              
+      {/* Left Sidebar: Master Beat List (collapsible) */}
+      {!beatListCollapsed && (
+        <div className="w-80 flex flex-col gap-3 shrink-0 bg-slate-50 border border-slate-200 p-3 rounded-xl">
+          <div className="flex justify-between items-center px-1 mb-1">
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Dramatic Beats</span>
+            <div className="flex items-center gap-0.5">
               <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  handleDeleteBeat(idx)
-                }}
-                className="absolute top-2 right-2 p-1 text-slate-300 hover:text-red-500 rounded opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-                title="Delete Beat"
+                onClick={handleAddBeat}
+                className="p-1 text-slate-500 hover:text-indigo-600 hover:bg-white border border-transparent hover:border-slate-200 rounded transition-all cursor-pointer"
+                title="Add beat"
               >
-                <Trash2 className="w-3.5 h-3.5" />
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => {
+                  if (confirm("Are you sure you want to regenerate all beats? This will overwrite your current outline.")) {
+                    decomposeScene()
+                  }
+                }}
+                disabled={isDecomposing}
+                className="p-1 text-slate-400 hover:text-blue-600 hover:bg-white border border-transparent hover:border-slate-200 rounded transition-all cursor-pointer disabled:opacity-50"
+                title="Regenerate all beats using AI"
+              >
+                {isDecomposing ? (
+                  <div className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <RefreshCw className="w-3.5 h-3.5" />
+                )}
+              </button>
+              <button
+                onClick={handleGenerateAllDrafts}
+                disabled={isGeneratingAllDrafts || isDecomposing || isMergingAllBeats}
+                className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-white border border-transparent hover:border-slate-200 rounded transition-all cursor-pointer disabled:opacity-50"
+                title="Generate all drafts"
+              >
+                {isGeneratingAllDrafts ? (
+                  <div className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <BookOpen className="w-3.5 h-3.5" />
+                )}
+              </button>
+              <button
+                onClick={handleMergeAllBeats}
+                disabled={isMergingAllBeats || isGeneratingAllDrafts || isDecomposing}
+                className="p-1 text-slate-400 hover:text-emerald-600 hover:bg-white border border-transparent hover:border-slate-200 rounded transition-all cursor-pointer disabled:opacity-50"
+                title="Merge all drafts"
+              >
+                {isMergingAllBeats ? (
+                  <div className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Wand2 className="w-3.5 h-3.5" />
+                )}
               </button>
             </div>
-          ))}
-        </div>
+          </div>
 
-        <div className="flex gap-2 border-t border-slate-200 pt-3">
-          <button
-            onClick={handleAddBeat}
-            className="flex-1 py-2 border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/50 text-slate-600 hover:text-indigo-600 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer bg-white"
-          >
-            <Plus className="w-4 h-4" />
-            Add New Beat
-          </button>
-          <button
-            onClick={() => {
-              if (confirm("Are you sure you want to regenerate all beats? This will overwrite your current outline.")) {
-                decomposeScene()
-              }
-            }}
-            disabled={isDecomposing}
-            className="px-3 py-2 border border-slate-200 hover:border-blue-300 hover:bg-blue-50/50 text-slate-600 hover:text-blue-600 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer bg-white disabled:opacity-50"
-            title="Regenerate all beats using AI"
-          >
-            {isDecomposing ? (
-              <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <Wand2 className="w-4 h-4" />
-            )}
-          </button>
+          <div className="flex-1 overflow-y-auto flex flex-col gap-2 pr-1 scrollbar-thin">
+            {beats.map((beat: any, idx: number) => (
+              <div
+                key={idx}
+                onClick={() => { setCurrentBeatIndex(idx); setMergeSuccess(false) }}
+                className={`p-3 border rounded-xl transition-all cursor-pointer relative group ${
+                  currentBeatIndex === idx
+                    ? 'bg-white border-indigo-500 shadow-sm ring-1 ring-indigo-500/10'
+                    : 'bg-white/60 border-slate-200 hover:border-slate-300 hover:bg-white'
+                }`}
+              >
+                <div className="flex justify-between items-center gap-2 mb-1.5">
+                  <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded ${
+                    currentBeatIndex === idx
+                      ? 'text-indigo-600 bg-indigo-50'
+                      : 'text-slate-500 bg-slate-100'
+                  }`}>
+                    Beat {idx + 1}
+                  </span>
+                  <span className="text-[9px] font-mono text-slate-400 bg-slate-200/50 px-1 py-0.5 rounded uppercase max-w-[120px] truncate">
+                    {beat.style || 'general'}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-600 font-medium leading-relaxed line-clamp-2">
+                  {beat.beat || 'Describe the beat...'}
+                </p>
+                
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleDeleteBeat(idx)
+                  }}
+                  className="absolute top-2 right-2 p-1 text-slate-300 hover:text-red-500 rounded opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                  title="Delete Beat"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Right Detail Pane */}
       <div className="flex-1 bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm relative flex flex-col">
         {currentBeatIndex < beats.length ? (
           <>
             {/* Tabs Header */}
-            <div className="flex border-b border-slate-200 bg-slate-50/80 px-6 pt-3 shrink-0 select-none">
+            <div className="flex border-b border-slate-200 bg-slate-50/80 px-2 pt-3 shrink-0 select-none">
+              <button
+                onClick={() => setBeatListCollapsed(!beatListCollapsed)}
+                className="px-2 py-2 text-slate-400 hover:text-slate-700 hover:bg-slate-200/50 rounded-md transition-all cursor-pointer flex items-center border-b-2 border-transparent"
+                title={beatListCollapsed ? "Show beat list" : "Hide beat list"}
+              >
+                {beatListCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+              </button>
               <button
                 onClick={() => setActiveTab('blueprint')}
                 className={`px-4 py-2 text-[11px] uppercase tracking-wider font-bold border-b-2 transition-all cursor-pointer flex items-center gap-2 ${
@@ -454,6 +655,7 @@ export function SceneBeatsList() {
                         onChange={(val) => setDrafts(prev => ({ ...prev, narration_draft: val }))}
                         onBlur={(val) => handleUpdateDraft('narration_draft', val)}
                         placeholder="AI will generate the base narrative here with dialogue placeholders like [Dialogue: Character - Action]."
+                        contextPath={`scenes/${activeSceneId}/beats/${currentBeatIndex + 1}/narration`}
                       />
                     </div>
                   </div>
@@ -500,6 +702,7 @@ export function SceneBeatsList() {
                         onChange={(val) => setDrafts(prev => ({ ...prev, dialogue_draft: val }))}
                         onBlur={(val) => handleUpdateDraft('dialogue_draft', val)}
                         placeholder="AI will expand the dialogue placeholders into full character speeches here."
+                        contextPath={`scenes/${activeSceneId}/beats/${currentBeatIndex + 1}/dialogue`}
                       />
                     </div>
                   </div>

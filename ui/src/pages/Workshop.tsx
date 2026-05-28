@@ -447,7 +447,7 @@ export default function Workshop() {
         <div className="flex-1 overflow-y-auto">
           {activeDoc ? (
             <div className={`${activeDoc.type === 'scene' && sceneViewMode === 'beats' ? 'max-w-6xl' : 'max-w-3xl'} mx-auto py-10 px-6 flex flex-col gap-0`}>
-              <EditorHeader chapterId={chapterId} blueprintData={blueprintData} />
+              <EditorHeader chapterId={chapterId} blueprintData={blueprintData} totalBeats={sceneData?.scene_events?.length || 0} />
               {activeDoc.type === 'scene' && sceneViewMode === 'beats' ? (
                 <SceneBeatsList />
               ) : (

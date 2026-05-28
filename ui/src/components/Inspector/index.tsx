@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useProjectStore } from '../../stores/projectStore'
 import { useScene } from '../../hooks/useScene'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Terminal, Sparkles, Settings, Activity } from 'lucide-react'
+import { Terminal, Sparkles, Settings, Activity, RefreshCw } from 'lucide-react'
 import { Toolbar } from '../Toolbar'
 import { useEditorStore } from '../../stores/editorStore'
 import { API_BASE } from '../../lib/api'
@@ -34,6 +34,15 @@ export function Inspector({
     }
   })
 
+  const { data: settings } = useQuery({
+    queryKey: ['llmSettings'],
+    queryFn: async () => {
+      const res = await fetch(`${API_BASE}/settings`)
+      if (!res.ok) throw new Error('Failed to fetch settings')
+      return res.json() as Promise<{ dialogue_density: number }>
+    }
+  })
+
   // Mutation to persist beat updates back to file
   const saveBeatsMutation = useMutation({
     mutationFn: async (updatedBeats: any[]) => {
@@ -52,6 +61,9 @@ export function Inspector({
 
   const beats = sceneData?.scene_events || []
   const currentBeat = beats[currentBeatIndex] || null
+  const globalDialogueDensity = settings?.dialogue_density ?? 0.5
+  const currentDialogueDensity = currentBeat?.dialogue_density ?? globalDialogueDensity
+  const hasDialogueDensityOverride = currentBeat?.dialogue_density !== undefined && currentBeat?.dialogue_density !== null
 
   const handleUpdateCurrentBeatMetadata = (updates: any) => {
     if (!currentBeat) return
@@ -63,8 +75,8 @@ export function Inspector({
     saveBeatsMutation.mutate(updated)
   }
 
-  // Fetch blueprint agent logs dynamically when blueprint doc is open
-  const { data: blueprintLogs, isLoading: isBlueprintLogsLoading } = useQuery({
+  // Fetch blueprint agent logs on demand
+  const { data: blueprintLogs, isLoading: isBlueprintLogsLoading, refetch: refetchBlueprintLogs } = useQuery({
     queryKey: ['blueprintLogs', chapterId],
     queryFn: async () => {
       if (!chapterId) return []
@@ -72,11 +84,14 @@ export function Inspector({
       if (!res.ok) throw new Error('Failed to fetch blueprint logs')
       return res.json()
     },
-    enabled: !!chapterId && activeDoc?.type === 'blueprint'
+    enabled: !!chapterId && activeDoc?.type === 'blueprint',
+    staleTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false
   })
 
-  // Fetch agent logs dynamically
-  const { data: agentLogs, isLoading: isLogsLoading } = useQuery({
+  // Fetch agent logs on demand
+  const { data: agentLogs, isLoading: isLogsLoading, refetch: refetchLogs } = useQuery({
     queryKey: ['sceneLogs', activeSceneId],
     queryFn: async () => {
       if (!activeSceneId) return []
@@ -84,7 +99,10 @@ export function Inspector({
       if (!res.ok) throw new Error('Failed to fetch logs')
       return res.json()
     },
-    enabled: !!activeSceneId
+    enabled: !!activeSceneId,
+    staleTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false
   })
 
 
@@ -196,17 +214,41 @@ export function Inspector({
                       </div>
 
                       <div>
-                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">Expected Exchanges (dialogue)</label>
-                        <select
-                          value={String(currentBeat.expected_exchanges ?? '2-3')}
-                          onChange={(e) => handleUpdateCurrentBeatMetadata({ expected_exchanges: e.target.value })}
-                          className="w-full text-xs p-2 border border-slate-200 rounded bg-white font-mono outline-none text-indigo-700 shadow-sm cursor-pointer"
-                        >
-                          <option value="0">0 (No Dialogue)</option>
-                          <option value="1">1</option>
-                          <option value="2-3">2-3</option>
-                          <option value="4+">4+</option>
-                        </select>
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Dialogue Balance</label>
+                          <span className="text-[10px] font-bold text-indigo-700 bg-white border border-indigo-100 px-1.5 py-0.5 rounded">
+                            {Math.round(currentDialogueDensity * 100)}%
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Narration</span>
+                          <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            step="5"
+                            value={Math.round(currentDialogueDensity * 100)}
+                            onChange={(e) => handleUpdateCurrentBeatMetadata({ dialogue_density: Number(e.target.value) / 100 })}
+                            className="w-full accent-indigo-600 cursor-pointer"
+                          />
+                          <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Dialogue</span>
+                        </div>
+                        <div className="flex items-center justify-between mt-2">
+                          <span className="text-[10px] text-slate-500">
+                            {hasDialogueDensityOverride
+                              ? `Beat override; global is ${Math.round(globalDialogueDensity * 100)}%.`
+                              : `Inherits global ${Math.round(globalDialogueDensity * 100)}%.`}
+                          </span>
+                          {hasDialogueDensityOverride && (
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateCurrentBeatMetadata({ dialogue_density: null })}
+                              className="text-[10px] font-bold text-slate-500 hover:text-indigo-600 cursor-pointer"
+                            >
+                              Reset
+                            </button>
+                          )}
+                        </div>
                       </div>
 
                       {currentBeat.conversation_flow && currentBeat.conversation_flow.length > 0 && (
@@ -267,10 +309,19 @@ export function Inspector({
           <div className="flex flex-col gap-6">
             {activeDoc.type === 'scene' && (
               <div>
-                <h3 className="font-semibold text-slate-900 mb-4 pb-2 border-b border-slate-100 flex items-center gap-1.5">
-                  <Terminal className="w-4 h-4 text-slate-500" />
-                  Agent Telemetry Logs
-                </h3>
+                <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-100">
+                  <h3 className="font-semibold text-slate-900 flex items-center gap-1.5">
+                    <Terminal className="w-4 h-4 text-slate-500" />
+                    Agent Telemetry Logs
+                  </h3>
+                  <button
+                    onClick={() => refetchLogs()}
+                    className="p-1 hover:bg-slate-200 rounded transition-colors cursor-pointer"
+                    title="Scan for new logs"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5 text-slate-400" />
+                  </button>
+                </div>
 
                 {isLogsLoading ? (
                   <div className="flex items-center gap-1.5 text-xs text-slate-400">
@@ -316,10 +367,19 @@ export function Inspector({
 
             {activeDoc.type === 'blueprint' && (
               <div>
-                <h3 className="font-semibold text-slate-900 mb-4 pb-2 border-b border-slate-100 flex items-center gap-1.5">
-                  <Terminal className="w-4 h-4 text-slate-500" />
-                  Blueprint Telemetry Logs
-                </h3>
+                <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-100">
+                  <h3 className="font-semibold text-slate-900 flex items-center gap-1.5">
+                    <Terminal className="w-4 h-4 text-slate-500" />
+                    Blueprint Telemetry Logs
+                  </h3>
+                  <button
+                    onClick={() => refetchBlueprintLogs()}
+                    className="p-1 hover:bg-slate-200 rounded transition-colors cursor-pointer"
+                    title="Scan for new logs"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5 text-slate-400" />
+                  </button>
+                </div>
 
                 {isBlueprintLogsLoading ? (
                   <div className="flex items-center gap-1.5 text-xs text-slate-400">
@@ -437,14 +497,11 @@ function StyleMetadataPanel({ styleId, styleName }: { styleId: string; styleName
   const [name, setName] = useState(styleName)
   const [description, setDescription] = useState('')
   const [outputSize, setOutputSize] = useState('balanced')
-  const [minDialogues, setMinDialogues] = useState(2)
-
   useEffect(() => {
     if (styleData) {
       setName(styleData.name || styleName)
       setDescription(styleData.description || '')
       setOutputSize(styleData.output_size || 'balanced')
-      setMinDialogues(styleData.min_dialogues ?? 2)
     }
   }, [styleData, styleName])
 
@@ -457,7 +514,6 @@ function StyleMetadataPanel({ styleId, styleName }: { styleId: string; styleName
           name,
           description,
           output_size: outputSize,
-          min_dialogues: minDialogues,
           agent_sections: {}
         })
       })
@@ -512,17 +568,6 @@ function StyleMetadataPanel({ styleId, styleName }: { styleId: string; styleName
           <option value="balanced">Balanced</option>
           <option value="expansive">Expansive</option>
         </select>
-      </div>
-
-      <div>
-        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">Min Dialogues</label>
-        <input
-          type="number"
-          min={1}
-          value={minDialogues}
-          onChange={(e) => setMinDialogues(parseInt(e.target.value) || 2)}
-          className="w-full text-xs p-2 border border-slate-200 rounded outline-none font-mono"
-        />
       </div>
 
       <button

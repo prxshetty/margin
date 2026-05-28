@@ -1,18 +1,23 @@
 import { useState, useEffect, useRef } from 'react'
 import { RefreshCw, Plus, Sparkles, X, PenLine, Copy, Check } from 'lucide-react'
-import { useScene } from '../../hooks/useScene'
-import { useBlueprint } from '../../hooks/useBlueprint'
 import { useEditorStore } from '../../stores/editorStore'
 import { useProjectStore } from '../../stores/projectStore'
 import { useQueryClient, useQuery } from '@tanstack/react-query'
-import { getDocInfo } from '../../lib/docInfo'
+import { getDocInfo, getDocPath } from '../../lib/docInfo'
 import { API_BASE } from '../../lib/api'
 
 export function Toolbar() {
-  const { content, editor, anchorPosition, aiAssistPreload, setAIAssistPreload, triggerReload } = useEditorStore()
-  const { activeSceneId, activeDoc, activeChapterId, currentBeatIndex } = useProjectStore()
-  const { sceneAssist } = useScene(activeSceneId)
-  const { blueprintAssist } = useBlueprint(activeChapterId)
+  const {
+    content,
+    setContent,
+    editor,
+    anchorPosition,
+    aiAssistPreload,
+    setAIAssistPreload,
+    activeContextPath,
+    triggerReload
+  } = useEditorStore()
+  const { activeSceneId, activeDoc, activeChapterId, currentBeatIndex, sceneViewMode } = useProjectStore()
   const queryClient = useQueryClient()
 
   const { docType, docId } = getDocInfo(activeDoc, activeSceneId)
@@ -40,6 +45,20 @@ export function Toolbar() {
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const [virtualMessages, setVirtualMessages] = useState<any[]>([])
+  const fallbackContextPath = activeDoc?.type === 'scene'
+    ? sceneViewMode === 'content'
+      ? `scenes/${activeSceneId || activeDoc.sceneId}/prose`
+      : `scenes/${activeSceneId || activeDoc.sceneId}/beats/${currentBeatIndex + 1}`
+    : getDocPath(activeDoc, activeSceneId, activeChapterId)
+  const expectedContextPrefix = activeDoc?.type === 'scene'
+    ? sceneViewMode === 'content'
+      ? fallbackContextPath
+      : `scenes/${activeSceneId || activeDoc.sceneId}/beats`
+    : fallbackContextPath
+  const resolvedContextPath = activeContextPath && (!expectedContextPrefix || activeContextPath.startsWith(expectedContextPrefix))
+    ? activeContextPath
+    : fallbackContextPath
+  const contextLabel = resolvedContextPath ? resolvedContextPath.split('/').slice(-3).join('/') : 'No editor focus'
 
   // Clear feedback when a new selection is preloaded
   useEffect(() => {
@@ -72,19 +91,23 @@ export function Toolbar() {
 
     setIsWorking(true)
     try {
-      const url = activeDoc?.type === 'scene'
-        ? `${API_BASE}/scenes/${activeSceneId}/rewrite_selection`
-        : `${API_BASE}/chapters/${activeChapterId}/rewrite_selection`
+      if (!resolvedContextPath) throw new Error('No active edit context')
 
-      const response = await fetch(url, {
+      const response = await fetch(`${API_BASE}/api/assist/edit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          selected_text: aiAssistPreload.text,
-          feedback: feedback,
-          context: content,
-          doc_type: docType,
-          doc_id: docId
+          context_path: resolvedContextPath,
+          content,
+          message: feedback,
+          history: [],
+          selection: {
+            text: aiAssistPreload.text,
+            from: aiAssistPreload.range.from,
+            to: aiAssistPreload.range.to
+          },
+          current_beat_index: currentBeatIndex,
+          chapter_id: activeChapterId
         }),
       })
 
@@ -99,6 +122,9 @@ export function Toolbar() {
             updateSelection: false,
           })
           .run()
+        if ((editor.storage as any)?.markdown) {
+          setContent((editor.storage as any).markdown.getMarkdown())
+        }
         setFeedback('')
         setAIAssistPreload(null)
       }
@@ -106,9 +132,7 @@ export function Toolbar() {
       console.error(err)
     } finally {
       setIsWorking(false)
-      if (activeSceneId) {
-        queryClient.invalidateQueries({ queryKey: ['aiEditorLogs', activeSceneId] })
-      }
+      queryClient.invalidateQueries({ queryKey: ['aiEditorLogs'] })
     }
   }
 
@@ -120,7 +144,7 @@ export function Toolbar() {
     
     // Build clean user/assistant history from current state
     const history = [
-      ...aiEditorLogs.flatMap((log: any) => [
+      ...(aiEditorLogs || []).flatMap((log: any) => [
         { role: 'user', content: log.feedback || '' },
         { role: 'assistant', content: log.output || '' }
       ]),
@@ -145,78 +169,60 @@ export function Toolbar() {
     setFeedback('')
 
     try {
-      if (activeDoc?.type === 'blueprint') {
-        const res = await blueprintAssist({ message: textToSend, history })
-        if (res.type === 'applied') {
-          // Show success bubble then trigger a reload of blueprint.md in the editor
-          setVirtualMessages(prev => [
-            ...prev,
-            {
-              id: 'temp-ai-' + Date.now(),
-              operation: 'applied',
-              feedback: null,
-              output: res.message || 'Blueprint updated successfully.',
-              timestamp: new Date().toISOString(),
-              isVirtual: true,
-              isAI: true
-            }
-          ])
-          queryClient.invalidateQueries({ queryKey: ['blueprint', activeChapterId] })
-          // Force Workshop to re-fetch blueprint.md from disk
-          triggerReload()
-        } else if (res.type === 'clarification_needed') {
-          setVirtualMessages(prev => [
-            ...prev,
-            {
-              id: 'temp-ai-' + Date.now(),
-              operation: 'clarify',
-              feedback: null,
-              output: res.question,
-              options: res.options || [],
-              timestamp: new Date().toISOString(),
-              isVirtual: true,
-              isAI: true
-            }
-          ])
-        }
-      } else if (activeDoc?.type === 'scene') {
-        const res = await sceneAssist({
+      if (!resolvedContextPath) throw new Error('No active edit context')
+
+      const response = await fetch(`${API_BASE}/api/assist/edit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          context_path: resolvedContextPath,
+          content,
           message: textToSend,
           history,
-          currentBeatIndex,
-          documentContent: content
+          current_beat_index: currentBeatIndex,
+          chapter_id: activeChapterId
         })
-        if (res.type === 'applied') {
-          setVirtualMessages(prev => [
-            ...prev,
-            {
-              id: 'temp-ai-' + Date.now(),
-              operation: 'applied',
-              feedback: null,
-              output: res.message || 'Scene beats updated successfully.',
-              timestamp: new Date().toISOString(),
-              isVirtual: true,
-              isAI: true
-            }
-          ])
-          queryClient.invalidateQueries({ queryKey: ['scene', activeSceneId] })
-          // Force Workshop to re-fetch scene plan from disk
-          triggerReload()
-        } else if (res.type === 'clarification_needed') {
-          setVirtualMessages(prev => [
-            ...prev,
-            {
-              id: 'temp-ai-' + Date.now(),
-              operation: 'clarify',
-              feedback: null,
-              output: res.question,
-              options: res.options || [],
-              timestamp: new Date().toISOString(),
-              isVirtual: true,
-              isAI: true
-            }
-          ])
+      })
+      if (!response.ok) throw new Error('Failed to run assist')
+      const res = await response.json()
+
+      if (res.type === 'applied') {
+        if (typeof res.content === 'string') {
+          setContent(res.content)
+          editor?.commands.setContent(res.content || '', { contentType: 'markdown' } as any)
         }
+        setVirtualMessages(prev => [
+          ...prev,
+          {
+            id: 'temp-ai-' + Date.now(),
+            operation: 'applied',
+            feedback: null,
+            output: res.message || 'Edit applied.',
+            timestamp: new Date().toISOString(),
+            isVirtual: true,
+            isAI: true
+          }
+        ])
+        if (activeSceneId) queryClient.invalidateQueries({ queryKey: ['scene', activeSceneId] })
+        if (activeChapterId) {
+          queryClient.invalidateQueries({ queryKey: ['blueprint', activeChapterId] })
+          queryClient.invalidateQueries({ queryKey: ['blueprintMarkdown', activeChapterId] })
+        }
+        triggerReload()
+      } else if (res.type === 'clarification_needed') {
+        setVirtualMessages(prev => [
+          ...prev,
+          {
+            id: 'temp-ai-' + Date.now(),
+            operation: 'clarify',
+            feedback: null,
+            output: res.question,
+            options: res.options || [],
+            timestamp: new Date().toISOString(),
+            isVirtual: true,
+            isAI: true
+          }
+        ])
       }
     } catch (err) {
       console.error(err)
@@ -240,46 +246,30 @@ export function Toolbar() {
       const resolvedPos = editor.state.doc.resolve(pos)
       const blockType = resolvedPos.parent.type.name
 
-      const url = isScene
-        ? `${API_BASE}/scenes/${activeSceneId}/insert_after`
-        : `${API_BASE}/chapters/${activeChapterId}/insert_after`
+      if (!resolvedContextPath) throw new Error('No active edit context')
 
-      const response = await fetch(url, {
+      const response = await fetch(`${API_BASE}/api/assist/edit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          context_path: resolvedContextPath,
+          content,
+          message: feedback,
+          history: [],
           text_before: textBefore,
           text_after: textAfter,
           block_type: blockType,
-          feedback,
-          context: content,
-          doc_type: docType,
-          doc_id: docId
+          current_beat_index: currentBeatIndex,
+          chapter_id: activeChapterId
         })
       })
 
       if (!response.ok) throw new Error('Insert failed')
-
-      const reader = response.body!.getReader()
-      const decoder = new TextDecoder()
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        const chunk = decoder.decode(value)
-        for (const line of chunk.split('\n')) {
-          if (line.startsWith('data: ')) {
-            const data = JSON.parse(line.slice(6))
-            if (data.generated_text) {
-              editor.chain()
-                .insertContentAt(pos, '\n\n' + data.generated_text, {
-                  parseOptions: { preserveWhitespace: 'full' },
-                  updateSelection: false,
-                })
-                .run()
-              setFeedback('')
-            }
-          }
-        }
+      const data = await response.json()
+      if (typeof data.content === 'string') {
+        setContent(data.content)
+        editor.commands.setContent(data.content || '', { contentType: 'markdown' } as any)
+        setFeedback('')
       }
     } catch (err) {
       console.error(err)
@@ -319,7 +309,7 @@ export function Toolbar() {
               </div>
             </div>
 
-            {[...aiEditorLogs, ...virtualMessages].map((log: any) => {
+            {[...(aiEditorLogs || []), ...virtualMessages].map((log: any) => {
               const dateStr = log.timestamp ? new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''
               const isRewrite = log.operation === 'rewrite'
               const isAI = log.isAI || log.output !== null
@@ -339,6 +329,12 @@ export function Toolbar() {
                         {isRewrite && log.selected_text_preview && (
                           <div className="text-[10px] text-indigo-100/85 bg-indigo-800/30 px-2 py-1 rounded border-l-2 border-indigo-300 italic font-sans leading-relaxed line-clamp-2 select-none">
                             "{log.selected_text_preview}"
+                          </div>
+                        )}
+
+                        {log.context_path && (
+                          <div className="text-[9px] text-indigo-100/75 font-mono bg-indigo-800/25 px-2 py-1 rounded truncate select-text">
+                            {log.context_path}
                           </div>
                         )}
                         
@@ -390,6 +386,28 @@ export function Toolbar() {
                         <div className="font-sans leading-relaxed max-h-36 overflow-y-auto whitespace-pre-wrap pr-1 select-text scrollbar-thin">
                           {log.output}
                         </div>
+
+                        {log.input_preview && (
+                          <details className="mt-2 pt-2 border-t border-current/10">
+                            <summary className="cursor-pointer select-none text-[10px] uppercase tracking-wider font-semibold opacity-70">
+                              Input Preview
+                            </summary>
+                            <div className="mt-1 font-mono text-[10px] leading-relaxed max-h-32 overflow-y-auto whitespace-pre-wrap opacity-80">
+                              {log.input_preview}
+                            </div>
+                          </details>
+                        )}
+
+                        {log.raw_operation && (
+                          <details className="mt-2 pt-2 border-t border-current/10">
+                            <summary className="cursor-pointer select-none text-[10px] uppercase tracking-wider font-semibold opacity-70">
+                              Structured Operation
+                            </summary>
+                            <pre className="mt-1 font-mono text-[10px] leading-relaxed max-h-32 overflow-y-auto whitespace-pre-wrap opacity-80">
+                              {JSON.stringify(log.raw_operation, null, 2)}
+                            </pre>
+                          </details>
+                        )}
 
                         {/* Clarification Options */}
                         {log.operation === 'clarify' && log.options && log.options.length > 0 && (
@@ -445,6 +463,11 @@ export function Toolbar() {
 
       {/* AI Assist Input Section */}
       <div className="flex flex-col gap-2 mt-1 shrink-0">
+        <div className="flex items-center gap-1.5 text-[10px] text-slate-500 px-1 min-w-0">
+          <span className="font-bold uppercase tracking-wider text-slate-400 shrink-0">Editing</span>
+          <span className="font-mono truncate" title={resolvedContextPath || ''}>{contextLabel}</span>
+        </div>
+
         {activeSelectionText && (
           <div className="px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-lg flex items-start gap-2 text-[11px] text-indigo-900 leading-relaxed relative group animate-in slide-in-from-top-1">
             <Sparkles className="w-3.5 h-3.5 text-indigo-500 mt-0.5 shrink-0" />
@@ -515,4 +538,3 @@ export function Toolbar() {
     </div>
   )
 }
-
