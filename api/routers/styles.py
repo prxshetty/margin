@@ -15,14 +15,12 @@ class StyleCreate(BaseModel):
     name: str
     description: str
     output_size: str
-    min_dialogues: int = 2
     agent_sections: dict
 
 class StyleUpdate(BaseModel):
     name: str
     description: str
     output_size: str
-    min_dialogues: int = 2
     agent_sections: dict
 
 class ContentUpdate(BaseModel):
@@ -43,7 +41,6 @@ def get_style_content(id: str):
         "name": style.name,
         "description": style.description,
         "output_size": style.output_size,
-        "min_dialogues": style.min_dialogues,
         "content": content or ""
     }
 
@@ -72,7 +69,6 @@ def create_style(style_in: StyleCreate):
         name=style_in.name,
         description=style_in.description,
         output_size=style_in.output_size,
-        min_dialogues=style_in.min_dialogues,
         agent_sections=style_in.agent_sections,
         is_system=False
     )
@@ -97,7 +93,6 @@ def update_style(id: str, style_in: StyleUpdate):
 
     style.description = style_in.description
     style.output_size = style_in.output_size
-    style.min_dialogues = style_in.min_dialogues
     style.agent_sections = style_in.agent_sections
 
     return storage.save_style(style)

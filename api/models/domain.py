@@ -29,6 +29,7 @@ class SceneEvent(BaseModel):
     style: str = "general"
     expected_exchanges: str = "0"
     prose_weight: str = "balanced"  # "light" | "balanced" | "heavy"
+    dialogue_density: Optional[float] = Field(default=None)  # 0.0 narration-led | 1.0 dialogue-led
 
 class Scene(BaseModel):
     id: str # {chapter_slug}_act-{act_number}_scene-{scene_number}
@@ -66,7 +67,6 @@ class Style(BaseModel):
     name: str
     description: str
     output_size: str
-    min_dialogues: int = 2
     agent_sections: Dict[str, Any] = Field(default_factory=dict)
     is_system: bool = Field(default=False)
     created_at: datetime = Field(default_factory=datetime.utcnow)

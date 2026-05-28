@@ -257,11 +257,7 @@ def main():
 
     orchestrator = StoryOrchestrator(state_manager=state_manager)
     story_state = state_manager.read_story_state()
-    global_min = get_min_dialogues()
-    min_dialogues = {
-        name: style.get("min_dialogues") or global_min
-        for name, style in loaded_styles.items()
-    }
+    min_dialogues = get_min_dialogues()
 
     prev_chapter_bridge = None
     if chapter_number > 1:

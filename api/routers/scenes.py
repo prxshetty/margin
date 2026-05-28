@@ -53,6 +53,25 @@ def _normalize_events(events: list) -> list:
     return events
 
 
+def _global_dialogue_density() -> float:
+    settings = storage.get_settings()
+    value = settings.get("dialogue_density", 0.5)
+    try:
+        return max(0.0, min(1.0, float(value)))
+    except (TypeError, ValueError):
+        return 0.5
+
+
+def _effective_dialogue_density(event: dict) -> float:
+    value = event.get("dialogue_density") if isinstance(event, dict) else None
+    if value is None:
+        return _global_dialogue_density()
+    try:
+        return max(0.0, min(1.0, float(value)))
+    except (TypeError, ValueError):
+        return _global_dialogue_density()
+
+
 def _load_styles() -> Dict[str, Dict]:
     """Load styles from file storage."""
     styles = storage.get_styles()
@@ -282,7 +301,7 @@ async def stream_generator(scene_id: str):
 
             dialogue_draft = await asyncio.get_event_loop().run_in_executor(
                 None,
-                lambda g=guidelines: dialogue_agent.generate(context, event, g)
+                lambda g=guidelines: dialogue_agent.generate(context, event, g, narration_draft=narration_draft)
             )
             drafts["dialogue"] = dialogue_draft
             storage.save_beat_draft(scene.id, beat_num, "dialogue", dialogue_draft)
@@ -293,7 +312,7 @@ async def stream_generator(scene_id: str):
                 beat_number=beat_num,
                 agent_name="DialogueAgent",
                 system_prompt=dialogue_agent.system_prompt,
-                user_prompt=dialogue_agent._build_prompt(context, event, guidelines),
+                user_prompt=dialogue_agent._build_prompt(context, event, guidelines, narration_draft=narration_draft),
                 output=dialogue_draft,
             ))
 
@@ -317,6 +336,7 @@ async def stream_generator(scene_id: str):
                 writer_guidelines=writer_guidelines,
                 mode=mode,
                 token_limit=beat_token_limit,
+                dialogue_density=_effective_dialogue_density(event),
             )
         )
 
@@ -343,6 +363,219 @@ async def stream_generator(scene_id: str):
     full_content = "\n\n---\n\n".join(beat_outputs)
     scene.generated_content = full_content
     storage.save_scene(scene)
+
+    yield {"data": json.dumps({"done": True})}
+
+
+# ---------------------------------------------------------------------------
+# Draft-only SSE generator — narration + dialogue for ALL beats, no writer merge
+# ---------------------------------------------------------------------------
+
+async def generate_all_drafts_generator(scene_id: str):
+    """SSE generator that runs NarrationAgent + DialogueAgent for every beat.
+    Unlike stream_generator, this does NOT run WriterAgent or assemble scene prose.
+    """
+    scene = storage.get_scene(scene_id)
+    if not scene:
+        yield {"data": json.dumps({"error": "Scene not found"})}
+        return
+
+    loaded_styles = _load_styles()
+
+    if not scene.scene_events:
+        yield {"data": json.dumps({"error": "Scene must be decomposed into beats first."})}
+        return
+
+    events = _normalize_events(scene.scene_events)
+    total_beats = len(events)
+
+    yield {"data": json.dumps({"beats": events})}
+    await asyncio.sleep(0)
+
+    yield {"data": json.dumps({"status": "Building scene context..."})}
+    await asyncio.sleep(0)
+
+    context = _build_story_context(scene)
+
+    narration_agent = NarrationAgent()
+    dialogue_agent = DialogueAgent()
+
+    for idx, event in enumerate(events):
+        beat_desc = event.get("beat", str(event)) if isinstance(event, dict) else str(event)
+        beat_style = event.get("style", "general") if isinstance(event, dict) else "general"
+        style_data = loaded_styles.get(beat_style, {})
+        agent_sections = style_data.get("agent_sections", {})
+        beat_num = idx + 1
+        narration_draft = ""
+
+        # ---- NarrationAgent ------------------------------------------------
+        if "narration" in agent_sections:
+            guidelines = agent_sections["narration"]
+            prose_weight = event.get("prose_weight", "balanced") if isinstance(event, dict) else "balanced"
+            yield {"data": json.dumps({"status": f"Beat {beat_num}/{total_beats}: Generating narration..."})}
+            await asyncio.sleep(0)
+
+            narration_draft = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda g=guidelines, pw=prose_weight, bd=beat_desc: narration_agent.generate(
+                    context, bd, g, prose_weight=pw
+                )
+            )
+            storage.save_beat_draft(scene.id, beat_num, "narration", narration_draft)
+
+            storage.save_agent_log(AgentLog(
+                id=str(uuid.uuid4()),
+                scene_id=scene.id,
+                beat_number=beat_num,
+                agent_name="NarrationAgent",
+                system_prompt=narration_agent.system_prompt,
+                user_prompt=narration_agent._build_prompt(
+                    context, beat_desc, guidelines, prose_weight=prose_weight
+                ),
+                output=narration_draft,
+            ))
+
+        # ---- DialogueAgent -------------------------------------------------
+        expected_exchanges = event.get("expected_exchanges", "0") if isinstance(event, dict) else "0"
+        if "dialogue" in agent_sections and expected_exchanges != "0":
+            guidelines = agent_sections["dialogue"]
+            yield {"data": json.dumps({"status": f"Beat {beat_num}/{total_beats}: Generating dialogue..."})}
+            await asyncio.sleep(0)
+
+            dialogue_draft = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda g=guidelines, ev=event, nd=narration_draft: dialogue_agent.generate(context, ev, g, narration_draft=nd)
+            )
+            storage.save_beat_draft(scene.id, beat_num, "dialogue", dialogue_draft)
+
+            storage.save_agent_log(AgentLog(
+                id=str(uuid.uuid4()),
+                scene_id=scene.id,
+                beat_number=beat_num,
+                agent_name="DialogueAgent",
+                system_prompt=dialogue_agent.system_prompt,
+                user_prompt=dialogue_agent._build_prompt(context, event, guidelines, narration_draft=narration_draft),
+                output=dialogue_draft,
+            ))
+
+        yield {"data": json.dumps({"status": f"Beat {beat_num}/{total_beats}: Complete"})}
+        await asyncio.sleep(0)
+
+    yield {"data": json.dumps({"done": True})}
+
+
+# ---------------------------------------------------------------------------
+# Merge-all SSE generator — runs WriterAgent for every beat, then assembles
+# ---------------------------------------------------------------------------
+
+async def merge_all_beats_generator(scene_id: str):
+    """SSE generator that runs WriterAgent for every beat to merge saved
+    narration + dialogue drafts into final prose, then assembles the scene.
+    """
+    scene = storage.get_scene(scene_id)
+    if not scene:
+        yield {"data": json.dumps({"error": "Scene not found"})}
+        return
+
+    if not scene.scene_events:
+        yield {"data": json.dumps({"error": "Scene must be decomposed into beats first."})}
+        return
+
+    events = _normalize_events(scene.scene_events)
+    total_beats = len(events)
+
+    yield {"data": json.dumps({"beats": events})}
+    await asyncio.sleep(0)
+
+    yield {"data": json.dumps({"status": "Building scene context..."})}
+    await asyncio.sleep(0)
+
+    context = _build_story_context(scene)
+    loaded_styles = _load_styles()
+    writer_agent = WriterAgent()
+
+    prev_tail = scene.setting_draft or ""
+    beat_outputs: list[str] = []
+
+    for idx, event in enumerate(events):
+        beat_style = event.get("style", "general") if isinstance(event, dict) else "general"
+        style_data = loaded_styles.get(beat_style, {})
+        agent_sections = style_data.get("agent_sections", {})
+        writer_guidelines = agent_sections.get("writer", "")
+        beat_token_limit = None if config.DISABLE_TOKEN_LIMITS else style_data.get("output_size")
+        beat_num = idx + 1
+
+        # Determine mode
+        mode = _determine_mode(
+            scene_index=context.scene_number - 1,
+            beat_index=idx,
+            total_beats=total_beats,
+            scene=scene,
+        )
+
+        yield {"data": json.dumps({"status": f"Beat {beat_num}/{total_beats}: Merging drafts... ({mode})"})}
+        await asyncio.sleep(0)
+
+        # Load saved drafts
+        drafts: Dict[str, str] = {}
+        narration_draft = storage.get_beat_draft(scene_id, beat_num, "narration")
+        if narration_draft:
+            drafts["narration"] = narration_draft
+        dialogue_draft = storage.get_beat_draft(scene_id, beat_num, "dialogue")
+        if dialogue_draft:
+            drafts["dialogue"] = dialogue_draft
+
+        if not drafts:
+            yield {"data": json.dumps({"status": f"Beat {beat_num}/{total_beats}: Skipping — no drafts found"})}
+            await asyncio.sleep(0)
+            # Still append empty to keep beat count consistent
+            beat_outputs.append("")
+            continue
+
+        beat_setting_draft = scene.setting_draft if (idx == 0 and mode == "opening_with_setting") else ""
+
+        beat_text = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda ev=event, bsd=beat_setting_draft, pt=prev_tail, g=writer_guidelines, tl=beat_token_limit: writer_agent.generate_beat(
+                context=context,
+                beat=ev,
+                beat_index=idx,
+                total_beats=total_beats,
+                prev_tail=pt,
+                setting_draft=bsd,
+                drafts=drafts,
+                writer_guidelines=g,
+                mode=mode,
+                token_limit=tl,
+                dialogue_density=_effective_dialogue_density(ev),
+            )
+        )
+
+        storage.save_beat_draft(scene_id, beat_num, "prose", beat_text)
+
+        storage.save_agent_log(AgentLog(
+            id=str(uuid.uuid4()),
+            scene_id=scene.id,
+            beat_number=beat_num,
+            agent_name="WriterAgent",
+            system_prompt=writer_agent.system_prompt,
+            user_prompt=getattr(writer_agent, "last_user_prompt", ""),
+            output=beat_text,
+        ))
+
+        beat_outputs.append(beat_text)
+        prev_tail = _extract_tail(beat_text, 2)
+
+        yield {"data": json.dumps({"status": f"Beat {beat_num}/{total_beats}: Complete"})}
+        await asyncio.sleep(0)
+
+    # Assemble final scene prose
+    full_content = "\n\n---\n\n".join(beat_outputs)
+    scene.generated_content = full_content
+    storage.save_scene(scene)
+
+    yield {"data": json.dumps({"status": "Scene assembled"})}
+    await asyncio.sleep(0)
 
     yield {"data": json.dumps({"done": True})}
 
@@ -492,7 +725,7 @@ async def generate_dialogue_draft(scene_id: str, beat_num: int):
     guidelines = agent_sections.get("dialogue", "")
     dialogue_draft = await asyncio.get_event_loop().run_in_executor(
         None,
-        lambda: dialogue_agent.generate(context, event, guidelines)
+        lambda: dialogue_agent.generate(context, event, guidelines, narration_draft=narration_draft)
     )
     storage.save_beat_draft(scene_id, beat_num, "dialogue", dialogue_draft)
 
@@ -502,7 +735,7 @@ async def generate_dialogue_draft(scene_id: str, beat_num: int):
         beat_number=beat_num,
         agent_name="DialogueAgent",
         system_prompt=dialogue_agent.system_prompt,
-        user_prompt=dialogue_agent._build_prompt(context, event, guidelines),
+        user_prompt=dialogue_agent._build_prompt(context, event, guidelines, narration_draft=narration_draft),
         output=dialogue_draft,
     ))
 
@@ -573,6 +806,7 @@ async def merge_beat_drafts(scene_id: str, beat_num: int):
             writer_guidelines=writer_guidelines,
             mode=mode,
             token_limit=beat_token_limit,
+            dialogue_density=_effective_dialogue_density(event),
         )
     )
     
@@ -629,6 +863,7 @@ def decompose_scene(scene_id: str):
         scene_description=scene.scene_description,
         style_descriptions=style_descriptions,
         characters_context=characters_context or None,
+        dialogue_density=_global_dialogue_density(),
     )
 
     scene.scene_events = decomposed_events
@@ -653,6 +888,16 @@ def generate_scene(scene_id: str):
     return EventSourceResponse(stream_generator(scene_id))
 
 
+@router.post("/{scene_id:path}/beats/generate-all-drafts")
+def generate_all_drafts(scene_id: str):
+    return EventSourceResponse(generate_all_drafts_generator(scene_id))
+
+
+@router.post("/{scene_id:path}/beats/merge-all")
+def merge_all_beats(scene_id: str):
+    return EventSourceResponse(merge_all_beats_generator(scene_id))
+
+
 @router.patch("/{scene_id:path}/content")
 def update_scene_content(scene_id: str, payload: ContentUpdate):
     scene = storage.get_scene(scene_id)
@@ -670,7 +915,7 @@ def update_scene_beats(scene_id: str, payload: BeatsUpdate):
     if not scene:
         raise HTTPException(status_code=404, detail="Scene not found")
 
-    scene.scene_events = payload.beats
+    scene.scene_events = [beat.model_dump() for beat in payload.beats]
     storage.save_scene(scene)
     return scene
 
@@ -894,4 +1139,3 @@ def scene_assist(scene_id: str, payload: SceneAssistRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-

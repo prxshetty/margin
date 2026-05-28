@@ -159,6 +159,7 @@ class FileStorageService:
             "linked_outputs_dir": None,
             "reasoning_model": True,
             "prepend_thinking_preamble": False,  # Off by default!
+            "dialogue_density": 0.5,
         }
         if self.settings_path.exists():
             try:
@@ -173,7 +174,12 @@ class FileStorageService:
     def update_settings(self, new_settings: Dict[str, Any]) -> Dict[str, Any]:
         settings = self.get_settings()
         for k, v in new_settings.items():
-            if k in ("linked_inputs_dir", "linked_outputs_dir", "reasoning_model", "prepend_thinking_preamble"):
+            if k in ("linked_inputs_dir", "linked_outputs_dir", "reasoning_model", "prepend_thinking_preamble", "dialogue_density"):
+                if k == "dialogue_density":
+                    try:
+                        v = max(0.0, min(1.0, float(v)))
+                    except (TypeError, ValueError):
+                        continue
                 settings[k] = v
         
         try:
@@ -315,7 +321,6 @@ class FileStorageService:
                     name=slug,
                     description=parsed.get("description", ""),
                     output_size=str(parsed.get("output_size", "balanced")),
-                    min_dialogues=parsed.get("min_dialogues", 2),
                     agent_sections=parsed.get("agent_sections", {}),
                     is_system=True
                 ))
@@ -336,7 +341,6 @@ class FileStorageService:
                     name=id,
                     description=parsed.get("description", ""),
                     output_size=str(parsed.get("output_size", "balanced")),
-                    min_dialogues=parsed.get("min_dialogues", 2),
                     agent_sections=parsed.get("agent_sections", {}),
                     is_system=True
                 )
@@ -357,7 +361,6 @@ class FileStorageService:
         content = "---\n"
         content += f"description: {style.description}\n"
         content += f"output_size: {style.output_size}\n"
-        content += f"min_dialogues: {style.min_dialogues}\n"
         content += "---\n\n"
 
         if existing_body:
@@ -802,6 +805,7 @@ class FileStorageService:
         beat_text = event.get("beat", "")
         flow = event.get("conversation_flow", [])
         exchanges = event.get("expected_exchanges", "0-1")
+        dialogue_density = event.get("dialogue_density")
         
         tiptap_lines = []
         tiptap_lines.append(beat_text)
@@ -815,7 +819,8 @@ class FileStorageService:
             "raw_beat": beat_text,
             "style": style,
             "conversation_flow": flow,
-            "expected_exchanges": exchanges
+            "expected_exchanges": exchanges,
+            "dialogue_density": dialogue_density,
         }
 
     def update_beat(self, scene_id: str, beat_num: int, beat_text: str) -> Optional[Dict]:
@@ -832,6 +837,7 @@ class FileStorageService:
         
         style = existing_event.get("style", "general")
         exchanges = existing_event.get("expected_exchanges", "0-1")
+        dialogue_density = existing_event.get("dialogue_density")
         flow = []
         beat_lines = []
         
@@ -864,6 +870,7 @@ class FileStorageService:
             "beat": main_beat,
             "style": style,
             "expected_exchanges": exchanges,
+            "dialogue_density": dialogue_density,
             "conversation_flow": flow
         }
         
@@ -1017,6 +1024,7 @@ class FileStorageService:
                         "beat": beat_text,
                         "style": style,
                         "expected_exchanges": exchanges,
+                        "dialogue_density": None,
                         "conversation_flow": []
                     }
                     if current_scene:
