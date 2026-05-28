@@ -171,23 +171,13 @@ Style override + `.env` floor = the writer gets the larger of the two. This keep
 
 ## Minimum Dialogue Control
 
-Each style can define a `min_dialogues` frontmatter field to set the minimum number of dialogue exchanges expected for dialogue-heavy beats tagged with that style.
+The project defines a global `Minimum Dialogues` setting in `STYLES.md` that controls the minimum number of dialogue exchanges expected for dialogue-heavy beats.
 
 ```yaml
----
-description: "Full cinematic scene"
-output_size: expansive
-min_dialogues: 4   # dialogue beats should have 4+ exchanges
----
+Minimum Dialogues: 4
 ```
 
-The decomposer agent uses per-style minima to generate beats with appropriate `expected_exchanges` values, displayed during scene review as `[style] [#+]`.
-
-### Resolution order
-
-1. **Per-style `min_dialogues`** (in the style's `.md` frontmatter) — highest priority
-2. **`Minimum Dialogues: X`** line in `STYLES.md` — global fallback for all styles
-3. **Code default of `2`** — used if neither is set
+The decomposer agent uses this global minimum to generate beats with appropriate `expected_exchanges` values, displayed during scene review as `[style] [#+]`. Defaults to `2` if not set.
 
 ## Input Files
 
