@@ -269,10 +269,10 @@ class StoryOrchestrator:
             if "dialogue" in agent_sections and expected_exchanges_for_dialogue != "0":
                 guidelines = agent_sections["dialogue"]
                 d_input = self.dialogue_agent._build_prompt(
-                    scene_context, event, guidelines
+                    scene_context, event, guidelines, narration_draft=narration_draft
                 )
                 draft = self.dialogue_agent.generate(
-                    scene_context, event, guidelines
+                    scene_context, event, guidelines, narration_draft=narration_draft
                 )
                 drafts["dialogue"] = draft
                 dialogue_per_beat_logs.append({
@@ -483,10 +483,10 @@ class StoryOrchestrator:
             if "dialogue" in agent_sections and expected_exchanges_for_dialogue != "0":
                 guidelines = agent_sections["dialogue"]
                 d_input = self.dialogue_agent._build_prompt(
-                    scene_context, event, guidelines
+                    scene_context, event, guidelines, narration_draft=narration_draft
                 )
                 draft = self.dialogue_agent.generate(
-                    scene_context, event, guidelines
+                    scene_context, event, guidelines, narration_draft=narration_draft
                 )
                 drafts["dialogue"] = draft
                 dialogue_per_beat_logs.append({

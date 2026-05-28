@@ -57,6 +57,46 @@ PROSE_DIRECTIVES = {
 }
 
 
+def _dialogue_balance_directive(dialogue_density: float) -> str:
+    density = max(0.0, min(1.0, float(dialogue_density)))
+    dialogue_percent = round(density * 100)
+    narration_percent = 100 - dialogue_percent
+
+    if density >= 0.75:
+        guidance = (
+            "Dialogue should dominate this beat. Let spoken lines carry intentions, decisions, refusals, reveals, "
+            "and emotional turns whenever that feels natural. Keep narration lean: blocking, sensory grounding, "
+            "silent reactions, and necessary movement. Do not restate what the dialogue already makes clear."
+        )
+    elif density >= 0.6:
+        guidance = (
+            "Make this beat dialogue-forward. Prefer speech for interpersonal movement and choices, while using "
+            "narration to place bodies in space and keep transitions readable. Avoid narrating conclusions that "
+            "can be earned through the provided dialogue."
+        )
+    elif density <= 0.25:
+        guidance = (
+            "Make this beat narration-led. Let prose carry atmosphere, context, transitions, and physical/emotional "
+            "texture. Preserve all provided dialogue, but keep it embedded as selective, high-impact speech."
+        )
+    elif density <= 0.4:
+        guidance = (
+            "Make this beat narration-forward. Prose should carry more of the movement and texture, with dialogue "
+            "used where it adds character voice or sharpens the turn."
+        )
+    else:
+        guidance = (
+            "Keep this beat balanced. Let dialogue and narration share the dramatic work naturally, without forcing "
+            "either mode to dominate."
+        )
+
+    return (
+        f"DIALOGUE/NARRATION BALANCE: {dialogue_percent}% dialogue / {narration_percent}% narration.\n"
+        "Treat this as an author preference, not a strict word-count quota. "
+        f"{guidance}"
+    )
+
+
 class WriterAgent:
     """Merges sub-agent drafts into a single polished beat."""
 
@@ -78,16 +118,23 @@ class WriterAgent:
         mode: str,
         feedback: str = "",
         token_limit: Optional[int] = None,
+        dialogue_density: Optional[float] = None,
     ) -> str:
         """Merge sub-agent drafts into a single polished beat."""
         beat_desc = beat.get("beat", "") if isinstance(beat, dict) else str(beat)
         beat_style = beat.get("style", "general") if isinstance(beat, dict) else "general"
         prose_weight = beat.get("prose_weight", "balanced") if isinstance(beat, dict) else "balanced"
+        effective_dialogue_density = dialogue_density
+        if effective_dialogue_density is None and isinstance(beat, dict):
+            effective_dialogue_density = beat.get("dialogue_density")
+        if effective_dialogue_density is None:
+            effective_dialogue_density = 0.5
 
         self.last_token_limit = token_limit or config.TOKEN_LIMITS["writer"]
         intro = MODE_INTROS[mode].format(setting_draft=setting_draft, prev_tail=prev_tail)
         closing_note = MODE_CLOSING_NOTES[mode]
         prose_directive = PROSE_DIRECTIVES.get(prose_weight, PROSE_DIRECTIVES["balanced"])
+        balance_directive = _dialogue_balance_directive(effective_dialogue_density)
 
         drafts_block = ""
         if drafts:
@@ -101,6 +148,7 @@ class WriterAgent:
         self.last_user_prompt = (
             f"{intro}\n\n"
             f"{prose_directive}\n\n"
+            f"{balance_directive}\n\n"
             f"BEAT DESCRIPTION:\n{beat_desc}\n\n"
             f"STYLE: {beat_style}\n"
             f"STYLE GUIDELINES:\n{writer_guidelines}\n"

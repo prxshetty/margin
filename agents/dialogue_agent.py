@@ -18,8 +18,8 @@ class DialogueAgent:
         self.token_limit = config.TOKEN_LIMITS["dialogue"]
         self.temperature = config.AGENT_CONFIG["dialogue"]["temperature"]
 
-    def generate(self, context: StoryContext, event: dict, dialogue_guidelines: str) -> str:
-        user_prompt = self._build_prompt(context, event, dialogue_guidelines)
+    def generate(self, context: StoryContext, event: dict, dialogue_guidelines: str, narration_draft: str = "") -> str:
+        user_prompt = self._build_prompt(context, event, dialogue_guidelines, narration_draft)
         return self.client.generate_to_completion(
             system_prompt=self.system_prompt,
             user_prompt=user_prompt,
@@ -27,13 +27,23 @@ class DialogueAgent:
             max_tokens=self.token_limit,
         )
 
-    def _build_prompt(self, context: StoryContext, event: dict, dialogue_guidelines: str) -> str:
-        beat_description = event.get("beat", str(event))
-        expected_exchanges = event.get("expected_exchanges", "1")
+    def _build_prompt(self, context: StoryContext, event: dict, dialogue_guidelines: str, narration_draft: str = "") -> str:
+        if isinstance(event, dict):
+            beat_description = event.get("beat", "") or str(event)
+            expected_exchanges = event.get("expected_exchanges", "1")
+        else:
+            beat_description = str(event)
+            expected_exchanges = "1"
 
         parts = [
-            "CHARACTERS IN THIS SCENE — write dialogue ONLY for these characters:",
+            f"BEAT DESCRIPTION:\n{beat_description}",
+            f"\nEXPECTED EXCHANGES: {expected_exchanges}",
         ]
+
+        if narration_draft:
+            parts.append(f"\nPHYSICAL ACTION / NARRATION DRAFT (ground dialogue in these movements and environment):\n{narration_draft}")
+
+        parts.append("\nCHARACTERS IN THIS SCENE — write dialogue ONLY for these characters:")
 
         if context.character_profiles:
             for name, profile in context.character_profiles.items():
@@ -56,9 +66,6 @@ class DialogueAgent:
                                     parts.append(f"        · {ev}")
                     else:
                         parts.append(f"    Current state: {current_state}")
-
-        parts.append(f"\nTHIS BEAT:\n{beat_description}")
-        parts.append(f"\nEXPECTED EXCHANGES: {expected_exchanges}")
 
         if dialogue_guidelines:
             parts.append(f"\nDIALOGUE GUIDELINES:\n{dialogue_guidelines}")

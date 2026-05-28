@@ -4,7 +4,7 @@ Called once per scene to generate scene_events with style tags.
 """
 
 import re
-from typing import Optional, Dict, Union
+from typing import Optional, Dict
 import llm
 import config
 
@@ -22,21 +22,16 @@ class DecomposerAgent:
         self,
         scene_description: str,
         style_descriptions: Optional[Dict[str, str]] = None,
-        min_dialogues: Union[int, Dict[str, int]] = 2,
+        min_dialogues: int = 2,
         characters_context: Optional[Dict[str, str]] = None,
+        dialogue_density: float = 0.5,
     ) -> list:
         """Generate scene_events with style tags for a single scene."""
         styles_block = "\n".join(
             f"- {name}: {desc}" for name, desc in sorted(style_descriptions.items())
         ) if style_descriptions else "- general"
 
-        if isinstance(min_dialogues, dict):
-            min_dialogues_block = "\n".join(
-                f"- {style}: {count}+" for style, count in sorted(min_dialogues.items())
-            )
-            min_prompt = f"MINIMUM DIALOGUES PER STYLE:\n{min_dialogues_block}"
-        else:
-            min_prompt = f"MINIMUM DIALOGUES FOR DIALOGUE-HEAVY BEATS: {min_dialogues}+"
+        min_prompt = f"MINIMUM DIALOGUES: {min_dialogues}+"
 
         if characters_context:
             chars_block = "\n\n".join(
@@ -46,9 +41,20 @@ class DecomposerAgent:
         else:
             characters_section = ""
 
+        density_percent = max(0, min(100, round(float(dialogue_density) * 100)))
+        balance_prompt = (
+            f"DIALOGUE/NARRATION BALANCE PREFERENCE: {density_percent}% dialogue / {100 - density_percent}% narration.\n"
+            "Use this as an author preference, not a rigid quota. Higher dialogue preference should produce beats where "
+            "decisions, persuasion, conflict, reveals, and emotional turns are more likely to happen through conversation, "
+            "with higher expected_exchanges and lighter prose_weight when appropriate. Lower dialogue preference should "
+            "allow narration, atmosphere, and action summary to carry more of the scene. Always respect the natural demands "
+            "of the scene; do not force dialogue into beats that should stay physical or atmospheric."
+        )
+
         user_prompt = (
             f"{characters_section}"
             f"SCENE DESCRIPTION:\n{scene_description}\n\n"
+            f"{balance_prompt}\n\n"
             f"AVAILABLE STYLE TAGS:\n{styles_block}\n\n"
             f"{min_prompt}"
         )
@@ -125,6 +131,7 @@ class DecomposerAgent:
                         "style": str(item.get("style", "general")),
                         "expected_exchanges": str(item.get("expected_exchanges", "0")),
                         "prose_weight": str(item.get("prose_weight", "balanced")),
+                        "dialogue_density": item.get("dialogue_density"),
                     })
             else:
                 validated_events.append(SceneEvent(beat=str(item)).model_dump())

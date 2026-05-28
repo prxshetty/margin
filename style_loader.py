@@ -156,7 +156,6 @@ def get_min_dialogues(path: Optional[Path] = None) -> int:
 
     content = target.read_text(encoding="utf-8")
     for line in content.splitlines():
-        # Match "Minimum Dialogues: 4" or "Minimum Dialogue: 4" (case-insensitive)
         m = re.search(r"(?i)minimum\s+dialogues?:\s*(\d+)", line)
         if m:
             return int(m.group(1))
@@ -177,11 +176,9 @@ def _parse_style_file(path: Path) -> Dict[str, Any]:
     agent_sections = {name.lower(): text.strip() for name, text in sections}
 
     raw_output_size = frontmatter.get("output_size")
-    raw_min_dialogues = frontmatter.get("min_dialogues")
 
     return {
         "description": frontmatter.get("description", ""),
         "output_size": resolve_output_size(raw_output_size),
-        "min_dialogues": int(raw_min_dialogues) if raw_min_dialogues is not None else None,
         "agent_sections": agent_sections,
     }
