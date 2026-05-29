@@ -1,6 +1,6 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FileText, Save, ArrowLeft, Sparkles } from 'lucide-react'
+import { FileText, Save, ArrowLeft, PanelRightClose, PanelRightOpen } from 'lucide-react'
 import { NovelEditor } from '../components/Editor/NovelEditor'
 import { SimpleAssist } from '../components/SimpleAssist'
 import { useEditorStore } from '../stores/editorStore'
@@ -23,6 +23,7 @@ export default function SimpleEditor() {
   const navigate = useNavigate()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const setContent = useEditorStore(state => state.setContent)
+  const [panelOpen, setPanelOpen] = useState(true)
 
   const handleOpenFile = () => {
     fileInputRef.current?.click()
@@ -77,17 +78,17 @@ export default function SimpleEditor() {
     <div className="h-screen flex flex-col bg-white">
       {/* Top Bar */}
       <div className="h-12 border-b border-slate-200 bg-white px-4 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <button
             onClick={() => navigate('/')}
-            className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-md transition-colors cursor-pointer"
+            className="flex items-center justify-center w-8 h-8 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg border border-transparent hover:border-slate-200 transition-all cursor-pointer"
             title="Back to landing"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
           <button
             onClick={handleOpenFile}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 h-8 px-3 text-xs font-medium text-slate-600 hover:text-slate-800 bg-white border border-slate-200 hover:border-slate-300 rounded-lg transition-all cursor-pointer"
           >
             <FileText className="w-3.5 h-3.5" />
             Open File
@@ -102,19 +103,21 @@ export default function SimpleEditor() {
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
-            <Sparkles className="w-3 h-3" />
-            Quick Write
-          </span>
+          <button
+            onClick={() => setPanelOpen(!panelOpen)}
+            className="flex items-center justify-center w-8 h-8 text-slate-400 hover:text-slate-600 bg-white border border-slate-200 hover:border-slate-300 rounded-lg transition-all cursor-pointer"
+            title={panelOpen ? 'Hide AI panel' : 'Show AI panel'}
+          >
+            {panelOpen ? <PanelRightClose className="w-4 h-4" /> : <PanelRightOpen className="w-4 h-4" />}
+          </button>
+          <button
+            onClick={handleSaveAs}
+            className="flex items-center gap-1.5 h-8 px-3 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 border border-blue-600 hover:border-blue-700 rounded-lg transition-all cursor-pointer"
+          >
+            <Save className="w-3.5 h-3.5" />
+            Save As
+          </button>
         </div>
-
-        <button
-          onClick={handleSaveAs}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors shadow-sm cursor-pointer"
-        >
-          <Save className="w-3.5 h-3.5" />
-          Save As
-        </button>
       </div>
 
       {/* Main area */}
@@ -122,9 +125,11 @@ export default function SimpleEditor() {
         <div className="flex-1 overflow-y-auto">
           <NovelEditor showInlinePopup={false} />
         </div>
-        <div className="w-80 border-l border-slate-200 bg-white p-4 overflow-y-auto shrink-0">
-          <SimpleAssist />
-        </div>
+        {panelOpen && (
+          <div className="w-80 border-l border-slate-200 bg-white p-4 overflow-y-auto shrink-0">
+            <SimpleAssist />
+          </div>
+        )}
       </div>
     </div>
   )

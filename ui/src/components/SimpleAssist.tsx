@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { ChevronDown, ChevronRight, RefreshCw, PenLine, Plus } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { ChevronDown, ChevronRight, RefreshCw, PenLine, Plus, Sparkles, Copy, Check } from 'lucide-react'
 import { useEditorStore } from '../stores/editorStore'
 import { API_BASE } from '../lib/api'
 
@@ -20,17 +20,32 @@ export function SimpleAssist() {
   const [instruction, setInstruction] = useState('')
   const [isWorking, setIsWorking] = useState(false)
   const [lastOutput, setLastOutput] = useState('')
+  const [copied, setCopied] = useState(false)
   const [systemPrompt, setSystemPrompt] = useState(() => {
     return localStorage.getItem(STORAGE_KEY) || DEFAULT_PROMPT
   })
   const [promptOpen, setPromptOpen] = useState(false)
+  const outputRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, systemPrompt)
   }, [systemPrompt])
 
+  useEffect(() => {
+    if (lastOutput) {
+      outputRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [lastOutput])
+
   const hasSelection = selectedText.length > 0
   const hasCursor = (editor?.isFocused || anchorPosition > 0) && !hasSelection
+
+  const handleCopy = () => {
+    if (!lastOutput) return
+    navigator.clipboard.writeText(lastOutput)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
 
   const handleReplace = async () => {
     if (!selectedText || !instruction.trim() || !editor) return
@@ -106,28 +121,28 @@ export function SimpleAssist() {
   }
 
   return (
-    <div className="flex flex-col gap-4 w-full h-full overflow-y-auto">
+    <div className="flex flex-col gap-3 w-full h-full overflow-y-auto">
       {/* Selection info */}
       {hasSelection && (
-        <div className="px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-lg text-xs text-indigo-900 leading-relaxed break-words">
-          <span className="font-bold text-[10px] uppercase tracking-wider text-indigo-500 block mb-1">
-            Selected Text
+        <div className="px-3 py-2 bg-indigo-50/60 border border-indigo-200 rounded-lg text-xs text-indigo-900 leading-relaxed break-words">
+          <span className="font-bold text-[10px] uppercase tracking-wider text-indigo-500 block mb-0.5">
+            Selected
           </span>
-          <span className="italic">
-            "{selectedText.length > 150 ? selectedText.slice(0, 150) + '...' : selectedText}"
+          <span className="italic text-[11px]">
+            "{selectedText.length > 120 ? selectedText.slice(0, 120) + '...' : selectedText}"
           </span>
         </div>
       )}
 
       {!hasSelection && hasCursor && (
-        <div className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-500">
-          Cursor placed — you can insert new text at this position.
+        <div className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-[11px] text-slate-500">
+          Cursor placed — insert new text at this position.
         </div>
       )}
 
       {!hasSelection && !hasCursor && (
-        <div className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-500">
-          Select text in the editor to rewrite, or place your cursor to insert new content.
+        <div className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-[11px] text-slate-400 text-center">
+          Select text or place cursor in the editor
         </div>
       )}
 
@@ -141,40 +156,66 @@ export function SimpleAssist() {
             : "Instructions (e.g. 'Continue the scene')"
         }
         className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-xs resize-none placeholder:text-slate-400 bg-white"
-        rows={3}
+        rows={2}
       />
 
       {/* Action buttons */}
       <div className="flex gap-2">
-        {hasSelection && (
+        {hasSelection ? (
           <button
             onClick={handleReplace}
             disabled={!instruction.trim() || isWorking}
-            className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white font-semibold rounded-lg text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+            className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white font-semibold rounded-lg text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer border border-indigo-700"
           >
             {isWorking ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <PenLine className="w-3.5 h-3.5" />}
-            Replace Selection
+            Replace
           </button>
-        )}
-        {!hasSelection && (
+        ) : (
           <button
             onClick={handleInsert}
             disabled={!instruction.trim() || isWorking}
-            className="flex-1 py-2 bg-slate-800 hover:bg-slate-900 disabled:bg-slate-300 text-white font-semibold rounded-lg text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+            className="flex-1 py-2 bg-slate-800 hover:bg-slate-900 disabled:bg-slate-300 text-white font-semibold rounded-lg text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer border border-slate-900"
           >
             {isWorking ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-            Insert After Cursor
+            Insert
           </button>
         )}
       </div>
 
-      {/* Last output */}
-      {lastOutput && (
-        <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs text-slate-700 max-h-40 overflow-y-auto">
-          <span className="font-bold text-[10px] uppercase tracking-wider text-slate-400 block mb-1">
-            Last Response
-          </span>
-          <pre className="whitespace-pre-wrap font-sans leading-relaxed">{lastOutput}</pre>
+      {/* AI Response bubble */}
+      {(lastOutput || isWorking) && (
+        <div className="flex gap-2 items-start" ref={outputRef}>
+          <div className="w-6 h-6 rounded-full bg-indigo-50 border border-indigo-100 flex items-center justify-center shrink-0 mt-0.5">
+            <Sparkles className="w-3 h-3 text-indigo-600" />
+          </div>
+          <div className="flex-1 min-w-0">
+            {isWorking && !lastOutput ? (
+              <div className="px-3 py-2.5 bg-white border border-slate-200 rounded-2xl rounded-tl-none shadow-sm">
+                <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                  <RefreshCw className="w-3 h-3 animate-spin text-indigo-500" />
+                  Thinking...
+                </div>
+              </div>
+            ) : lastOutput ? (
+              <div className="px-3 py-2.5 bg-white border border-slate-200 rounded-2xl rounded-tl-none shadow-sm">
+                <div className="flex items-center justify-between mb-1.5 pb-1.5 border-b border-slate-100">
+                  <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider">
+                    Response
+                  </span>
+                  <button
+                    onClick={handleCopy}
+                    className="text-slate-400 hover:text-slate-600 p-0.5 rounded hover:bg-slate-50 transition-colors"
+                    title="Copy"
+                  >
+                    {copied ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+                  </button>
+                </div>
+                <pre className="whitespace-pre-wrap font-sans text-xs text-slate-700 leading-relaxed max-h-48 overflow-y-auto">
+                  {lastOutput}
+                </pre>
+              </div>
+            ) : null}
+          </div>
         </div>
       )}
 
@@ -192,7 +233,7 @@ export function SimpleAssist() {
             value={systemPrompt}
             onChange={(e) => setSystemPrompt(e.target.value)}
             className="w-full mt-2 px-2 py-1.5 border border-slate-200 rounded text-[10px] font-mono text-slate-600 outline-none focus:ring-1 focus:ring-indigo-400 resize-none bg-white"
-            rows={5}
+            rows={4}
           />
         )}
       </div>
