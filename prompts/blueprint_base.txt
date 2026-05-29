@@ -10,7 +10,7 @@ Requirements:
 2–4 scenes per act
 every scene must include:
 - scene_setting: location and optional time tag, 2-3 words maximum (e.g. 'kitchen — morning')
-- scene_description: 2–4 concise sentences covering narrative purpose and how this scene connects to the previous one.
+- scene_description: Cover ALL key events and plot developments from the chapter outline that happen in this scene. Focus on what characters DO and what dramatic beats occur. Also note how this scene connects to the previous one. Be concise but do not omit important events.
 - consecutive scenes must form a logical sequence: characters move between locations, time passes naturally, no unexplained jumps or teleportation
 
 Use the provided CHARACTER PROFILE CONTEXT to decide which characters are present in each scene, and to ground act/scene descriptions in their specific motivations and relationships. Infer chapter title, background/setting, and tone from the raw text if not explicitly provided.
