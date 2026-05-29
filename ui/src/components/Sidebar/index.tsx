@@ -109,14 +109,6 @@ export function Sidebar({
 
   return (
     <div className="w-64 border-r border-slate-200 bg-slate-50 h-screen overflow-y-auto flex flex-col">
-      {/* Chapter title */}
-      <div className="px-4 pt-4 pb-3 border-b border-slate-200">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-0.5">Chapter</p>
-        <h2 className="font-semibold text-slate-900 text-sm truncate leading-snug" title={blueprintData?.blueprint?.chapter_title || 'Unstructured Outline'}>
-          {blueprintData?.blueprint?.chapter_title || 'Unstructured Outline'}
-        </h2>
-      </div>
-
       <div className="flex-1 px-3 py-3 flex flex-col gap-4 overflow-y-auto">
 
         {/* ── INPUTS ────────────────────────────────────────────── */}
@@ -299,7 +291,7 @@ export function Sidebar({
               {/* Compiled chapter entry — clickable if it exists */}
               {exportedChapterDoc && (
                 <button
-                  onClick={() => setActiveDoc({ type: 'chapter', id: 'chapter', name: blueprintData.blueprint.chapter_title })}
+                  onClick={() => setActiveDoc({ type: 'chapter', id: 'chapter', name: blueprintData?.blueprint?.chapter_title || 'chapter.md' })}
                   className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs text-left transition-colors ${
                     isDocActive('chapter', 'chapter') ? 'bg-rose-100 text-rose-900 font-medium' : 'text-slate-600 hover:bg-slate-200'
                   }`}

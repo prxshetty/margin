@@ -116,13 +116,17 @@ def export_chapter(chapter_id: str):
 
 
 @router.get("/{chapter_id}/export")
-def get_chapter_export(chapter_id: str):
+def get_chapter_export(chapter_id: str, target: str = "web"):
     """Return the previously compiled chapter.md if it exists."""
-    out_path = storage.outputs_dir / chapter_id / "chapter.md"
+    if target == "results":
+        out_path = storage.outputs_dir / "results" / f"{chapter_id}.md"
+    else:
+        out_path = storage.outputs_dir / chapter_id / "chapter.md"
+
     if not out_path.exists():
-        raise HTTPException(status_code=404, detail="No compiled chapter found. Export first.")
+        return {"status": "not_found", "exists": False, "content": "", "file": str(out_path)}
     content = out_path.read_text(encoding="utf-8")
-    return {"status": "ok", "content": content, "file": str(out_path)}
+    return {"status": "ok", "exists": True, "content": content, "file": str(out_path)}
 
 @router.patch("/{chapter_id}/content")
 def update_chapter_outline(chapter_id: str, payload: dict):

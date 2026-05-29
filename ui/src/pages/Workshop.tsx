@@ -53,6 +53,18 @@ export default function Workshop() {
     // The content-loading effect will pick this up on next render since deps include activeDoc
   }, [reloadDocSignal])
 
+  // Check if compiled chapters exist on load/chapterId change
+  useEffect(() => {
+    if (!chapterId) {
+      setExportedChapterDoc(false)
+      return
+    }
+    fetch(`${API_BASE}/chapters/${chapterId}/export`)
+      .then(res => res.json())
+      .then(data => setExportedChapterDoc(!!data.exists))
+      .catch(() => setExportedChapterDoc(false))
+  }, [chapterId])
+
   // Auto-save callback
   const saveContent = useCallback(async (docInfo: {doc: ActiveDoc, mode?: string, beatIndex?: number}, text: string) => {
     if (!docInfo?.doc || !text.trim()) return
