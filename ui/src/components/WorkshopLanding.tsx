@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   Layout, FolderOpen, AlertCircle, Cpu, Brain,
-  CheckCircle, BookPlus, Trash2, Link2, Link2Off
+  CheckCircle, BookPlus, Trash2, Link2, Link2Off, Sparkles
 } from 'lucide-react'
 import { useQueryClient, useQuery, useMutation } from '@tanstack/react-query'
 import { API_BASE } from '../lib/api'
@@ -159,10 +159,24 @@ export default function WorkshopLanding() {
     <div className="min-h-screen bg-slate-50 overflow-y-auto text-slate-900">
       <div className="max-w-4xl mx-auto p-8 animate-fadeIn">
         <header className="flex justify-between items-center mb-12">
-          <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 flex items-center gap-3">
-            <Layout className="w-8 h-8 text-blue-600 animate-pulse" />
-            SLM Writing Engine
-          </h1>
+          <div className="flex items-center gap-4">
+            <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 flex items-center gap-3">
+              <Layout className="w-8 h-8 text-blue-600 animate-pulse" />
+              SLM Writing Engine
+            </h1>
+            <div className="flex bg-slate-100 rounded-lg p-0.5">
+              <Link
+                to="/simple"
+                className="px-3 py-1.5 text-[11px] font-semibold rounded-md text-slate-500 hover:text-indigo-700 hover:bg-white transition-all"
+              >
+                <Sparkles className="w-3 h-3 inline mr-1" />
+                Quick Write
+              </Link>
+              <span className="px-3 py-1.5 text-[11px] font-semibold rounded-md bg-white text-slate-800 shadow-sm">
+                Workshop
+              </span>
+            </div>
+          </div>
         </header>
 
         {/* Workspace Directory Link Section */}

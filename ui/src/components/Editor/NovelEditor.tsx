@@ -7,7 +7,7 @@ import { Markdown } from 'tiptap-markdown'
 import { InlineSelectionPopup } from './InlineSelectionPopup'
 import { getDocPath } from '../../lib/docInfo'
 
-export function NovelEditor() {
+export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: boolean }) {
   const content = useEditorStore(state => state.content)
   const setContent = useEditorStore(state => state.setContent)
   const setEditor = useEditorStore(state => state.setEditor)
@@ -95,7 +95,7 @@ export function NovelEditor() {
   return (
     <div className="bg-white relative">
       <EditorContent editor={editor} />
-      <InlineSelectionPopup localEditor={editor} />
+      {showInlinePopup && <InlineSelectionPopup localEditor={editor} />}
     </div>
   )
 }

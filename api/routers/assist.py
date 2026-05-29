@@ -11,6 +11,8 @@ from agents.document_edit_agent import DocumentEditAgent
 from agents.rewrite_agent import RewriteAgent
 from api.services.file_storage import storage
 from schema_loader import get_schema
+import llm
+import config
 
 router = APIRouter(prefix="/api/assist", tags=["assist"])
 
@@ -324,3 +326,71 @@ def edit(payload: AssistEditRequest):
     _save_text_target(path, rewritten)
     _log_for_path(path, message, rewritten, "rewrite", payload.chapter_id, input_text=original)
     return {"type": "applied", "message": "Text updated.", "content": rewritten, "strategy": "text"}
+
+
+DEFAULT_SIMPLE_SYSTEM_PROMPT = (
+    "You are a writing assistant. Help the user improve their writing. "
+    "When asked to rewrite or generate text, output ONLY the new text "
+    "without explanations, commentary, or markdown formatting around it."
+)
+
+
+class SimpleAssistRequest(BaseModel):
+    content: str = ""
+    message: str
+    system_prompt: Optional[str] = None
+    history: List[Dict[str, Any]] = Field(default_factory=list)
+    selected_text: Optional[str] = None
+    text_before: Optional[str] = None
+    text_after: Optional[str] = None
+
+
+@router.post("/simple")
+def simple_assist(payload: SimpleAssistRequest):
+    message = payload.message.strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="Missing message")
+
+    system_prompt = payload.system_prompt or DEFAULT_SIMPLE_SYSTEM_PROMPT
+
+    # Replace mode — rewrite selected text
+    if payload.selected_text:
+        rewritten = RewriteAgent().generate(
+            selected_text=payload.selected_text,
+            feedback=message,
+            context_text=payload.content or "",
+        )
+        return {"type": "applied", "output": rewritten}
+
+    # Insert mode — generate content between text_before and text_after
+    if payload.text_before is not None or payload.text_after is not None:
+        inserted = RewriteAgent().generate_insert(
+            text_before=payload.text_before or "",
+            text_after=payload.text_after or "",
+            block_type="paragraph",
+            feedback=message,
+        )
+        return {"type": "applied", "output": inserted}
+
+    # Chat mode — LLM with full content as context
+    client = llm.LLMClient()
+    full_system = system_prompt
+    if payload.content:
+        full_system += f"\n\nHere is the user's document for context:\n{payload.content}"
+
+    user_prompt = ""
+    for h in payload.history:
+        role = h.get("role", "user")
+        content = h.get("content", "")
+        tag = "User" if role == "user" else "Assistant"
+        user_prompt += f"{tag}: {content}\n\n"
+    user_prompt += f"User: {message}"
+
+    result = client.generate_to_completion(
+        system_prompt=full_system,
+        user_prompt=user_prompt,
+        temperature=0.7,
+        max_tokens=config.AGENT_CONFIG.get("writer", {}).get("max_tokens", 500),
+    )
+
+    return {"type": "chat", "output": result}
