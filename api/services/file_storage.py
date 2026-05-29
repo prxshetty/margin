@@ -254,6 +254,13 @@ class FileStorageService:
     def _make_frontmatter(fm: Dict) -> str:
         return "---\n" + yaml.dump(fm, default_flow_style=False, sort_keys=False).strip() + "\n---\n\n"
 
+    @staticmethod
+    def _strip_frontmatter(content: str) -> str:
+        match = re.match(r"^---\s*\n.*?\n---\s*\n", content, re.DOTALL)
+        if match:
+            return content[match.end():]
+        return content
+
     # --- Characters ---
     def _name_from_slug(self, slug: str) -> str:
         return slug.replace("_", " ").title()
@@ -389,45 +396,64 @@ class FileStorageService:
         return False
 
     # --- Chapters ---
+    def _next_chapter_id(self) -> str:
+        max_num = 0
+        chap_dir = self.inputs_dir / "chapters"
+        for fpath in chap_dir.glob("*.md"):
+            match = re.match(r"chapter-(\d+)$", fpath.stem)
+            if match:
+                num = int(match.group(1))
+                max_num = max(max_num, num)
+        return f"chapter-{max_num + 1}"
+
+    def _parse_chapter_file(self, fpath: Path) -> Optional[dict]:
+        try:
+            with open(fpath, "r", encoding="utf-8") as f:
+                content = f.read()
+        except Exception:
+            return None
+
+        fm = self._parse_frontmatter(content)
+        if fm:
+            title = fm.get("title", "Untitled Chapter")
+        else:
+            title_match = re.search(r"^#\s+(.+)$", content, re.MULTILINE)
+            title = title_match.group(1).strip() if title_match else "Untitled Chapter"
+
+        body = self._strip_frontmatter(content)
+        title_match = re.search(r"^#\s+(.+)$", body, re.MULTILINE)
+        outline = body[title_match.end():].strip() if title_match else body.strip()
+
+        return {"title": title, "outline": outline, "stem": fpath.stem}
+
     def get_chapters(self) -> List[Chapter]:
         chapters = []
         chap_dir = self.inputs_dir / "chapters"
-        for fpath in chap_dir.glob("*.md"):
-            try:
-                with open(fpath, "r", encoding="utf-8") as f:
-                    content = f.read()
-                    title_match = re.search(r"^#\s+(.+)$", content, re.MULTILINE)
-                    title = title_match.group(1).strip() if title_match else "Untitled Chapter"
-                    
-                    # Assume everything after the title is outline
-                    outline = content[title_match.end():].strip() if title_match else content
-                    
-                    slug = fpath.stem
-                    chapters.append(Chapter(
-                        id=slug,
-                        title=title,
-                        raw_outline=outline
-                    ))
-            except Exception:
-                pass
+        for fpath in sorted(chap_dir.glob("*.md"), key=lambda p: p.stem):
+            parsed = self._parse_chapter_file(fpath)
+            if parsed:
+                chapters.append(Chapter(
+                    id=parsed["stem"],
+                    title=parsed["title"],
+                    raw_outline=parsed["outline"]
+                ))
+        chapters.sort(key=lambda c: int(c.id.split("-")[1]) if c.id.startswith("chapter-") else 0)
         return chapters
 
     def get_chapter(self, chapter_id: str) -> Optional[Chapter]:
         fpath = self.inputs_dir / "chapters" / f"{chapter_id}.md"
         if fpath.exists():
-            with open(fpath, "r", encoding="utf-8") as f:
-                content = f.read()
-                title_match = re.search(r"^#\s+(.+)$", content, re.MULTILINE)
-                title = title_match.group(1).strip() if title_match else "Untitled Chapter"
-                outline = content[title_match.end():].strip() if title_match else content
-                return Chapter(id=chapter_id, title=title, raw_outline=outline)
+            parsed = self._parse_chapter_file(fpath)
+            if parsed:
+                return Chapter(id=chapter_id, title=parsed["title"], raw_outline=parsed["outline"])
         return None
 
     def save_chapter(self, chapter: Chapter) -> Chapter:
         fpath = self.inputs_dir / "chapters" / f"{chapter.id}.md"
-        with open(fpath, "w", encoding="utf-8") as f:
-            f.write(f"# {chapter.title}\n\n")
-            f.write(chapter.raw_outline)
+        content = self._make_frontmatter({"title": chapter.title})
+        content += f"# {chapter.title}\n\n"
+        content += chapter.raw_outline
+        fpath.write_text(content, encoding="utf-8")
         return chapter
 
     def delete_chapter(self, chapter_id: str, target: str = "both") -> bool:
@@ -529,7 +555,7 @@ class FileStorageService:
 
     def get_scene(self, scene_id: str) -> Optional[Scene]:
         # scene_id is of format: {chapter_slug}_act-{act_number}_scene-{scene_number}
-        parts = scene_id.split("_")
+        parts = scene_id.rsplit("_", 2)
         if len(parts) != 3: return None
         chapter_id, act_str, scene_str = parts
         act_dir = self.outputs_dir / chapter_id / act_str
@@ -599,7 +625,7 @@ class FileStorageService:
         return scenes
 
     def save_scene(self, scene: Scene) -> Scene:
-        parts = scene.id.split("_")
+        parts = scene.id.rsplit("_", 2)
         if len(parts) != 3: return scene
         chapter_id, act_str, scene_str = parts
         
@@ -638,7 +664,7 @@ class FileStorageService:
 
     # --- Agent Logs ---
     def save_agent_log(self, log: AgentLog):
-        parts = log.scene_id.split("_")
+        parts = log.scene_id.rsplit("_", 2)
         if len(parts) != 3: return
         chapter_id, act_str, scene_str = parts
         
@@ -657,7 +683,7 @@ class FileStorageService:
             json.dump(logs, f, indent=2)
 
     def get_agent_logs(self, scene_id: str) -> List[AgentLog]:
-        parts = scene_id.split("_")
+        parts = scene_id.rsplit("_", 2)
         if len(parts) != 3: return []
         chapter_id, act_str, scene_str = parts
         
@@ -672,7 +698,7 @@ class FileStorageService:
 
     def clear_writer_logs(self, scene_id: str):
         """Clear logs where beat_number > 0 for regeneration."""
-        parts = scene_id.split("_")
+        parts = scene_id.rsplit("_", 2)
         if len(parts) != 3: return
         chapter_id, act_str, scene_str = parts
 
@@ -688,7 +714,7 @@ class FileStorageService:
                 json.dump(filtered, f, indent=2)
 
     def save_ai_editor_log(self, scene_id: str, log: dict):
-        parts = scene_id.split("_")
+        parts = scene_id.rsplit("_", 2)
         if len(parts) != 3: return
         chapter_id, act_str, scene_str = parts
         
@@ -708,7 +734,7 @@ class FileStorageService:
             json.dump(logs, f, indent=2)
 
     def get_ai_editor_logs(self, scene_id: str) -> list:
-        parts = scene_id.split("_")
+        parts = scene_id.rsplit("_", 2)
         if len(parts) != 3: return []
         chapter_id, act_str, scene_str = parts
         
@@ -804,8 +830,9 @@ class FileStorageService:
         style = event.get("style", "general")
         beat_text = event.get("beat", "")
         flow = event.get("conversation_flow", [])
-        exchanges = event.get("expected_exchanges", "0-1")
+        exchanges = event.get("expected_exchanges", "0")
         dialogue_density = event.get("dialogue_density")
+        dialogue_guidelines = event.get("dialogue_guidelines")
         
         tiptap_lines = []
         tiptap_lines.append(beat_text)
@@ -821,6 +848,7 @@ class FileStorageService:
             "conversation_flow": flow,
             "expected_exchanges": exchanges,
             "dialogue_density": dialogue_density,
+            "dialogue_guidelines": dialogue_guidelines,
         }
 
     def update_beat(self, scene_id: str, beat_num: int, beat_text: str) -> Optional[Dict]:
@@ -836,8 +864,9 @@ class FileStorageService:
         lines = [line.strip() for line in beat_text.strip().split("\n") if line.strip()]
         
         style = existing_event.get("style", "general")
-        exchanges = existing_event.get("expected_exchanges", "0-1")
+        exchanges = existing_event.get("expected_exchanges", "0")
         dialogue_density = existing_event.get("dialogue_density")
+        dialogue_guidelines = existing_event.get("dialogue_guidelines")
         flow = []
         beat_lines = []
         
@@ -871,6 +900,7 @@ class FileStorageService:
             "style": style,
             "expected_exchanges": exchanges,
             "dialogue_density": dialogue_density,
+            "dialogue_guidelines": dialogue_guidelines,
             "conversation_flow": flow
         }
         
@@ -880,7 +910,7 @@ class FileStorageService:
 
     # --- Individual Beat Sidecars ---
     def get_beat_draft(self, scene_id: str, beat_num: int, draft_type: str) -> Optional[str]:
-        parts = scene_id.split("_")
+        parts = scene_id.rsplit("_", 2)
         if len(parts) != 3:
             return None
         chapter_id, act_str, scene_str = parts
@@ -891,7 +921,7 @@ class FileStorageService:
         return None
 
     def save_beat_draft(self, scene_id: str, beat_num: int, draft_type: str, content: str) -> None:
-        parts = scene_id.split("_")
+        parts = scene_id.rsplit("_", 2)
         if len(parts) != 3:
             return
         chapter_id, act_str, scene_str = parts
@@ -905,7 +935,7 @@ class FileStorageService:
         if not scene or not scene.scene_events:
             return None
         
-        parts = scene_id.split("_")
+        parts = scene_id.rsplit("_", 2)
         if len(parts) != 3:
             return None
         chapter_id, act_str, scene_str = parts
@@ -1227,6 +1257,77 @@ class FileStorageService:
         scene.scene_events = beats
         self.save_scene(scene)
         return {"scene_events": beats}
+
+    def reorder_scene_beats(self, scene_id: str, old_indices: List[int]) -> Optional[Scene]:
+        scene = self.get_scene(scene_id)
+        if not scene:
+            return None
+            
+        events = list(scene.scene_events or [])
+        if len(old_indices) != len(events):
+            raise ValueError("Reorder mapping length must match events length")
+            
+        new_events = [events[idx] for idx in old_indices]
+        scene.scene_events = new_events
+        
+        parts = scene_id.rsplit("_", 2)
+        if len(parts) == 3:
+            chapter_id, act_str, scene_str = parts
+            scene_dir = self.outputs_dir / chapter_id / act_str / scene_str
+            
+            draft_types = ["narration", "dialogue", "prose"]
+            
+            # Rename existing files to a temp namespace to avoid collision/overwriting
+            for idx in range(len(events)):
+                beat_num = idx + 1
+                for dtype in draft_types:
+                    fpath = scene_dir / f"beat_{beat_num}_{dtype}.md"
+                    if fpath.exists():
+                        fpath.rename(scene_dir / f"beat_{beat_num}_{dtype}.md.tmp")
+            
+            # Move temp files to their new index locations
+            for new_idx, old_idx in enumerate(old_indices):
+                new_beat_num = new_idx + 1
+                old_beat_num = old_idx + 1
+                for dtype in draft_types:
+                    temp_path = scene_dir / f"beat_{old_beat_num}_{dtype}.md.tmp"
+                    target_path = scene_dir / f"beat_{new_beat_num}_{dtype}.md"
+                    if temp_path.exists():
+                        temp_path.rename(target_path)
+                    elif target_path.exists():
+                        target_path.unlink()
+            
+            # Clean up any leftover .tmp files
+            for idx in range(len(events)):
+                beat_num = idx + 1
+                for dtype in draft_types:
+                    temp_path = scene_dir / f"beat_{beat_num}_{dtype}.md.tmp"
+                    if temp_path.exists():
+                        temp_path.unlink()
+                        
+            # Update Agent Logs in logs.json
+            logs_path = scene_dir / "logs.json"
+            if logs_path.exists():
+                try:
+                    with open(logs_path, "r", encoding="utf-8") as f:
+                        logs = json.load(f)
+                    
+                    old_to_new = {old_idx: new_idx for new_idx, old_idx in enumerate(old_indices)}
+                    
+                    for log in logs:
+                        b_num = log.get("beat_number", 0)
+                        if b_num > 0:
+                            old_idx = b_num - 1
+                            if old_idx in old_to_new:
+                                log["beat_number"] = old_to_new[old_idx] + 1
+                                
+                    with open(logs_path, "w", encoding="utf-8") as f:
+                        json.dump(logs, f, indent=2)
+                except Exception as e:
+                    print(f"Error updating logs during reorder: {e}")
+                    
+        self.save_scene(scene)
+        return scene
 
     def save_style_content(self, id: str, body: str) -> None:
         fpath = self.inputs_dir / "styles" / f"{id}.md"

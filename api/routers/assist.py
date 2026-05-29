@@ -242,7 +242,7 @@ def edit(payload: AssistEditRequest):
         if not scene:
             raise HTTPException(status_code=404, detail="Scene not found")
 
-        parts = scene_id.split("_")
+        parts = scene_id.rsplit("_", 2)
         act_num = parts[1].replace("act-", "") if len(parts) > 1 else "?"
         scene_num = parts[2].replace("scene-", "") if len(parts) > 2 else "?"
         focused_index = payload.current_beat_index

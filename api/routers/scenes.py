@@ -9,7 +9,7 @@ import uuid
 from typing import Optional, Dict, List
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Query
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
@@ -72,6 +72,24 @@ def _effective_dialogue_density(event: dict) -> float:
         return _global_dialogue_density()
 
 
+def _effective_prose_weight(beat_prose_weight: str, dialogue_density: float) -> str:
+    """
+    Clamp the beat's prose_weight based on dialogue density.
+    The Decomposer sets prose_weight from content intent.
+    This function overrides it when density makes the beat's preference unrealistic.
+    """
+    import math
+    weight_order = {"light": 0, "balanced": 1, "heavy": 2}
+    level_to_weight = ["light", "balanced", "heavy"]
+    
+    beat_level = weight_order.get(beat_prose_weight, 1)
+    # Floor so density=0.67 still allows "balanced" (max_level=1), not just "light"
+    max_level = math.floor((1.0 - dialogue_density) * 2)
+    max_level = max(0, min(2, max_level))  # clamp to valid range
+    
+    return level_to_weight[min(beat_level, max_level)]
+
+
 def _load_styles() -> Dict[str, Dict]:
     """Load styles from file storage."""
     styles = storage.get_styles()
@@ -100,7 +118,7 @@ def _load_character_context(scene: Scene) -> Dict[str, str]:
 def _build_story_context(scene: Scene) -> StoryContext:
     """Reconstruct a full StoryContext from files for a given scene."""
     # Extract IDs from scene.id: {chapter_slug}_act-{act_num}_scene-{scene_num}
-    parts = scene.id.split("_")
+    parts = scene.id.rsplit("_", 2)
     chapter_slug = parts[0]
     act_num = int(parts[1].split("-")[1])
     
@@ -153,7 +171,7 @@ def _determine_mode(scene_index: int, beat_index: int, total_beats: int,
         return "continuation"
 
     # First beat — check if location changed from the previous scene in same act
-    parts = scene.id.split("_")
+    parts = scene.id.rsplit("_", 2)
     chapter_slug = parts[0]
     act_num = int(parts[1].split("-")[1])
     
@@ -237,8 +255,19 @@ async def stream_generator(scene_id: str):
     prev_tail = setting_draft  # chain context between beats
 
     for idx, event in enumerate(events):
-        beat_desc = event.get("beat", str(event)) if isinstance(event, dict) else str(event)
-        beat_style = event.get("style", "general") if isinstance(event, dict) else "general"
+        # Deterministically clamp prose_weight based on dialogue_density
+        if isinstance(event, dict):
+            effective_pw = _effective_prose_weight(
+                event.get("prose_weight", "balanced"),
+                _effective_dialogue_density(event)
+            )
+            event = {**event, "prose_weight": effective_pw}
+        else:
+            effective_pw = _effective_prose_weight("balanced", _effective_dialogue_density(event))
+            event = {"beat": event, "style": "general", "prose_weight": effective_pw}
+
+        beat_desc = event.get("beat", "")
+        beat_style = event.get("style", "general")
 
         style_data = loaded_styles.get(beat_style, {})
         agent_sections = style_data.get("agent_sections", {})
@@ -401,8 +430,19 @@ async def generate_all_drafts_generator(scene_id: str):
     dialogue_agent = DialogueAgent()
 
     for idx, event in enumerate(events):
-        beat_desc = event.get("beat", str(event)) if isinstance(event, dict) else str(event)
-        beat_style = event.get("style", "general") if isinstance(event, dict) else "general"
+        # Deterministically clamp prose_weight based on dialogue_density
+        if isinstance(event, dict):
+            effective_pw = _effective_prose_weight(
+                event.get("prose_weight", "balanced"),
+                _effective_dialogue_density(event)
+            )
+            event = {**event, "prose_weight": effective_pw}
+        else:
+            effective_pw = _effective_prose_weight("balanced", _effective_dialogue_density(event))
+            event = {"beat": event, "style": "general", "prose_weight": effective_pw}
+
+        beat_desc = event.get("beat", "")
+        beat_style = event.get("style", "general")
         style_data = loaded_styles.get(beat_style, {})
         agent_sections = style_data.get("agent_sections", {})
         beat_num = idx + 1
@@ -590,6 +630,9 @@ class ContentUpdate(BaseModel):
 class BeatsUpdate(BaseModel):
     beats: List[SceneEvent]
 
+class BeatsReorderPayload(BaseModel):
+    old_indices: List[int]
+
 class SceneUpdate(BaseModel):
     scene_description: Optional[str] = None
     scene_setting: Optional[str] = None
@@ -651,7 +694,7 @@ def update_beat_drafts(scene_id: str, beat_num: int, payload: DraftsUpdatePayloa
     return {"status": "success"}
 
 @router.post("/{scene_id:path}/beats/{beat_num}/draft/narration")
-async def generate_narration_draft(scene_id: str, beat_num: int):
+async def generate_narration_draft(scene_id: str, beat_num: int, action: str = Query("regenerate")):
     scene = storage.get_scene(scene_id)
     if not scene:
         raise HTTPException(status_code=404, detail="Scene not found")
@@ -662,6 +705,17 @@ async def generate_narration_draft(scene_id: str, beat_num: int):
         raise HTTPException(status_code=404, detail="Beat index out of bounds")
         
     event = events[idx]
+    # Deterministically clamp prose_weight based on dialogue_density
+    if isinstance(event, dict):
+        effective_pw = _effective_prose_weight(
+            event.get("prose_weight", "balanced"),
+            _effective_dialogue_density(event)
+        )
+        event = {**event, "prose_weight": effective_pw}
+    else:
+        effective_pw = _effective_prose_weight("balanced", _effective_dialogue_density(event))
+        event = {"beat": event, "style": "general", "prose_weight": effective_pw}
+
     beat_desc = event.get("beat", "")
     beat_style = event.get("style", "general")
     
@@ -669,6 +723,10 @@ async def generate_narration_draft(scene_id: str, beat_num: int):
     loaded_styles = _load_styles()
     style_data = loaded_styles.get(beat_style, {})
     agent_sections = style_data.get("agent_sections", {})
+    
+    existing_draft = ""
+    if action in ("expand", "shorten"):
+        existing_draft = storage.get_beat_draft(scene_id, beat_num, "narration") or ""
     
     narration_agent = NarrationAgent()
     
@@ -678,7 +736,9 @@ async def generate_narration_draft(scene_id: str, beat_num: int):
         None,
         lambda: narration_agent.generate(
             context, beat_desc, guidelines,
-            prose_weight=prose_weight
+            prose_weight=prose_weight,
+            action=action,
+            existing_draft=existing_draft,
         )
     )
     storage.save_beat_draft(scene_id, beat_num, "narration", narration_draft)
@@ -691,7 +751,9 @@ async def generate_narration_draft(scene_id: str, beat_num: int):
         system_prompt=narration_agent.system_prompt,
         user_prompt=narration_agent._build_prompt(
             context, beat_desc, guidelines,
-            prose_weight=prose_weight
+            prose_weight=prose_weight,
+            action=action,
+            existing_draft=existing_draft,
         ),
         output=narration_draft,
     ))
@@ -699,7 +761,7 @@ async def generate_narration_draft(scene_id: str, beat_num: int):
     return {"narration_draft": narration_draft}
 
 @router.post("/{scene_id:path}/beats/{beat_num}/draft/dialogue")
-async def generate_dialogue_draft(scene_id: str, beat_num: int):
+async def generate_dialogue_draft(scene_id: str, beat_num: int, action: str = Query("regenerate")):
     scene = storage.get_scene(scene_id)
     if not scene:
         raise HTTPException(status_code=404, detail="Scene not found")
@@ -720,12 +782,21 @@ async def generate_dialogue_draft(scene_id: str, beat_num: int):
     # Load the narration draft currently saved on disk (includes any manual edits)
     narration_draft = storage.get_beat_draft(scene_id, beat_num, "narration") or ""
     
+    existing_draft = ""
+    if action in ("expand", "shorten"):
+        existing_draft = storage.get_beat_draft(scene_id, beat_num, "dialogue") or ""
+    
     dialogue_agent = DialogueAgent()
 
     guidelines = agent_sections.get("dialogue", "")
     dialogue_draft = await asyncio.get_event_loop().run_in_executor(
         None,
-        lambda: dialogue_agent.generate(context, event, guidelines, narration_draft=narration_draft)
+        lambda: dialogue_agent.generate(
+            context, event, guidelines,
+            narration_draft=narration_draft,
+            action=action,
+            existing_draft=existing_draft,
+        )
     )
     storage.save_beat_draft(scene_id, beat_num, "dialogue", dialogue_draft)
 
@@ -735,7 +806,12 @@ async def generate_dialogue_draft(scene_id: str, beat_num: int):
         beat_number=beat_num,
         agent_name="DialogueAgent",
         system_prompt=dialogue_agent.system_prompt,
-        user_prompt=dialogue_agent._build_prompt(context, event, guidelines, narration_draft=narration_draft),
+        user_prompt=dialogue_agent._build_prompt(
+            context, event, guidelines,
+            narration_draft=narration_draft,
+            action=action,
+            existing_draft=existing_draft,
+        ),
         output=dialogue_draft,
     ))
 
@@ -877,7 +953,7 @@ def decompose_scene(scene_id: str):
         beat_number=0,
         agent_name="DecomposerAgent",
         system_prompt=config.SYSTEM_PROMPTS.get("decomposer", ""),
-        user_prompt=scene.scene_description,
+        user_prompt=decomposer.last_user_prompt,
         output=json.dumps(decomposed_events, indent=2),
     ))
     return scene
@@ -918,6 +994,19 @@ def update_scene_beats(scene_id: str, payload: BeatsUpdate):
     scene.scene_events = [beat.model_dump() for beat in payload.beats]
     storage.save_scene(scene)
     return scene
+
+
+@router.post("/{scene_id:path}/beats/reorder")
+def reorder_scene_beats(scene_id: str, payload: BeatsReorderPayload):
+    scene = storage.get_scene(scene_id)
+    if not scene:
+        raise HTTPException(status_code=404, detail="Scene not found")
+        
+    try:
+        updated_scene = storage.reorder_scene_beats(scene_id, payload.old_indices)
+        return updated_scene
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/{scene_id:path}/logs")
@@ -1074,7 +1163,7 @@ def scene_assist(scene_id: str, payload: SceneAssistRequest):
         raise HTTPException(status_code=404, detail="Scene not found")
 
     # Parse act/scene numbers from scene_id (e.g. chapter-1_act-1_scene-3)
-    parts = scene_id.split("_")
+    parts = scene_id.rsplit("_", 2)
     act_num = parts[1].replace("act-", "") if len(parts) > 1 else "?"
     scene_num = parts[2].replace("scene-", "") if len(parts) > 2 else "?"
 

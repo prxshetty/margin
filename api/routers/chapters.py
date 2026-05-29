@@ -1,8 +1,5 @@
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import PlainTextResponse
 from typing import List
-import re
-from pathlib import Path
 
 from api.services.file_storage import storage
 from api.models.domain import Chapter
@@ -19,12 +16,8 @@ def get_chapters():
 
 @router.post("/", response_model=ChapterResponse)
 def create_chapter(chapter_in: ChapterCreate):
-    # generate slug
-    slug = re.sub(r"[^a-z0-9_]", "_", chapter_in.title.lower())
-    slug = re.sub(r"_+", "_", slug).strip("_")
-    
     chapter = Chapter(
-        id=slug,
+        id=storage._next_chapter_id(),
         title=chapter_in.title,
         raw_outline=chapter_in.raw_outline
     )
