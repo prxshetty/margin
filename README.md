@@ -67,17 +67,18 @@ slm-writing-engine/
 │   ├── scene_agent.py         # Generates setting descriptions
 │   ├── narration_agent.py     # Generates narration prose (per-beat, optional)
 │   ├── dialogue_agent.py      # Generates character dialogue (per-beat, optional)
-│   ├── writer_agent.py        # Merges sub-agent drafts into polished beats
-│   └── transition_agent.py    # Generates act bridges
+│   └── writer_agent.py        # Merges sub-agent drafts into polished beats
+├── api/                       # FastAPI Web Backend
+│   ├── routers/               # API endpoints (scenes, blueprint, assist, settings, etc.)
+│   ├── services/              # File system database storage & operations
+│   └── main.py                # FastAPI entry point
 ├── schema/                    # Schema definitions (scene.yaml, act.yaml, agents.yaml)
 ├── prompts/                   # Agent prompt templates
 │   ├── blueprint_base.txt
 │   ├── scene.txt
 │   ├── narration.txt
 │   ├── dialogue.txt
-│   ├── writer.txt
-
-│   └── transition.txt
+│   └── writer.txt
 ├── inputs/
 │   ├── characters/            # Character profiles (YAML)
 │   ├── chapters/              # Chapter outlines (Markdown)
@@ -88,7 +89,6 @@ slm-writing-engine/
 ├── .env.example               # Documented configuration template
 ├── config.py                  # Configuration & prompt building
 ├── models.py                  # Data classes
-├── orchestrator.py            # Agent coordination
 ├── style_loader.py            # Style parsing and resolution
 ├── schema_loader.py           # Schema loading
 ├── state_manager.py           # Character/story state
@@ -102,7 +102,7 @@ Styles are the system's primary mechanism for controlling voice, pacing, and age
 ### How styles work
 
 1. The blueprint agent tags each scene beat with a style name (e.g., `superman`, `general`)
-2. The orchestrator loads the matching style file
+2. The generation system loads the matching style file
 3. Each `##` section in the style file triggers a sub-agent:
    - `## Narration Guidelines` → narration agent runs
    - `## Dialogue Guidelines` → dialogue agent runs
@@ -282,23 +282,11 @@ For debugging. Each scene generates:
 
 Final approved content — one file per act.
 
-## CLI Interaction
-
-| Prompt | Response | Action |
-|--------|----------|--------|
-| `Approve blueprint? (y/n)` | `y` | Continue to scene generation |
-| | `n` | Enter feedback, blueprint regenerates |
-| `Proceed to scene-by-scene generation? (y)` | `y` | Start generating scenes |
-| `Approve scene? (y/n)` | `y` | Save draft, move to next scene |
-| | `n` | Enter feedback, scene regenerates |
-| `Approve Act and save? (y/n)` | `y` | Save to results/, update state |
-| | `n` | Skip act |
-
 ## Customizing Agents
 
 1. Create `prompts/your_agent.txt` with structural instructions
 2. Create `agents/your_agent.py` following the `DialogueAgent` / `NarrationAgent` pattern
-3. Add your agent to `orchestrator.py` (`__init__` and per-beat routing)
+3. Integrate your agent's execution within the generation pipeline
 4. Add `## Your Agent Guidelines` to any style file to trigger it per-beat
 5. Add config + token limit in `config.py` and `.env.example`
 
