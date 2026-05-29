@@ -15,4 +15,4 @@ fields:
   scene_description:
     type: str
     required: true
-    description: "What happens in this scene — narrative purpose and events in 2-4 concise sentences. Must account for how characters arrived here from the previous scene (spatial movement, time passage). Consecutive scenes must form a logical sequence: no teleportation, no unexplained gaps."
+    description: "Cover ALL key events and plot developments from the chapter outline that happen in this scene. Focus on what characters DO and what dramatic beats occur. Also note how this scene connects to the previous one."
