@@ -2,6 +2,7 @@ import json
 import re
 import uuid
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -328,21 +329,56 @@ def edit(payload: AssistEditRequest):
     return {"type": "applied", "message": "Text updated.", "content": rewritten, "strategy": "text"}
 
 
-DEFAULT_SIMPLE_SYSTEM_PROMPT = (
-    "You are a writing assistant. Help the user improve their writing. "
-    "When asked to rewrite or generate text, output ONLY the new text "
-    "without explanations, commentary, or markdown formatting around it."
-)
+def _load_simple_prompt(filename: str) -> str:
+    path = Path(__file__).parent.parent / "prompts" / filename
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except Exception:
+        return ""
 
 
 class SimpleAssistRequest(BaseModel):
     content: str = ""
     message: str
-    system_prompt: Optional[str] = None
+    mode: str = "chat"
     history: List[Dict[str, Any]] = Field(default_factory=list)
     selected_text: Optional[str] = None
     text_before: Optional[str] = None
     text_after: Optional[str] = None
+    ref_files: Optional[List[Dict[str, Any]]] = None
+
+
+@router.get("/simple/logs")
+def get_simple_logs():
+    return storage.get_simple_ai_logs()
+
+
+def _log_simple_assist(
+    mode: str,
+    system_prompt: str,
+    user_prompt: str,
+    response: str,
+    instruction: str,
+    selected_text: Optional[str] = None,
+    text_before: Optional[str] = None,
+    text_after: Optional[str] = None,
+    ref_files: Optional[List[Dict[str, Any]]] = None
+) -> None:
+    log_entry = {
+        "id": f"simple_{uuid.uuid4().hex}",
+        "timestamp": datetime.utcnow().isoformat(),
+        "mode": mode,
+        "system_prompt": system_prompt,
+        "user_prompt": user_prompt,
+        "output": response,
+        "instruction": instruction,
+        "selected_text": selected_text,
+        "text_before": text_before,
+        "text_after": text_after,
+        "ref_files": ref_files,
+        "success": True,
+    }
+    storage.save_simple_ai_log(log_entry)
 
 
 @router.post("/simple")
@@ -351,28 +387,49 @@ def simple_assist(payload: SimpleAssistRequest):
     if not message:
         raise HTTPException(status_code=400, detail="Missing message")
 
-    system_prompt = payload.system_prompt or DEFAULT_SIMPLE_SYSTEM_PROMPT
-
     # Replace mode — rewrite selected text
     if payload.selected_text:
-        rewritten = RewriteAgent().generate(
+        agent = RewriteAgent()
+        rewritten = agent.generate(
             selected_text=payload.selected_text,
             feedback=message,
             context_text=payload.content or "",
+        )
+        _log_simple_assist(
+            mode="replace",
+            system_prompt=agent.system_prompt,
+            user_prompt=f"REWRITE INSTRUCTIONS:\nFeedback: {message}\n\nFULL SCENE CONTEXT:\n{payload.content or ''}\n\nTEXT TO REWRITE:\n{payload.selected_text}",
+            response=rewritten,
+            instruction=message,
+            selected_text=payload.selected_text,
+            ref_files=payload.ref_files,
         )
         return {"type": "applied", "output": rewritten}
 
     # Insert mode — generate content between text_before and text_after
     if payload.text_before is not None or payload.text_after is not None:
-        inserted = RewriteAgent().generate_insert(
+        agent = RewriteAgent()
+        inserted = agent.generate_insert(
             text_before=payload.text_before or "",
             text_after=payload.text_after or "",
             block_type="paragraph",
             feedback=message,
+            context_text=payload.content or "",
+        )
+        _log_simple_assist(
+            mode="insert",
+            system_prompt=_load_simple_prompt("simple-insert.txt"),
+            user_prompt=f"INSTRUCTION: {message}\n\nBLOCK TYPE AT CURSOR: paragraph\n\nCONTEXT BEFORE:\n{payload.text_before or ''}\n\nCONTEXT AFTER:\n{payload.text_after or ''}",
+            response=inserted,
+            instruction=message,
+            text_before=payload.text_before,
+            text_after=payload.text_after,
+            ref_files=payload.ref_files,
         )
         return {"type": "applied", "output": inserted}
 
     # Chat mode — LLM with full content as context
+    system_prompt = _load_simple_prompt("simple-chat.txt")
     client = llm.LLMClient()
     full_system = system_prompt
     if payload.content:
@@ -391,6 +448,14 @@ def simple_assist(payload: SimpleAssistRequest):
         user_prompt=user_prompt,
         temperature=0.7,
         max_tokens=config.AGENT_CONFIG.get("writer", {}).get("max_tokens", 500),
+    )
+    _log_simple_assist(
+        mode="chat",
+        system_prompt=full_system,
+        user_prompt=user_prompt,
+        response=result,
+        instruction=message,
+        ref_files=payload.ref_files,
     )
 
     return {"type": "chat", "output": result}

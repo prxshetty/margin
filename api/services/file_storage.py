@@ -190,6 +190,20 @@ class FileStorageService:
             
         return settings
 
+    def list_input_files(self) -> List[Dict[str, str]]:
+        files = []
+        for f in self.inputs_dir.rglob("*.md"):
+            rel_path = str(f.relative_to(self.inputs_dir))
+            files.append({"name": f.name, "path": rel_path})
+        files.sort(key=lambda f: f["path"])
+        return files
+
+    def read_input_file(self, path: str) -> str:
+        full_path = self.inputs_dir / path
+        if not full_path.exists() or not full_path.is_file():
+            raise FileNotFoundError(f"File not found: {path}")
+        return full_path.read_text(encoding="utf-8")
+
     def get_directory_status(self) -> Dict[str, Any]:
         is_linked = self.inputs_dir != (self.base_dir / "inputs")
         
@@ -815,6 +829,34 @@ class FileStorageService:
                 return json.load(f)
         except Exception:
             return []
+
+    def get_simple_ai_logs(self) -> list:
+        logs_path = self.outputs_dir / "simple_ai_logs.json"
+        if not logs_path.exists():
+            return []
+        try:
+            with open(logs_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return []
+
+    def save_simple_ai_log(self, log_entry: dict) -> None:
+        logs_path = self.outputs_dir / "simple_ai_logs.json"
+        logs = []
+        if logs_path.exists():
+            try:
+                with open(logs_path, "r", encoding="utf-8") as f:
+                    logs = json.load(f)
+            except Exception:
+                logs = []
+        logs.append(log_entry)
+        logs = logs[-100:]  # Keep last 100 simple assist logs for debugging
+        self.outputs_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            with open(logs_path, "w", encoding="utf-8") as f:
+                json.dump(logs, f, indent=2)
+        except Exception:
+            pass
 
     # --- Individual Beat Access ---
     def get_beat(self, scene_id: str, beat_num: int) -> Optional[Dict]:

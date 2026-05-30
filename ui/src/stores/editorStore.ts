@@ -1,6 +1,14 @@
 import { create } from 'zustand'
 import { Editor } from '@tiptap/react'
 
+export interface FileEntry {
+  name: string
+  path: string
+  content: string
+  tagged: boolean
+  originalContent: string
+}
+
 interface EditorState {
   content: string
   setContent: (content: string) => void
@@ -24,9 +32,20 @@ interface EditorState {
   setAIAssistPreload: (preload: { text: string; range: { from: number; to: number } } | null) => void
   activeContextPath: string | null
   setActiveContextPath: (path: string | null) => void
-  // Signal to force Workshop to reload the current document from disk
   reloadDocSignal: number
   triggerReload: () => void
+  workspaceDir: string | null
+  setWorkspaceDir: (dir: string | null) => void
+  openedFiles: FileEntry[]
+  addFile: (file: FileEntry) => void
+  removeFile: (path: string) => void
+  toggleFileTag: (path: string) => void
+  loadFileContent: (path: string, content: string) => void
+  clearFiles: () => void
+  currentFilePath: string | null
+  setCurrentFilePath: (path: string | null) => void
+  updateFileContent: (path: string, content: string) => void
+  markFileClean: (path: string) => void
 }
 
 export const useEditorStore = create<EditorState>((set) => ({
@@ -54,4 +73,44 @@ export const useEditorStore = create<EditorState>((set) => ({
   setActiveContextPath: (activeContextPath) => set({ activeContextPath }),
   reloadDocSignal: 0,
   triggerReload: () => set((state) => ({ reloadDocSignal: state.reloadDocSignal + 1 })),
+  workspaceDir: null,
+  setWorkspaceDir: (workspaceDir) => set({ workspaceDir }),
+  openedFiles: [],
+  addFile: (file) =>
+    set((state) => ({
+      openedFiles: state.openedFiles.some((f) => f.path === file.path)
+        ? state.openedFiles
+        : [...state.openedFiles, { ...file, originalContent: file.content }],
+    })),
+  removeFile: (path) =>
+    set((state) => ({
+      openedFiles: state.openedFiles.filter((f) => f.path !== path),
+    })),
+  toggleFileTag: (path) =>
+    set((state) => ({
+      openedFiles: state.openedFiles.map((f) =>
+        f.path === path ? { ...f, tagged: !f.tagged } : f
+      ),
+    })),
+  loadFileContent: (path, content) =>
+    set((state) => ({
+      openedFiles: state.openedFiles.map((f) =>
+        f.path === path ? { ...f, content, originalContent: content } : f
+      ),
+    })),
+  clearFiles: () => set({ openedFiles: [], workspaceDir: null, currentFilePath: null }),
+  currentFilePath: null,
+  setCurrentFilePath: (currentFilePath) => set({ currentFilePath }),
+  updateFileContent: (path, content) =>
+    set((state) => ({
+      openedFiles: state.openedFiles.map((f) =>
+        f.path === path ? { ...f, content } : f
+      ),
+    })),
+  markFileClean: (path) =>
+    set((state) => ({
+      openedFiles: state.openedFiles.map((f) =>
+        f.path === path ? { ...f, originalContent: f.content } : f
+      ),
+    })),
 }))
