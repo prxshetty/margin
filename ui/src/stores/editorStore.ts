@@ -5,7 +5,6 @@ export interface FileEntry {
   name: string
   path: string
   content: string
-  tagged: boolean
   originalContent: string
 }
 
@@ -39,7 +38,6 @@ interface EditorState {
   openedFiles: FileEntry[]
   addFile: (file: FileEntry) => void
   removeFile: (path: string) => void
-  toggleFileTag: (path: string) => void
   loadFileContent: (path: string, content: string) => void
   clearFiles: () => void
   currentFilePath: string | null
@@ -85,12 +83,6 @@ export const useEditorStore = create<EditorState>((set) => ({
   removeFile: (path) =>
     set((state) => ({
       openedFiles: state.openedFiles.filter((f) => f.path !== path),
-    })),
-  toggleFileTag: (path) =>
-    set((state) => ({
-      openedFiles: state.openedFiles.map((f) =>
-        f.path === path ? { ...f, tagged: !f.tagged } : f
-      ),
     })),
   loadFileContent: (path, content) =>
     set((state) => ({

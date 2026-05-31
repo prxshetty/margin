@@ -858,6 +858,15 @@ class FileStorageService:
         except Exception:
             pass
 
+    def clear_simple_ai_logs(self) -> None:
+        logs_path = self.outputs_dir / "simple_ai_logs.json"
+        self.outputs_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            with open(logs_path, "w", encoding="utf-8") as f:
+                json.dump([], f)
+        except Exception:
+            pass
+
     # --- Individual Beat Access ---
     def get_beat(self, scene_id: str, beat_num: int) -> Optional[Dict]:
         scene = self.get_scene(scene_id)

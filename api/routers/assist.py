@@ -353,6 +353,12 @@ def get_simple_logs():
     return storage.get_simple_ai_logs()
 
 
+@router.delete("/simple/logs")
+def clear_simple_logs():
+    storage.clear_simple_ai_logs()
+    return {"status": "ok"}
+
+
 def _log_simple_assist(
     mode: str,
     system_prompt: str,

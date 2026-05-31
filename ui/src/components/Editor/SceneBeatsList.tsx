@@ -460,7 +460,13 @@ export function SceneBeatsList() {
       {!beatListCollapsed && (
         <div className="w-80 flex flex-col gap-3 shrink-0 bg-slate-50 border border-slate-200 p-3 rounded-xl">
           <div className="flex justify-between items-center px-1 mb-1">
-            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Dramatic Beats</span>
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">
+              Dramatic Beats {(generateAllProgress || mergeAllProgress) && (
+                <span className="text-[9px] font-semibold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded animate-pulse normal-case font-mono ml-1">
+                  {generateAllProgress || mergeAllProgress}
+                </span>
+              )}
+            </span>
             <div className="flex items-center gap-0.5">
               <button
                 onClick={handleAddBeat}

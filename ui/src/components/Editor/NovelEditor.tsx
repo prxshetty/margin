@@ -93,7 +93,7 @@ export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: bool
   }, [content, editor])
 
   return (
-    <div className="bg-white relative">
+    <div className="bg-[var(--bg)] relative">
       <EditorContent editor={editor} />
       {showInlinePopup && <InlineSelectionPopup localEditor={editor} />}
     </div>
