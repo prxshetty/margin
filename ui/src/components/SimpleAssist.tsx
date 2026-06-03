@@ -125,7 +125,7 @@ export function SimpleAssist() {
 
   const [showFileDropdown, setShowFileDropdown] = useState(false)
   const [fileQuery, setFileQuery] = useState('')
-
+  const [highlightedIndex, setHighlightedIndex] = useState(0)
   const inputRef = useRef<HTMLDivElement>(null)
   const outputRef = useRef<HTMLDivElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -224,6 +224,7 @@ export function SimpleAssist() {
     const query = spaceIndex === -1 ? afterAt : afterAt.slice(0, spaceIndex)
 
     setFileQuery(query)
+    setHighlightedIndex(0)
     setShowFileDropdown(true)
   }
 
@@ -392,11 +393,28 @@ export function SimpleAssist() {
     }
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Backspace' && !inputRef.current?.textContent?.trim() && hasSelection && editor) {
       e.preventDefault()
       editor.commands.setTextSelection(editor.state.selection.to)
       return
+    }
+    if (showFileDropdown && filteredFiles.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setHighlightedIndex((i) => Math.min(i + 1, filteredFiles.length - 1))
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setHighlightedIndex((i) => Math.max(i - 1, 0))
+        return
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        handleSelectFile(filteredFiles[highlightedIndex])
+        return
+      }
     }
     if (e.key === 'Escape' && showFileDropdown) {
       e.preventDefault()
@@ -408,7 +426,7 @@ export function SimpleAssist() {
       document.execCommand('insertText', false, '\n')
     }
   }
-
+  
   const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
     e.preventDefault()
     const text = e.clipboardData.getData('text/plain')
@@ -481,11 +499,16 @@ export function SimpleAssist() {
             </div>
           ) : (
             <div className="max-h-[200px] overflow-y-auto">
-              {filteredFiles.map((file) => (
+              {filteredFiles.map((file, index) => (
                 <button
                   key={file.path}
                   onClick={() => handleSelectFile(file)}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-[var(--bg-hover)] transition-colors cursor-pointer"
+                  onMouseEnter={() => setHighlightedIndex(index)}
+                  className={`w-full flex items-center gap-2 px-3 py-2 text-left transition-colors cursor-pointer ${
+                    index === highlightedIndex
+                      ? 'bg-[var(--bg-hover)]'
+                      : 'hover:bg-[var(--bg-hover)]'
+                  }`}
                 >
                   <span className="text-xs text-[var(--text)] font-medium font-sans truncate">
                     {file.name}
