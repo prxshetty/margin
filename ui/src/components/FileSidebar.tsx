@@ -1,14 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FolderOpen, FileText, Loader, Check } from 'lucide-react'
+import { FolderOpen, FileText, Loader, Check, Plus, Trash2 } from 'lucide-react'
 import { useEditorStore, type FileEntry } from '../stores/editorStore'
 import { API_BASE } from '../lib/api'
 
 function FileIcon({ className = '' }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M3 2.5A1.5 1.5 0 0 1 4.5 1h5.086a1 1 0 0 1 .707.293l2.914 2.914A1 1 0 0 1 13.5 5v8A1.5 1.5 0 0 1 12 14.5H4.5A1.5 1.5 0 0 1 3 13V2.5Z" fill="currentColor" fillOpacity=".15" stroke="currentColor" strokeWidth="1" strokeLinejoin="round"/>
-      <path d="M9.5 1v3a1 1 0 0 0 1 1h3" stroke="currentColor" strokeWidth="1" strokeLinejoin="round"/>
+      <path d="M3 2.5A1.5 1.5 0 0 1 4.5 1h5.086a1 1 0 0 1 .707.293l2.914 2.914A1 1 0 0 1 13.5 5v8A1.5 1.5 0 0 1 12 14.5H4.5A1.5 1.5 0 0 1 3 13V2.5Z" fill="currentColor" fillOpacity=".15" stroke="currentColor" strokeWidth="1" strokeLinejoin="round" />
+      <path d="M9.5 1v3a1 1 0 0 0 1 1h3" stroke="currentColor" strokeWidth="1" strokeLinejoin="round" />
     </svg>
   )
 }
@@ -43,6 +43,11 @@ export function FileSidebar({
   const dropdownRef = useRef<HTMLDivElement>(null)
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('simple-dark-mode') === 'true')
 
+  const setCurrentFilePath = useEditorStore((s) => s.setCurrentFilePath)
+  const updateFileContent = useEditorStore((s) => s.updateFileContent)
+  const removeFile = useEditorStore((s) => s.removeFile)
+  const currentFilePath = useEditorStore((s) => s.currentFilePath)
+
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode)
     localStorage.setItem('simple-dark-mode', String(darkMode))
@@ -71,33 +76,57 @@ export function FileSidebar({
     }
     initialLoadDone.current = true
     setLoading(true)
-    fetch(`${API_BASE}/api/workspace/inputs/files`)
-      .then((res) => {
+
+    const fetchWorkspaceFiles = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/workspace/inputs/files`)
         if (!res.ok) throw new Error()
-        return res.json()
-      })
-      .then(async (files: { name: string; path: string }[]) => {
+        const files = await res.json()
         if (files.length === 0) return
         setWorkspaceDir('inputs')
         for (const file of files) {
           try {
-            const res = await fetch(`${API_BASE}/api/workspace/inputs/files/${encodeURIComponent(file.path)}`)
-            if (!res.ok) continue
-            const data = await res.json()
+            const fileRes = await fetch(`${API_BASE}/api/workspace/inputs/files/${encodeURIComponent(file.path)}`)
+            if (!fileRes.ok) continue
+            const data = await fileRes.json()
             addFile({ name: file.name, path: file.path, content: data.content, originalContent: data.content })
           } catch {
             // skip
           }
         }
-      })
-      .catch(() => {
-        // backend unreachable — stay in empty state
-      })
+      } catch {
+        // skip
+      }
+    }
+
+    const fetchPrompts = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/assist/prompts`)
+        if (!res.ok) throw new Error()
+        const prompts = await res.json()
+        for (const p of prompts) {
+          try {
+            const promptRes = await fetch(`${API_BASE}/api/assist/prompts/${encodeURIComponent(p.path)}`)
+            if (!promptRes.ok) continue
+            const data = await promptRes.json()
+            addFile({
+              name: p.name,
+              path: `prompts/${p.path}`,
+              content: data.content,
+              originalContent: data.content
+            })
+          } catch {
+            // skip
+          }
+        }
+      } catch {
+        // skip
+      }
+    }
+
+    Promise.all([fetchWorkspaceFiles(), fetchPrompts()])
       .finally(() => setLoading(false))
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const setCurrentFilePath = useEditorStore((s) => s.setCurrentFilePath)
-  const updateFileContent = useEditorStore((s) => s.updateFileContent)
 
   const handleFileClick = useCallback(async (path: string) => {
     if (onSaveCurrentFile) {
@@ -115,10 +144,62 @@ export function FileSidebar({
     }
   }, [openedFiles, setContent, setCurrentFilePath, updateFileContent, onSaveCurrentFile])
 
+  const handleCreateFile = useCallback(async (folder: string) => {
+    const defaultName = folder === 'chapters' ? 'new-chapter.md' : folder === 'characters' ? 'new-character.md' : 'new-style.md'
+    const raw = window.prompt(`New ${folder.slice(0, -1)} file name (will be saved to ${folder}/):`, defaultName)
+    if (!raw) return
+    const trimmed = raw.trim()
+    if (!trimmed) return
+
+    try {
+      const res = await fetch(`${API_BASE}/api/workspace/inputs/files`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folder, name: trimmed, content: '' })
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        window.alert(`Failed to create file: ${err.detail || res.statusText}`)
+        return
+      }
+      const data = await res.json()
+      addFile({ name: data.name, path: data.path, content: data.content, originalContent: data.content })
+      setContent(data.content)
+      setCurrentFilePath(data.path)
+    } catch (err) {
+      window.alert(`Failed to create file: ${err instanceof Error ? err.message : 'Unknown error'}`)
+    }
+  }, [addFile, setContent, setCurrentFilePath])
+
+  const handleDeleteFile = useCallback(async (path: string) => {
+    const isActive = currentFilePath === path
+    const confirmed = window.confirm(`Delete "${path}"? This cannot be undone.`)
+    if (!confirmed) return
+
+    try {
+      const res = await fetch(`${API_BASE}/api/workspace/inputs/files/${encodeURIComponent(path)}`, {
+        method: 'DELETE'
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        window.alert(`Failed to delete file: ${err.detail || res.statusText}`)
+        return
+      }
+      removeFile(path)
+      if (isActive) {
+        setContent('')
+        setCurrentFilePath(null)
+      }
+    } catch (err) {
+      window.alert(`Failed to delete file: ${err instanceof Error ? err.message : 'Unknown error'}`)
+    }
+  }, [currentFilePath, removeFile, setContent, setCurrentFilePath])
+
   const rootFiles = openedFiles.filter((f) => !f.path.includes('/'))
   const charFiles = openedFiles.filter((f) => f.path.startsWith('characters/'))
   const styleFiles = openedFiles.filter((f) => f.path.startsWith('styles/'))
   const chapterFiles = openedFiles.filter((f) => f.path.startsWith('chapters/'))
+  const promptFiles = openedFiles.filter((f) => f.path.startsWith('prompts/'))
 
   return (
     <div ref={containerRef} className="flex flex-col gap-3 w-full h-full overflow-y-auto select-none">
@@ -159,7 +240,7 @@ export function FileSidebar({
               <line x1="1" y1="12" x2="3" y2="12" />
               <line x1="21" y1="12" x2="23" y2="12" />
               <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
-              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+              <line x1="18.36" y1="5.64" x2="19.78" y2="5.64" />
             </svg>
           ) : (
             <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round">
@@ -170,9 +251,8 @@ export function FileSidebar({
         <div className="relative shrink-0" ref={dropdownRef}>
           <button
             onClick={() => setShowLayoutDropdown(!showLayoutDropdown)}
-            className={`flex items-center justify-center w-7 h-7 text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 bg-[var(--bg-icon)]/20 rounded-[6px] transition-all cursor-pointer active:scale-[0.95] ${
-              showLayoutDropdown ? 'bg-[var(--border-sidebar)]/60 text-[var(--text-heading)]' : ''
-            }`}
+            className={`flex items-center justify-center w-7 h-7 text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 bg-[var(--bg-icon)]/20 rounded-[6px] transition-all cursor-pointer active:scale-[0.95] ${showLayoutDropdown ? 'bg-[var(--border-sidebar)]/60 text-[var(--text-heading)]' : ''
+              }`}
             title="Layout Options"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round">
@@ -248,34 +328,43 @@ export function FileSidebar({
           {rootFiles.length > 0 && (
             <div className="flex flex-col gap-0.5">
               {rootFiles.map((file) => (
-                <FileRow key={file.path} file={file} onSelect={handleFileClick} />
+                <FileRow key={file.path} file={file} onSelect={handleFileClick} onDelete={handleDeleteFile} />
               ))}
             </div>
           )}
 
           {chapterFiles.length > 0 && (
             <div className="flex flex-col gap-0.5 animate-fade-in">
-              <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-[var(--text-secondary)]/70 mb-1.5 px-2 select-none">chapters/</p>
+              <SectionHeader label="chapters/" onAdd={() => handleCreateFile('chapters')} />
               {chapterFiles.map((file) => (
-                <FileRow key={file.path} file={file} onSelect={handleFileClick} />
+                <FileRow key={file.path} file={file} onSelect={handleFileClick} onDelete={handleDeleteFile} />
               ))}
             </div>
           )}
 
           {charFiles.length > 0 && (
             <div className="flex flex-col gap-0.5 animate-fade-in">
-              <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-[var(--text-secondary)]/70 mb-1.5 px-2 select-none">characters/</p>
+              <SectionHeader label="characters/" onAdd={() => handleCreateFile('characters')} />
               {charFiles.map((file) => (
-                <FileRow key={file.path} file={file} onSelect={handleFileClick} />
+                <FileRow key={file.path} file={file} onSelect={handleFileClick} onDelete={handleDeleteFile} />
               ))}
             </div>
           )}
 
           {styleFiles.length > 0 && (
             <div className="flex flex-col gap-0.5 animate-fade-in">
-              <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-[var(--text-secondary)]/70 mb-1.5 px-2 select-none">styles/</p>
+              <SectionHeader label="styles/" onAdd={() => handleCreateFile('styles')} />
               {styleFiles.map((file) => (
-                <FileRow key={file.path} file={file} onSelect={handleFileClick} />
+                <FileRow key={file.path} file={file} onSelect={handleFileClick} onDelete={handleDeleteFile} />
+              ))}
+            </div>
+          )}
+
+          {promptFiles.length > 0 && (
+            <div className="flex flex-col gap-0.5 animate-fade-in">
+              <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-[var(--text-secondary)]/70 mb-1.5 px-2 select-none">prompts/</p>
+              {promptFiles.map((file) => (
+                <FileRow key={file.path} file={file} onSelect={handleFileClick} onDelete={handleDeleteFile} />
               ))}
             </div>
           )}
@@ -285,12 +374,29 @@ export function FileSidebar({
   )
 }
 
+function SectionHeader({ label, onAdd }: { label: string; onAdd: () => void }) {
+  return (
+    <div className="group flex items-center justify-between mb-1.5 px-2 select-none">
+      <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-[var(--text-secondary)]/70">{label}</p>
+      <button
+        onClick={onAdd}
+        title={`New ${label.replace('/', '')} file`}
+        className="flex items-center justify-center w-4 h-4 text-[var(--text-secondary)]/60 hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 rounded-[4px] transition-all cursor-pointer active:scale-[0.9]"
+      >
+        <Plus className="w-3 h-3" strokeWidth={2.25} />
+      </button>
+    </div>
+  )
+}
+
 function FileRow({
   file,
   onSelect,
+  onDelete,
 }: {
   file: FileEntry
   onSelect: (path: string) => void
+  onDelete?: (path: string) => void
 }) {
   const activePath = useEditorStore((s) => {
     const f = s.openedFiles.find((f) => f.content === s.content)
@@ -300,11 +406,10 @@ function FileRow({
 
   return (
     <div
-      className={`flex items-center gap-1 px-2.5 py-1 rounded-[6px] text-xs transition-all ${
-        isActive
-          ? 'bg-[var(--border-sidebar)]/40 text-[var(--text)]'
-          : 'text-[var(--text-secondary)] hover:bg-[var(--border-sidebar)]/30 hover:text-[var(--text)]'
-      }`}
+      className={`group flex items-center gap-1 px-2.5 py-1 rounded-[6px] text-xs transition-colors duration-150 ${isActive
+        ? 'bg-[var(--border-sidebar)]/40 text-[var(--text)]'
+        : 'text-[var(--text-secondary)] hover:bg-[var(--border-sidebar)]/30 hover:text-[var(--text)]'
+        }`}
     >
       <button
         onClick={() => onSelect(file.path)}
@@ -314,6 +419,18 @@ function FileRow({
         <FileIcon className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-[var(--text)]' : 'text-[var(--text-secondary)]/60'}`} />
         <span className="truncate font-sans font-medium">{file.name}</span>
       </button>
+      {onDelete && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            onDelete(file.path)
+          }}
+          title={`Delete ${file.name}`}
+          className="flex items-center justify-center w-5 h-5 text-[var(--text-secondary)]/60 hover:text-red-500 hover:bg-[var(--border-sidebar)]/60 rounded-[4px] transition-all cursor-pointer active:scale-[0.9] opacity-0 group-hover:opacity-100"
+        >
+          <Trash2 className="w-3 h-3" strokeWidth={2} />
+        </button>
+      )}
     </div>
   )
 }

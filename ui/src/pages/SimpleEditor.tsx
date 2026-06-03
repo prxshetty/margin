@@ -3,6 +3,7 @@ import { NovelEditor } from '../components/Editor/NovelEditor'
 import { SimpleAssist } from '../components/SimpleAssist'
 import { FileSidebar } from '../components/FileSidebar'
 import { useEditorStore } from '../stores/editorStore'
+import { API_BASE } from '../lib/api'
 
 interface FileSystemFileHandle {
   createWritable: () => Promise<FileSystemWritableFileStream>
@@ -95,6 +96,26 @@ export default function SimpleEditor() {
   }
 
   const handleSave = useCallback(async () => {
+    if (!currentFilePath) return
+
+    if (currentFilePath.startsWith('prompts/')) {
+      try {
+        const fileContent = useEditorStore.getState().content
+        const filename = currentFilePath.replace('prompts/', '')
+        const res = await fetch(`${API_BASE}/api/assist/prompts/${encodeURIComponent(filename)}`, {
+          method: `POST`,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: fileContent })
+        })
+        if (res.ok) {
+          markFileClean(currentFilePath)
+        }
+      } catch (err) {
+        console.error("Failed to save prompt file:", err)
+      }
+      return
+    }
+
     if (!dirHandleRef.current || !currentFilePath) return
     try {
       const fileContent = useEditorStore.getState().content
@@ -158,14 +179,14 @@ export default function SimpleEditor() {
   return (
     <div className="h-screen flex bg-[var(--bg-editor)] p-2 overflow-hidden select-none">
       {/* Left Sidebar (FileSidebar) with Slide/Fade Transition */}
-      <div 
-        className="shrink-0 overflow-hidden flex" 
-        style={{ 
+      <div
+        className="shrink-0 overflow-hidden flex"
+        style={{
           width: filesPanelOpen ? filesPanelWidth + 8 : 0,
           opacity: filesPanelOpen ? 1 : 0,
           transform: filesPanelOpen ? 'translateX(0)' : 'translateX(-16px)',
           marginRight: filesPanelOpen ? '8px' : '0px',
-          transition: isResizing ? 'none' : 'all 350ms cubic-bezier(0.16, 1, 0.3, 1)',
+          transition: isResizing ? 'none' : 'width 350ms cubic-bezier(0.16, 1, 0.3, 1), transform 350ms cubic-bezier(0.16, 1, 0.3, 1), opacity 350ms cubic-bezier(0.16, 1, 0.3, 1), margin-right 350ms cubic-bezier(0.16, 1, 0.3, 1)',
         }}
       >
         <div style={{ width: filesPanelWidth }} className="h-full bg-transparent py-0 overflow-y-auto min-w-0">
@@ -213,14 +234,14 @@ export default function SimpleEditor() {
       </div>
 
       {/* Right Sidebar (SimpleAssist) with Slide/Fade Transition */}
-      <div 
-        className="shrink-0 overflow-hidden flex" 
-        style={{ 
+      <div
+        className="shrink-0 overflow-hidden flex"
+        style={{
           width: panelOpen ? panelWidth + 8 : 0,
           opacity: panelOpen ? 1 : 0,
           transform: panelOpen ? 'translateX(0)' : 'translateX(16px)',
           marginLeft: panelOpen ? '8px' : '0px',
-          transition: isResizing ? 'none' : 'all 350ms cubic-bezier(0.16, 1, 0.3, 1)',
+          transition: isResizing ? 'none' : 'width 350ms cubic-bezier(0.16, 1, 0.3, 1), transform 350ms cubic-bezier(0.16, 1, 0.3, 1), opacity 350ms cubic-bezier(0.16, 1, 0.3, 1), marginLeft 350ms cubic-bezier(0.16, 1, 0.3, 1)',
         }}
       >
         <div

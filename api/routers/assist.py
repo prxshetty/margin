@@ -465,3 +465,48 @@ def simple_assist(payload: SimpleAssistRequest):
     )
 
     return {"type": "chat", "output": result}
+
+
+class PromptSaveRequest(BaseModel):
+    content: str
+
+
+@router.get("/prompts")
+def list_prompts():
+    """Retrieve all available markdown prompt files from the prompts directory."""
+    prompts_dir = Path(__file__).parent.parent.parent / "prompts" / "simple"
+    if not prompts_dir.exists():
+        return []
+
+    files = []
+    for f in prompts_dir.glob("*.md"):
+        files.append({"name": f.name, "path": f.name})
+    return sorted(files, key=lambda x: x["name"])
+
+
+@router.get("/prompts/{filename}")
+def get_prompt_content(filename: str):
+    """Read the plain text content of a prompt file."""
+    filename = Path(filename).name
+    prompts_dir = Path(__file__).parent.parent.parent / "prompts" / "simple"
+    file_path = prompts_dir / filename
+
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Prompt file not found")
+
+    return {"content": file_path.read_text(encoding="utf-8")}
+
+
+@router.post("/prompts/{filename}")
+def save_prompt_content(filename: str, payload: PromptSaveRequest):
+    """Write the updated content to a prompt file."""
+    filename = Path(filename).name
+    prompts_dir = Path(__file__).parent.parent.parent / "prompts" / "simple"
+    file_path = prompts_dir / filename
+
+    try:
+        prompts_dir.mkdir(parents=True, exist_ok=True)
+        file_path.write_text(payload.content, encoding="utf-8")
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save prompt: {str(e)}")
