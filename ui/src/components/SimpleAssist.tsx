@@ -1,13 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { createPortal } from 'react-dom'
 import { RefreshCw } from 'lucide-react'
 import { useEditorStore } from '../stores/editorStore'
 import { API_BASE } from '../lib/api'
 import type { FileEntry } from '../stores/editorStore'
-
-const STORAGE_KEY = 'simple-assist-system-prompt'
-const DEFAULT_PROMPT = `You are a writing assistant. Help the user improve their writing.
-When asked to rewrite or generate text, output ONLY the new text without explanations or commentary.`
 
 interface SimpleLogEntry {
   id: string
@@ -120,8 +115,6 @@ export function SimpleAssist() {
   const openedFiles = useEditorStore((s) => s.openedFiles)
   const currentFilePath = useEditorStore((s) => s.currentFilePath)
   const updateFileContent = useEditorStore((s) => s.updateFileContent)
-
-  const [systemPrompt, setSystemPrompt] = useState(() => localStorage.getItem(STORAGE_KEY) || DEFAULT_PROMPT)
   const [isWorking, setIsWorking] = useState(false)
   const [instructionText, setInstructionText] = useState('')
   const [historyLogs, setHistoryLogs] = useState<SimpleLogEntry[]>([])
@@ -129,9 +122,6 @@ export function SimpleAssist() {
   const [activeInstruction, setActiveInstruction] = useState('')
   const [activeRefFiles, setActiveRefFiles] = useState<FileEntry[]>([])
   const [errorText, setErrorText] = useState('')
-
-  const [showPromptModal, setShowPromptModal] = useState(false)
-  const [tempPrompt, setTempPrompt] = useState(systemPrompt)
 
   const [showFileDropdown, setShowFileDropdown] = useState(false)
   const [fileQuery, setFileQuery] = useState('')
@@ -141,10 +131,6 @@ export function SimpleAssist() {
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   const containerRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, systemPrompt)
-  }, [systemPrompt])
 
   const fetchLogs = async () => {
     try {
@@ -183,14 +169,41 @@ export function SimpleAssist() {
 
   const hasSelection = selectedText.length > 0
 
+  useEffect(() => {
+    const el = inputRef.current
+    if (!el) return
+    const existing = el.querySelector('[data-role="char-count"]')
+    if (!hasSelection) {
+      if (existing) {
+        const sibling = existing.nextSibling
+        if (sibling?.nodeType === Node.TEXT_NODE && (sibling.textContent === '\u00A0' || sibling.textContent === '\u200B')) {
+          sibling.remove()
+        }
+        existing.remove()
+      }
+      return
+    }
+    if (existing) {
+      if (existing.firstChild) {
+        existing.firstChild.textContent = `${selectedText.length} Ch `
+      }
+      return
+    }
+    const chip = document.createElement('span')
+    chip.contentEditable = 'false'
+    chip.className = 'inline-chip'
+    chip.dataset.role = 'char-count'
+    chip.innerHTML = `${selectedText.length} Ch <button class="chip-remove" data-role="char-count">&times;</button>`
+
+    const zwsp = document.createTextNode('\u200B')
+    el.insertBefore(zwsp, el.firstChild)
+    el.insertBefore(chip, el.firstChild)
+  }, [selectedText, hasSelection])
+
   const filteredFiles = openedFiles.filter((f) =>
     fileQuery === '' || f.name.toLowerCase().startsWith(fileQuery.toLowerCase())
   ).slice(0, 5)
 
-  const handleOpenSettings = () => {
-    setTempPrompt(systemPrompt)
-    setShowPromptModal(true)
-  }
 
   const handleInput = () => {
     const el = inputRef.current
@@ -249,12 +262,19 @@ export function SimpleAssist() {
     fragment.appendChild(chip)
     fragment.appendChild(zwsp)
     range.insertNode(fragment)
-    range.collapse(false)
-    sel.removeAllRanges()
-    sel.addRange(range)
-    div.focus()
-
     setShowFileDropdown(false)
+
+    setTimeout(() => {
+      const currentSel = window.getSelection()
+      if (currentSel) {
+        const rangeAfter = document.createRange()
+        rangeAfter.setStartAfter(zwsp)
+        rangeAfter.collapse(true)
+        currentSel.removeAllRanges()
+        currentSel.addRange(rangeAfter)
+      }
+      div.focus()
+    }, 0)
   }, [inputRef, setShowFileDropdown])
 
   const handleReplace = async () => {
@@ -282,7 +302,6 @@ export function SimpleAssist() {
         body: JSON.stringify({
           content: fullContent,
           message: currentInstruction,
-          system_prompt: systemPrompt === DEFAULT_PROMPT ? null : systemPrompt,
           mode: 'replace',
           selected_text: selectedText,
           ref_files: currentRefFiles.map(f => ({ name: f.name, path: f.path })),
@@ -345,7 +364,6 @@ export function SimpleAssist() {
         body: JSON.stringify({
           content: fullContent,
           message: currentInstruction,
-          system_prompt: systemPrompt === DEFAULT_PROMPT ? null : systemPrompt,
           mode: 'insert',
           text_before: textBefore,
           text_after: textAfter,
@@ -402,20 +420,41 @@ export function SimpleAssist() {
     if (target.classList.contains('chip-remove')) {
       e.preventDefault()
       const chip = target.closest('.inline-chip') as HTMLElement
-      if (chip) chip.remove()
+      if (chip) {
+        if (chip.dataset.role === 'char-count' && editor) {
+          editor.commands.setTextSelection(editor.state.selection.to)
+        } else {
+          chip.remove()
+        }
+      }
+    }
+  }
+
+  const handleFocus = (e: React.FocusEvent<HTMLDivElement>) => {
+    const el = e.currentTarget
+    const chip = el.querySelector('[data-role="char-count"]')
+    if (chip) {
+      const sibling = chip.nextSibling
+      if (sibling) {
+        setTimeout(() => {
+          const sel = window.getSelection()
+          if (sel) {
+            const range = document.createRange()
+            range.setStartAfter(sibling)
+            range.collapse(true)
+            sel.removeAllRanges()
+            sel.addRange(range)
+          }
+        }, 0)
+      }
     }
   }
 
   const hasHistory = historyLogs.length > 0 || isWorking || !!errorText
 
   const renderInputCard = () => (
-    <div className="bg-[var(--bg)] border border-[var(--border)] focus-within:border-slate-400 shadow-[0_4px_12px_rgba(0,0,0,0.01)] focus-within:shadow-[0_4px_16px_rgba(0,0,0,0.02)] transition-all rounded-[20px] p-3 flex flex-col relative animate-scale-in">
+    <div className="bg-[var(--bg)] border border-[var(--border)] focus-within:border-[var(--text-secondary)] shadow-[0_4px_12px_rgba(0,0,0,0.01)] focus-within:shadow-[0_4px_16px_rgba(0,0,0,0.02)] transition-[border-color,box-shadow] duration-200 rounded-[20px] p-3 flex flex-col relative animate-scale-in">
       <div className="flex items-start gap-1.5 w-full">
-        {hasSelection && (
-          <div className="flex items-center justify-center bg-[var(--bg-char-count)] text-[var(--text)] border border-[var(--border)] rounded-[6px] px-1.5 h-4 text-[10px] font-mono select-none shrink-0 animate-fade-in">
-            {selectedText.length} Ch
-          </div>
-        )}
         <div
           ref={inputRef}
           contentEditable
@@ -425,6 +464,7 @@ export function SimpleAssist() {
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
           onMouseDown={handleContentMouseDown}
+          onFocus={handleFocus}
           data-placeholder="How can I help you?"
           className="flex-1 min-w-0 bg-transparent border-0 p-0 text-xs focus:ring-0 focus:outline-none resize-none text-[var(--text)] min-h-[44px] font-sans leading-relaxed whitespace-pre-wrap empty:before:content-[attr(data-placeholder)] empty:before:text-[var(--text-muted)] [&_.inline-chip]:inline-flex [&_.inline-chip]:items-center [&_.inline-chip]:gap-0.5 [&_.inline-chip]:bg-[var(--bg-chip)] [&_.inline-chip]:text-[var(--text-accent)] [&_.inline-chip]:border [&_.inline-chip]:border-[var(--border-chip)]/30 [&_.inline-chip]:rounded-[6px] [&_.inline-chip]:px-1.5 [&_.inline-chip]:h-4 [&_.inline-chip]:text-[10px] [&_.inline-chip]:font-mono [&_.inline-chip]:select-none [&_.inline-chip_.chip-remove]:text-[var(--text-accent)]/60 [&_.inline-chip_.chip-remove]:hover:text-[var(--text-accent)] [&_.inline-chip_.chip-remove]:cursor-pointer [&_.inline-chip_.chip-remove]:bg-none [&_.inline-chip_.chip-remove]:border-none [&_.inline-chip_.chip-remove]:p-0 [&_.inline-chip_.chip-remove]:text-[10px] [&_.inline-chip_.chip-remove]:leading-none"
         />
@@ -433,7 +473,7 @@ export function SimpleAssist() {
       {showFileDropdown && (
         <div
           ref={dropdownRef}
-          className="absolute left-2.5 right-2.5 bottom-full mb-1 z-50 bg-white border border-[var(--border-subtle)] rounded-[12px] overflow-hidden shadow-[0_4px_16px_rgba(0,0,0,0.03)]"
+          className="absolute left-2.5 right-2.5 bottom-full mb-1 z-50 bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-[12px] overflow-hidden shadow-[0_4px_16px_rgba(0,0,0,0.03)]"
         >
           {filteredFiles.length === 0 ? (
             <div className="px-3 py-2 text-[11px] text-[var(--text-secondary)] font-sans text-center">
@@ -464,7 +504,7 @@ export function SimpleAssist() {
       <div className="flex items-center justify-between select-none">
         {/* Paperclip attach icon in bottom-left */}
         <button
-          className="flex items-center justify-center transition-all cursor-pointer select-none border rounded-full w-8 h-8 active:scale-[0.9] text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] border-transparent"
+          className="flex items-center justify-center transition-[color,background-color,transform] duration-150 cursor-pointer select-none border rounded-full w-8 h-8 active:scale-[0.9] text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] border-transparent"
           title="Attach files (type @ in text box)"
           onClick={() => {
             const el = inputRef.current
@@ -485,7 +525,7 @@ export function SimpleAssist() {
           onClick={hasSelection ? handleReplace : handleInsert}
           disabled={!instructionText || isWorking}
           className="
-            flex items-center justify-center transition-all cursor-pointer select-none border rounded-full w-8 h-8 active:scale-[0.9] bg-[var(--accent-brown)] hover:bg-[var(--accent-brown-hover)] text-white disabled:bg-[var(--bg-disabled)] disabled:text-[var(--text-disabled)] disabled:border-transparent border-transparent
+            flex items-center justify-center transition-[background-color,transform,opacity] duration-150 cursor-pointer select-none border rounded-full w-8 h-8 active:scale-[0.9] bg-[var(--accent-brown)] hover:bg-[var(--accent-brown-hover)] text-white disabled:bg-[var(--bg-disabled)] disabled:text-[var(--text-disabled)] disabled:border-transparent border-transparent
           "
           title={hasSelection ? 'Replace Selection' : 'Insert Content'}
         >
@@ -504,28 +544,8 @@ export function SimpleAssist() {
 
   return (
     <div ref={containerRef} className="flex flex-col gap-4 w-full h-full select-none animate-fade-in">
-      {/* Header: AI Assist title left, buttons right */}
-      <div className="flex items-center gap-1.5 pb-3.5 border-b border-[var(--border-sidebar)] select-none shrink-0 w-full animate-fade-in">
-        <div className="bg-gradient-to-tr from-[var(--accent-gradient-1)] via-[var(--accent-gradient-2)] to-[var(--accent-gradient-2)] w-7 h-7 rounded-full shadow-[inset_0_1px_2px_rgba(255,255,255,0.4)] shrink-0" />
-        <span className="text-[12px] font-semibold text-[var(--text-heading)] font-sans leading-none">AI Assist</span>
-        <div className="flex-1" />
-        <button
-          onClick={handleOpenSettings}
-          className="flex items-center justify-center w-7 h-7 text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 bg-[var(--bg-icon)]/20 rounded-[6px] transition-all cursor-pointer active:scale-[0.95]"
-          title="System Settings"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
-            <line x1="4" y1="21" x2="4" y2="14" />
-            <line x1="4" y1="10" x2="4" y2="3" />
-            <line x1="12" y1="21" x2="12" y2="12" />
-            <line x1="12" y1="8" x2="12" y2="3" />
-            <line x1="20" y1="21" x2="20" y2="16" />
-            <line x1="20" y1="12" x2="20" y2="3" />
-            <line x1="1" y1="14" x2="7" y2="14" />
-            <line x1="9" y1="8" x2="15" y2="8" />
-            <line x1="17" y1="16" x2="23" y2="16" />
-          </svg>
-        </button>
+      {/* Header: new chat button only */}
+      <div className="flex items-center justify-end gap-1.5 pb-3.5 border-b border-[var(--border-sidebar)] select-none shrink-0 w-full animate-fade-in">
         <button
           onClick={async () => {
             try {
@@ -548,8 +568,8 @@ export function SimpleAssist() {
       {/* History area (scrollable) */}
       {hasHistory && (
         <>
-        <div className="flex-1 overflow-y-auto flex flex-col gap-4 pr-1 min-h-0 select-text">
-          {historyLogs.map((log) => {
+          <div className="flex-1 overflow-y-auto flex flex-col gap-4 pr-1 min-h-0 select-text">
+            {historyLogs.map((log) => {
               const isExpanded = !!expandedIds[log.id]
               return (
                 <div key={log.id} className="flex flex-col gap-3">
@@ -651,78 +671,25 @@ export function SimpleAssist() {
               </div>
             )}
           </div>
-
-          <div className="shrink-0 mt-auto pt-2">
-            <p className="text-[10px] text-[var(--text-secondary)] font-sans leading-relaxed mb-2 text-center">
-              Select text to rewrite, place cursor to insert.
-            </p>
-            {renderInputCard()}
-          </div>
         </>
       )}
 
       {!hasHistory && (
-        <div className="shrink-0 mt-auto pt-2">
-          <p className="text-[10px] text-[var(--text-secondary)] font-sans leading-relaxed mb-2">
-            Select text to rewrite, place cursor to insert.
-          </p>
-          {renderInputCard()}
+        <div className="flex-1 flex flex-col items-center justify-center text-center select-none animate-fade-in gap-3">
+          <svg width="24" height="24" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" className="text-[var(--text-secondary)]" stroke="currentColor" strokeWidth="1.5"><g fill="none" stroke="currentColor" strokeWidth="1.5"><path strokeLinecap="round" strokeLinejoin="round" d="M23.204 6.103a1.5 1.5 0 0 1-2.122 0L17.9 2.921A1.5 1.5 0 0 1 17.9.8m-.175 10.676c-1.405 1.405-6.47 1.166-6.47 1.166s-.24-5.064 1.167-6.47a3.677 3.677 0 0 1 5.2.106a3.68 3.68 0 0 1 .103 5.198" /><path d="M14.995 9.332a.375.375 0 0 1 0-.75m0 .75a.375.375 0 0 0 0-.75" /><path strokeLinecap="round" strokeLinejoin="round" d="M8.5 14.25H6a2.25 2.25 0 0 0 0 4.5h14.5a2.25 2.25 0 0 1 0 4.5H.75" /></g></svg>
+          <span className="text-[11px] font-semibold text-[var(--text-secondary)] font-sans">AI Assist</span>
+          <div className="flex flex-col gap-1.5 text-[10px] text-[var(--text-muted)] font-sans leading-relaxed">
+            <span>Select text to rewrite, or place cursor to insert</span>
+            <span>Edit prompts in sidebar to customize</span>
+            <span>@ to add context from your files</span>
+          </div>
         </div>
       )}
 
-      {showPromptModal && createPortal(
-        <div className="fixed inset-0 bg-[var(--text-heading)]/20 backdrop-blur-[2px] flex items-center justify-center p-4 z-[99999] animate-fade-in select-none">
-          <div className="bg-[var(--bg)] rounded-[16px] border border-[var(--border-subtle)] w-full max-w-sm overflow-hidden flex flex-col shadow-[0_8px_32px_rgba(0,0,0,0.04)] animate-scale-in">
-            <div className="flex items-center justify-between px-4 py-3 bg-[var(--bg-input)] border-b border-[var(--border-subtle)]">
-              <span className="text-xs font-bold text-[var(--text-heading)] uppercase tracking-wider flex items-center gap-1.5 font-sans">
-                System Prompt
-              </span>
-              <button
-                onClick={() => setShowPromptModal(false)}
-                className="text-[var(--text-secondary)] hover:text-[var(--text-heading)] font-normal text-lg leading-none cursor-pointer transition-colors active:scale-[0.95]"
-              >
-                &times;
-              </button>
-            </div>
-            <div className="p-5 flex flex-col gap-3">
-              <textarea
-                value={tempPrompt}
-                onChange={(e) => setTempPrompt(e.target.value)}
-                className="w-full px-3 py-2 border border-[var(--border-subtle)] rounded-[8px] text-xs font-mono text-[var(--text)] outline-none focus:border-slate-400 focus:ring-0 resize-none bg-[var(--bg-input)] min-h-[140px]"
-                rows={6}
-                placeholder="Enter custom instructions..."
-              />
-              <div className="flex items-center justify-between gap-2 mt-2 font-sans">
-                <button
-                  onClick={() => setTempPrompt(DEFAULT_PROMPT)}
-                  className="text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-heading)] bg-transparent transition-colors cursor-pointer"
-                >
-                  Reset
-                </button>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setShowPromptModal(false)}
-                    className="px-3 py-1.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text-heading)] bg-transparent hover:bg-[var(--bg-input)] border border-[var(--border-subtle)] rounded-[8px] transition-colors cursor-pointer active:scale-[0.97]"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={() => {
-                      setSystemPrompt(tempPrompt)
-                      setShowPromptModal(false)
-                    }}
-                    className="px-4 py-1.5 text-xs font-semibold text-white bg-[var(--accent-brown)] hover:bg-[var(--accent-brown-hover)] border border-transparent rounded-[8px] transition-all cursor-pointer active:scale-[0.97]"
-                    title="Save Settings"
-                  >
-                    Save
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
+      {/* Input Card always anchored cleanly at the bottom */}
+      <div className="shrink-0 mt-auto pt-2">
+        {renderInputCard()}
+      </div>
     </div>
   )
 }
