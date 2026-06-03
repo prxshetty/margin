@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FolderOpen, FileText, Loader, Check, Plus, Trash2 } from 'lucide-react'
+import { FolderOpen, FileText, Loader, Check, Plus, Trash2, Pencil } from 'lucide-react'
 import { useEditorStore, type FileEntry } from '../stores/editorStore'
 import { API_BASE } from '../lib/api'
 
@@ -82,7 +82,6 @@ export function FileSidebar({
         const res = await fetch(`${API_BASE}/api/workspace/inputs/files`)
         if (!res.ok) throw new Error()
         const files = await res.json()
-        if (files.length === 0) return
         setWorkspaceDir('inputs')
         for (const file of files) {
           try {
@@ -195,6 +194,39 @@ export function FileSidebar({
     }
   }, [currentFilePath, removeFile, setContent, setCurrentFilePath])
 
+  const handleRenameFile = useCallback(async (path: string) => {
+    const oldName = path.split('/').pop() ?? path
+    const raw = window.prompt(`Rename "${oldName}" to:`, oldName)
+    if (!raw) return
+    const newName = raw.trim()
+    if (!newName || newName === oldName) return
+
+    try {
+      const res = await fetch(`${API_BASE}/api/workspace/inputs/files/${encodeURIComponent(path)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newName })
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        window.alert(`Failed to rename: ${err.detail || res.statusText}`)
+        return
+      }
+      const data = await res.json()
+      const store = useEditorStore.getState()
+      const existing = store.openedFiles.find((f) => f.path === path)
+      if (existing) {
+        removeFile(path)
+        addFile({ ...existing, name: data.name, path: data.path })
+        if (store.currentFilePath === path) {
+          setCurrentFilePath(data.path)
+        }
+      }
+    } catch (err) {
+      window.alert(`Failed to rename: ${err instanceof Error ? err.message : 'Unknown error'}`)
+    }
+  }, [removeFile, addFile, setCurrentFilePath])
+
   const rootFiles = openedFiles.filter((f) => !f.path.includes('/'))
   const charFiles = openedFiles.filter((f) => f.path.startsWith('characters/'))
   const styleFiles = openedFiles.filter((f) => f.path.startsWith('styles/'))
@@ -301,8 +333,8 @@ export function FileSidebar({
         </div>
       )}
 
-      {/* Empty state */}
-      {!loading && !workspaceDir && openedFiles.length === 0 && (
+      {/* Empty state — only when there's truly no workspace at all */}
+      {!loading && !workspaceDir && (
         <div className="flex flex-col items-center justify-center py-8 text-center select-none flex-1">
           <FileText className="w-8 h-8 text-[var(--text-muted)] mb-3" strokeWidth={1} />
           <p className="text-[11px] text-[var(--text-secondary)] font-medium">No folder opened</p>
@@ -312,61 +344,51 @@ export function FileSidebar({
         </div>
       )}
 
-      {/* No files found */}
-      {!loading && workspaceDir && openedFiles.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-8 text-center select-none flex-1">
-          <p className="text-[11px] text-[var(--text-secondary)] font-medium">No markdown files found</p>
-          <p className="text-[10px] text-[var(--text-muted)] mt-1 max-w-[200px]">
-            The workspace contains no .md files
-          </p>
-        </div>
-      )}
-
-      {/* File list */}
-      {!loading && (
+      {/* File list — always show section headers once a workspace is linked */}
+      {!loading && workspaceDir && (
         <div className="flex flex-col gap-3.5 px-1">
           {rootFiles.length > 0 && (
             <div className="flex flex-col gap-0.5">
               {rootFiles.map((file) => (
-                <FileRow key={file.path} file={file} onSelect={handleFileClick} onDelete={handleDeleteFile} />
+                <FileRow key={file.path} file={file} onSelect={handleFileClick} onDelete={handleDeleteFile} onRename={handleRenameFile} />
               ))}
             </div>
           )}
 
-          {chapterFiles.length > 0 && (
-            <div className="flex flex-col gap-0.5 animate-fade-in">
-              <SectionHeader label="chapters/" onAdd={() => handleCreateFile('chapters')} />
-              {chapterFiles.map((file) => (
-                <FileRow key={file.path} file={file} onSelect={handleFileClick} onDelete={handleDeleteFile} />
-              ))}
-            </div>
-          )}
+          <div className="flex flex-col gap-0.5 animate-fade-in">
+            <SectionHeader label="chapters/" onAdd={() => handleCreateFile('chapters')} />
+            {chapterFiles.map((file) => (
+              <FileRow key={file.path} file={file} onSelect={handleFileClick} onDelete={handleDeleteFile} onRename={handleRenameFile} />
+            ))}
+          </div>
 
-          {charFiles.length > 0 && (
-            <div className="flex flex-col gap-0.5 animate-fade-in">
-              <SectionHeader label="characters/" onAdd={() => handleCreateFile('characters')} />
-              {charFiles.map((file) => (
-                <FileRow key={file.path} file={file} onSelect={handleFileClick} onDelete={handleDeleteFile} />
-              ))}
-            </div>
-          )}
+          <div className="flex flex-col gap-0.5 animate-fade-in">
+            <SectionHeader label="characters/" onAdd={() => handleCreateFile('characters')} />
+            {charFiles.map((file) => (
+              <FileRow key={file.path} file={file} onSelect={handleFileClick} onDelete={handleDeleteFile} onRename={handleRenameFile} />
+            ))}
+          </div>
 
-          {styleFiles.length > 0 && (
-            <div className="flex flex-col gap-0.5 animate-fade-in">
-              <SectionHeader label="styles/" onAdd={() => handleCreateFile('styles')} />
-              {styleFiles.map((file) => (
-                <FileRow key={file.path} file={file} onSelect={handleFileClick} onDelete={handleDeleteFile} />
-              ))}
-            </div>
-          )}
+          <div className="flex flex-col gap-0.5 animate-fade-in">
+            <SectionHeader label="styles/" onAdd={() => handleCreateFile('styles')} />
+            {styleFiles.map((file) => (
+              <FileRow key={file.path} file={file} onSelect={handleFileClick} onDelete={handleDeleteFile} onRename={handleRenameFile} />
+            ))}
+          </div>
 
           {promptFiles.length > 0 && (
             <div className="flex flex-col gap-0.5 animate-fade-in">
               <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-[var(--text-secondary)]/70 mb-1.5 px-2 select-none">prompts/</p>
               {promptFiles.map((file) => (
-                <FileRow key={file.path} file={file} onSelect={handleFileClick} onDelete={handleDeleteFile} />
+                <FileRow key={file.path} file={file} onSelect={handleFileClick} onDelete={handleDeleteFile} onRename={handleRenameFile} />
               ))}
             </div>
+          )}
+
+          {openedFiles.length === 0 && (
+            <p className="text-[10px] text-[var(--text-muted)] px-2 pt-1 select-none">
+              Empty workspace — click <span className="font-semibold">+</span> on a section to create your first file.
+            </p>
           )}
         </div>
       )}
@@ -393,16 +415,14 @@ function FileRow({
   file,
   onSelect,
   onDelete,
+  onRename,
 }: {
   file: FileEntry
   onSelect: (path: string) => void
   onDelete?: (path: string) => void
+  onRename?: (path: string) => void
 }) {
-  const activePath = useEditorStore((s) => {
-    const f = s.openedFiles.find((f) => f.content === s.content)
-    return f?.path
-  })
-  const isActive = activePath === file.path
+  const isActive = useEditorStore((s) => s.currentFilePath === file.path)
 
   return (
     <div
@@ -429,6 +449,18 @@ function FileRow({
           className="flex items-center justify-center w-5 h-5 text-[var(--text-secondary)]/60 hover:text-red-500 hover:bg-[var(--border-sidebar)]/60 rounded-[4px] transition-all cursor-pointer active:scale-[0.9] opacity-0 group-hover:opacity-100"
         >
           <Trash2 className="w-3 h-3" strokeWidth={2} />
+        </button>
+      )}
+      {onRename && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            onRename(file.path)
+          }}
+          title={`Rename ${file.name}`}
+          className="flex items-center justify-center w-5 h-5 text-[var(--text-secondary)]/60 hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 rounded-[4px] transition-all cursor-pointer active:scale-[0.9] opacity-0 group-hover:opacity-100"
+        >
+          <Pencil className="w-3 h-3" strokeWidth={2} />
         </button>
       )}
     </div>

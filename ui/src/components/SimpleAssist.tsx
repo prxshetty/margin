@@ -604,7 +604,7 @@ export function SimpleAssist() {
                         </svg>
                       </button>
                       <span className="text-[10px] text-[var(--text-accent)] font-semibold select-none flex items-center gap-0.5 ml-auto">
-                        ✓ Applied
+                        {log.mode === 'chat' ? '✓ Replied' : '✓ Applied'}
                       </span>
                     </div>
                     <div className="text-xs font-sans text-[var(--text)] leading-relaxed whitespace-pre-wrap select-text">

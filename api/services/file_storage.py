@@ -240,6 +240,33 @@ class FileStorageService:
         full_path.unlink()
         return True
 
+    def rename_input_file(self, path: str, new_name: str) -> Dict[str, str]:
+        old_path = (self.inputs_dir / path).resolve()
+        inputs_root = self.inputs_dir.resolve()
+        if not str(old_path).startswith(str(inputs_root)):
+            raise ValueError("Invalid path")
+        if not old_path.exists() or not old_path.is_file():
+            raise FileNotFoundError(f"File not found: {path}")
+        if old_path.suffix.lower() != ".md":
+            raise ValueError("Only markdown files can be renamed via this endpoint")
+
+        new_name = (new_name or "").strip()
+        if not new_name:
+            raise ValueError("New file name is required")
+        if not new_name.lower().endswith(".md"):
+            new_name = f"{new_name}.md"
+        if "/" in new_name or "\\" in new_name or new_name.startswith("."):
+            raise ValueError("Invalid file name")
+        if new_name == old_path.name:
+            return {"name": old_path.name, "path": str(old_path.relative_to(inputs_root))}
+
+        new_path = old_path.with_name(new_name)
+        if new_path.exists():
+            raise FileExistsError(f"File already exists: {new_path.relative_to(inputs_root)}")
+        old_path.rename(new_path)
+        new_rel = str(new_path.relative_to(inputs_root))
+        return {"name": new_path.name, "path": new_rel}
+
     def get_directory_status(self) -> Dict[str, Any]:
         is_linked = self.inputs_dir != (self.base_dir / "inputs")
         

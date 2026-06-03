@@ -13,6 +13,10 @@ class CreateFileRequest(BaseModel):
     content: str = ""
 
 
+class RenameFileRequest(BaseModel):
+    name: str
+
+
 @router.get("/inputs/files")
 def list_input_files() -> List[Dict[str, str]]:
     try:
@@ -51,6 +55,20 @@ def delete_input_file(path: str):
         return {"status": "deleted", "path": path}
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.patch("/inputs/files/{path:path}")
+def rename_input_file(path: str, req: RenameFileRequest):
+    try:
+        return storage.rename_input_file(path, req.name)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except FileExistsError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
