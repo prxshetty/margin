@@ -204,6 +204,42 @@ class FileStorageService:
             raise FileNotFoundError(f"File not found: {path}")
         return full_path.read_text(encoding="utf-8")
 
+    _ALLOWED_INPUT_SUBDIRS = {"chapters", "characters", "styles"}
+
+    def create_input_file(self, folder: str, name: str, content: str = "") -> Dict[str, str]:
+        if folder not in self._ALLOWED_INPUT_SUBDIRS:
+            raise ValueError(f"Invalid folder '{folder}'. Must be one of: {sorted(self._ALLOWED_INPUT_SUBDIRS)}")
+
+        name = (name or "").strip()
+        if not name:
+            raise ValueError("File name is required")
+        if not name.lower().endswith(".md"):
+            name = f"{name}.md"
+        if "/" in name or "\\" in name or name.startswith("."):
+            raise ValueError("Invalid file name")
+
+        target_dir = self.inputs_dir / folder
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target_path = target_dir / name
+        if target_path.exists():
+            raise FileExistsError(f"File already exists: {folder}/{name}")
+
+        target_path.write_text(content or "", encoding="utf-8")
+        rel_path = f"{folder}/{name}"
+        return {"name": name, "path": rel_path, "content": content or ""}
+
+    def delete_input_file(self, path: str) -> bool:
+        full_path = (self.inputs_dir / path).resolve()
+        inputs_root = self.inputs_dir.resolve()
+        if not str(full_path).startswith(str(inputs_root)):
+            raise ValueError("Invalid path")
+        if not full_path.exists() or not full_path.is_file():
+            raise FileNotFoundError(f"File not found: {path}")
+        if full_path.suffix.lower() != ".md":
+            raise ValueError("Only markdown files can be deleted via this endpoint")
+        full_path.unlink()
+        return True
+
     def get_directory_status(self) -> Dict[str, Any]:
         is_linked = self.inputs_dir != (self.base_dir / "inputs")
         
