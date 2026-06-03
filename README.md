@@ -16,17 +16,30 @@ A local-first, multi-agent story generation framework designed for SLMs (Small L
 
 ```bash
 # 1. Install dependencies
-pip install python-dotenv
+pip install -r requirements.txt
 
 # 2. Copy and configure .env
 cp .env.example .env
 
 # 3. Start LM Studio with your model loaded on localhost:1234
 
-# 4. Run the framework
+# 4. Run the CLI framework
 python main.py
 
 # 5. Follow the prompts: y = approve, n = provide feedback
+```
+
+### Run the Web API
+
+```bash
+# Install dependencies (same as above)
+pip install -r requirements.txt
+
+# Start the FastAPI server
+uvicorn api.main:app --reload
+
+# Open http://localhost:8000 in your browser
+# API docs available at http://localhost:8000/docs
 ```
 
 ## Configuration
@@ -294,7 +307,7 @@ Final approved content — one file per act.
 
 - Python 3.8+
 - LM Studio (or any OpenAI-compatible local server)
-- dotenv: `pip install python-dotenv`
+- Dependencies: `pip install -r requirements.txt` (includes FastAPI + uvicorn for the web API, plus python-dotenv, requests, and others)
 
 ## Troubleshooting
 
