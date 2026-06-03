@@ -223,9 +223,9 @@ class StateManager:
             prev_context_block[char_lower] = char_data.get("postures", {})
 
         # Load dynamic updater prompt
-        prompt_path = Path("prompts/state_updater.txt")
+        prompt_path = Path("prompts/state_updater.md")
         if not prompt_path.exists():
-            print("  Warning: state_updater.txt not found. Dynamic state update skipped.")
+            print("  Warning: state_updater.md not found. Dynamic state update skipped.")
             return
 
         with open(prompt_path, "r", encoding="utf-8") as f:

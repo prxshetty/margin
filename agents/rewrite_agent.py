@@ -10,7 +10,7 @@ import config
 
 
 def _load_simple_prompt(filename: str) -> str:
-    prompts_dir = Path(__file__).parent.parent / "prompts"
+    prompts_dir = Path(__file__).parent.parent / "prompts" / "simple"
     path = prompts_dir / filename
     try:
         return path.read_text(encoding="utf-8").strip()
@@ -45,7 +45,7 @@ class RewriteAgent:
 
     def __init__(self, system_prompt: str | None = None):
         self.client = llm.LLMClient()
-        base = system_prompt or _load_simple_prompt("simple-replace.txt")
+        base = system_prompt or _load_simple_prompt("simple-replace.md")
         self.system_prompt = _maybe_prepend_thinking_preamble(base)
         self.token_limit = config.AGENT_CONFIG.get("writer", {}).get("max_tokens", 500)
         self.temperature = config.AGENT_CONFIG.get("writer", {}).get("temperature", 0.8)
@@ -79,7 +79,7 @@ class RewriteAgent:
         system_prompt: str | None = None,
         context_text: str = "",
     ) -> str:
-        base = system_prompt or _load_simple_prompt("simple-insert.txt")
+        base = system_prompt or _load_simple_prompt("simple-insert.md")
         sp = _maybe_prepend_thinking_preamble(base)
 
         instruction = feedback.strip() if feedback.strip() else (

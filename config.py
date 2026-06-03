@@ -71,7 +71,7 @@ def _load_prompt(filename: str) -> str:
 
 def _build_blueprint_prompt() -> str:
     """Build the blueprint agent prompt from schema + template."""
-    base_prompt = _load_prompt("blueprint_base.txt")
+    base_prompt = _load_prompt("blueprint_base.md")
     schema_section = SCHEMA.generate_blueprint_schema_section()
     return base_prompt.replace("{SCHEMA_SECTION}", schema_section)
 
@@ -80,12 +80,12 @@ def _build_agent_prompts() -> dict:
     """Build agent prompts."""
     return {
         "blueprint": _build_blueprint_prompt(),
-        "scene": _load_prompt("scene.txt"),
-        "dialogue": _load_prompt("dialogue.txt"),
-        "narration": _load_prompt("narration.txt"),
-        "decomposer": _load_prompt("decomposer.txt"),
-        "transition": _load_prompt("transition.txt"),
-        "writer": _load_prompt("writer.txt"),
+        "scene": _load_prompt("scene.md"),
+        "dialogue": _load_prompt("dialogue.md"),
+        "narration": _load_prompt("narration.md"),
+        "decomposer": _load_prompt("decomposer.md"),
+        "transition": _load_prompt("transition.md"),
+        "writer": _load_prompt("writer.md"),
     }
 
 

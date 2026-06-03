@@ -330,7 +330,7 @@ def edit(payload: AssistEditRequest):
 
 
 def _load_simple_prompt(filename: str) -> str:
-    path = Path(__file__).parent.parent / "prompts" / filename
+    path = Path(__file__).parent.parent / "prompts" / "simple" / filename
     try:
         return path.read_text(encoding="utf-8").strip()
     except Exception:
@@ -424,7 +424,7 @@ def simple_assist(payload: SimpleAssistRequest):
         )
         _log_simple_assist(
             mode="insert",
-            system_prompt=_load_simple_prompt("simple-insert.txt"),
+            system_prompt=_load_simple_prompt("simple-insert.md"),
             user_prompt=f"INSTRUCTION: {message}\n\nBLOCK TYPE AT CURSOR: paragraph\n\nCONTEXT BEFORE:\n{payload.text_before or ''}\n\nCONTEXT AFTER:\n{payload.text_after or ''}",
             response=inserted,
             instruction=message,
@@ -435,7 +435,7 @@ def simple_assist(payload: SimpleAssistRequest):
         return {"type": "applied", "output": inserted}
 
     # Chat mode — LLM with full content as context
-    system_prompt = _load_simple_prompt("simple-chat.txt")
+    system_prompt = _load_simple_prompt("simple-chat.md")
     client = llm.LLMClient()
     full_system = system_prompt
     if payload.content:
