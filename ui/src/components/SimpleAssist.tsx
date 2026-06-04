@@ -920,7 +920,7 @@ export function SimpleAssist() {
                         <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0z" />
                         <circle cx="12" cy="12" r="3" />
                       </svg>
-                      <span>Reading {name} <span className="text-[9px] text-[var(--text-muted)] font-serif italic">(Auto-selected by Planner)</span></span>
+                      <span>Reading {name}</span>
                     </div>
                   )
                 })}

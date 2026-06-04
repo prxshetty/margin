@@ -451,7 +451,7 @@ def build_generator_prompts(
     
     target_para = paragraphs[idx] if paragraphs else ""
     
-    system_parts = [_load_simple_prompt("simple-edit.md")]
+    system_parts = [_load_simple_prompt("simple-writer.md")]
     
     available_paths = [f['path'] for f in storage.list_input_files()]
     
