@@ -35,30 +35,7 @@ function cleanUserPrompt(log: SimpleLogEntry): string {
   if (log.instruction && log.instruction.trim()) {
     return log.instruction.trim()
   }
-
-  const prompt = log.user_prompt || ''
-
-  // 1. Extract from "Feedback: {instruction}"
-  const feedbackMatch = prompt.match(/Feedback:\s*([^\n]+)/i)
-  if (feedbackMatch && feedbackMatch[1]) {
-    return feedbackMatch[1].trim()
-  }
-
-  // 2. Extract from "INSTRUCTION: {instruction}"
-  const instructionMatch = prompt.match(/INSTRUCTION:\s*([^\n]+)/i)
-  if (instructionMatch && instructionMatch[1]) {
-    return instructionMatch[1].trim()
-  }
-
-  // 3. Extract from chat mode: last "User: {instruction}"
-  const chatParts = prompt.split(/User:\s*/i)
-  if (chatParts.length > 1) {
-    const lastPart = chatParts[chatParts.length - 1].trim()
-    if (lastPart) return lastPart
-  }
-
-  // Fallback
-  return log.mode === 'insert' ? 'Insert text' : log.mode === 'replace' ? 'Rewrite text' : 'AI Assistant Query'
+  return log.mode === 'chat' ? 'AI Assistant Query' : 'Edit text'
 }
 
 function getTextBeforeCaret(el: HTMLElement): string {
@@ -99,17 +76,15 @@ function getInputData(el: HTMLElement): { text: string; refPaths: string[] } {
     refPaths.push(chip.dataset.path ?? '')
   })
   const clone = el.cloneNode(true) as HTMLElement
-  clone.querySelectorAll<HTMLElement>('[data-path]').forEach((chip) => {
-    const name = chip.dataset.name ?? 'file'
-    chip.replaceWith(document.createTextNode(`@${name}`))
-  })
+  clone.querySelectorAll<HTMLElement>('.inline-chip').forEach((chip) => chip.remove())
   return { text: clone.textContent?.trim() ?? '', refPaths }
 }
 
 export function SimpleAssist() {
   const {
     content, setContent, editor,
-    selectedText, anchorPosition,
+    anchorPosition,
+    pendingEditSelection, setPendingEditSelection,
   } = useEditorStore()
 
   const openedFiles = useEditorStore((s) => s.openedFiles)
@@ -121,7 +96,10 @@ export function SimpleAssist() {
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({})
   const [activeInstruction, setActiveInstruction] = useState('')
   const [activeRefFiles, setActiveRefFiles] = useState<FileEntry[]>([])
+  const [activeSelectedLength, setActiveSelectedLength] = useState<number | undefined>()
   const [errorText, setErrorText] = useState('')
+  const [mode, setMode] = useState<'chat' | 'edit'>('edit')
+  const hasSelection = !!pendingEditSelection
 
   const [showFileDropdown, setShowFileDropdown] = useState(false)
   const [fileQuery, setFileQuery] = useState('')
@@ -167,38 +145,7 @@ export function SimpleAssist() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [showFileDropdown])
 
-  const hasSelection = selectedText.length > 0
 
-  useEffect(() => {
-    const el = inputRef.current
-    if (!el) return
-    const existing = el.querySelector('[data-role="char-count"]')
-    if (!hasSelection) {
-      if (existing) {
-        const sibling = existing.nextSibling
-        if (sibling?.nodeType === Node.TEXT_NODE && (sibling.textContent === '\u00A0' || sibling.textContent === '\u200B')) {
-          sibling.remove()
-        }
-        existing.remove()
-      }
-      return
-    }
-    if (existing) {
-      if (existing.firstChild) {
-        existing.firstChild.textContent = `${selectedText.length} Ch `
-      }
-      return
-    }
-    const chip = document.createElement('span')
-    chip.contentEditable = 'false'
-    chip.className = 'inline-chip'
-    chip.dataset.role = 'char-count'
-    chip.innerHTML = `${selectedText.length} Ch <button class="chip-remove" data-role="char-count">&times;</button>`
-
-    const zwsp = document.createTextNode('\u200B')
-    el.insertBefore(zwsp, el.firstChild)
-    el.insertBefore(chip, el.firstChild)
-  }, [selectedText, hasSelection])
 
   const filteredFiles = openedFiles.filter((f) =>
     fileQuery === '' || f.name.toLowerCase().startsWith(fileQuery.toLowerCase())
@@ -278,14 +225,21 @@ export function SimpleAssist() {
     }, 0)
   }, [inputRef, setShowFileDropdown])
 
-  const handleReplace = async () => {
-    if (!selectedText || !editor) return
-    const { text: currentInstruction, refPaths } = getInputData(inputRef.current!)
+  const handleEdit = async () => {
+    if (!editor) return
+    const inputEl = inputRef.current!
+    const { text: currentInstruction, refPaths } = getInputData(inputEl)
     if (!currentInstruction) return
+
+    const selectionInfo = pendingEditSelection
+    const localHasSelection = !!selectionInfo
+    const selectionText = selectionInfo ? selectionInfo.text : ''
+
     setIsWorking(true)
     setActiveInstruction(currentInstruction)
     const currentRefFiles = openedFiles.filter((f) => refPaths.includes(f.path))
     setActiveRefFiles(currentRefFiles)
+    setActiveSelectedLength(localHasSelection ? selectionText.length : undefined)
     setErrorText('')
 
     if (inputRef.current) {
@@ -297,91 +251,51 @@ export function SimpleAssist() {
       const mentionContext = buildMentionContext(currentRefFiles)
       const fullContent = [content, mentionContext].filter(Boolean).join('\n\n')
 
-      const res = await fetch(`${API_BASE}/api/assist/simple`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          content: fullContent,
-          message: currentInstruction,
-          mode: 'replace',
-          selected_text: selectedText,
-          ref_files: currentRefFiles.map(f => ({ name: f.name, path: f.path })),
-        }),
-      })
-      if (!res.ok) throw new Error('Replace failed')
-      const data = await res.json()
-      const rewritten = data.output
-
-      const range = useEditorStore.getState().selectionRange
-      const from = range?.from ?? 0
-      const to = range?.to ?? 0
-      if (from !== to) {
-        editor.chain().deleteRange({ from, to }).insertContentAt(from, rewritten).run()
-        const storage = editor.storage as unknown as MarkdownStorage
-        if (storage.markdown) {
-          const md = storage.markdown.getMarkdown()
-          setContent(md)
-          if (currentFilePath) updateFileContent(currentFilePath, md)
-        }
+      const body: Record<string, unknown> = {
+        content: fullContent,
+        message: currentInstruction,
+        mode: 'edit',
+        ref_files: currentRefFiles.map(f => ({ name: f.name, path: f.path })),
       }
-      await fetchLogs()
-    } catch (err) {
-      console.error(err)
-      setErrorText('Error: ' + (err as Error).message)
-    } finally {
-      setIsWorking(false)
-      setActiveInstruction('')
-      setActiveRefFiles([])
-    }
-  }
 
-  const handleInsert = async () => {
-    if (!editor) return
-    const { text: currentInstruction, refPaths } = getInputData(inputRef.current!)
-    if (!currentInstruction) return
-    setIsWorking(true)
-    setActiveInstruction(currentInstruction)
-    const currentRefFiles = openedFiles.filter((f) => refPaths.includes(f.path))
-    setActiveRefFiles(currentRefFiles)
-    setErrorText('')
+      if (localHasSelection) {
+        body.selected_text = selectionText
+      }
 
-    if (inputRef.current) {
-      inputRef.current.textContent = ''
-      setInstructionText('')
-    }
-
-    try {
       const pos = anchorPosition
       const docSize = editor.state.doc.content.size
-      const textBefore = editor.state.doc.textBetween(0, pos, '\n')
-      const textAfter = editor.state.doc.textBetween(pos, docSize, '\n')
-
-      const mentionContext = buildMentionContext(currentRefFiles)
-      const fullContent = [content, mentionContext].filter(Boolean).join('\n\n')
+      body.text_before = editor.state.doc.textBetween(0, pos, '\n')
+      body.text_after = editor.state.doc.textBetween(pos, docSize, '\n')
 
       const res = await fetch(`${API_BASE}/api/assist/simple`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          content: fullContent,
-          message: currentInstruction,
-          mode: 'insert',
-          text_before: textBefore,
-          text_after: textAfter,
-          ref_files: currentRefFiles.map(f => ({ name: f.name, path: f.path })),
-        }),
+        body: JSON.stringify(body),
       })
-      if (!res.ok) throw new Error('Insert failed')
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}))
+        throw new Error(errorData.detail || 'Edit failed')
+      }
       const data = await res.json()
-      const inserted = data.output
+      const output = data.output
 
-      editor.commands.insertContentAt(pos, inserted)
+      if (data.edit_mode === 'replace' && selectionInfo) {
+        const from = selectionInfo.from
+        const to = selectionInfo.to
+        if (from !== to) {
+          editor.chain().deleteRange({ from, to }).insertContentAt(from, output).run()
+        }
+      } else {
+        editor.commands.insertContentAt(anchorPosition, output)
+      }
+
       const storage = editor.storage as unknown as MarkdownStorage
       if (storage.markdown) {
         const md = storage.markdown.getMarkdown()
         setContent(md)
         if (currentFilePath) updateFileContent(currentFilePath, md)
       }
+      setPendingEditSelection(null)
       await fetchLogs()
     } catch (err) {
       console.error(err)
@@ -390,13 +304,71 @@ export function SimpleAssist() {
       setIsWorking(false)
       setActiveInstruction('')
       setActiveRefFiles([])
+      setActiveSelectedLength(undefined)
+    }
+  }
+
+  const handleChat = async () => {
+    if (!editor) return
+    const inputEl = inputRef.current!
+    const { text: currentInstruction, refPaths } = getInputData(inputEl)
+    if (!currentInstruction) return
+
+    const selectionInfo = pendingEditSelection
+    const localHasSelection = !!selectionInfo
+    const selectionText = selectionInfo ? selectionInfo.text : ''
+
+    setIsWorking(true)
+    setActiveInstruction(currentInstruction)
+    const currentRefFiles = openedFiles.filter((f) => refPaths.includes(f.path))
+    setActiveRefFiles(currentRefFiles)
+    setErrorText('')
+
+    if (inputRef.current) {
+      inputRef.current.textContent = ''
+      setInstructionText('')
+    }
+
+    try {
+      const mentionContext = buildMentionContext(currentRefFiles)
+      const fullContent = [content, mentionContext].filter(Boolean).join('\n\n')
+
+      const body: Record<string, unknown> = {
+        content: fullContent,
+        message: currentInstruction,
+        mode: 'chat',
+        ref_files: currentRefFiles.map(f => ({ name: f.name, path: f.path })),
+      }
+
+      if (localHasSelection) {
+        body.selected_text = selectionText
+      }
+
+      const res = await fetch(`${API_BASE}/api/assist/simple`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}))
+        throw new Error(errorData.detail || 'Chat failed')
+      }
+      await fetchLogs()
+    } catch (err) {
+      console.error(err)
+      setErrorText('Error: ' + (err as Error).message)
+    } finally {
+      setIsWorking(false)
+      setActiveInstruction('')
+      setActiveRefFiles([])
+      setActiveSelectedLength(undefined)
     }
   }
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === 'Backspace' && !inputRef.current?.textContent?.trim() && hasSelection && editor) {
+    if (e.key === 'Backspace' && !inputRef.current?.textContent?.trim() && pendingEditSelection) {
       e.preventDefault()
-      editor.commands.setTextSelection(editor.state.selection.to)
+      setPendingEditSelection(null)
       return
     }
     if (showFileDropdown && filteredFiles.length > 0) {
@@ -439,31 +411,8 @@ export function SimpleAssist() {
       e.preventDefault()
       const chip = target.closest('.inline-chip') as HTMLElement
       if (chip) {
-        if (chip.dataset.role === 'char-count' && editor) {
-          editor.commands.setTextSelection(editor.state.selection.to)
-        } else {
-          chip.remove()
-        }
-      }
-    }
-  }
-
-  const handleFocus = (e: React.FocusEvent<HTMLDivElement>) => {
-    const el = e.currentTarget
-    const chip = el.querySelector('[data-role="char-count"]')
-    if (chip) {
-      const sibling = chip.nextSibling
-      if (sibling) {
-        setTimeout(() => {
-          const sel = window.getSelection()
-          if (sel) {
-            const range = document.createRange()
-            range.setStartAfter(sibling)
-            range.collapse(true)
-            sel.removeAllRanges()
-            sel.addRange(range)
-          }
-        }, 0)
+        chip.remove()
+        handleInput()
       }
     }
   }
@@ -472,6 +421,14 @@ export function SimpleAssist() {
 
   const renderInputCard = () => (
     <div className="bg-[var(--bg)] border border-[var(--border)] focus-within:border-[var(--text-secondary)] shadow-[0_4px_12px_rgba(0,0,0,0.01)] focus-within:shadow-[0_4px_16px_rgba(0,0,0,0.02)] transition-[border-color,box-shadow] duration-200 rounded-[20px] p-3 flex flex-col relative animate-scale-in">
+      {pendingEditSelection && (
+        <div className="flex items-center gap-1 mb-1.5 select-none">
+          <span className="inline-chip bg-[var(--bg-hover)] px-2 py-0.5 rounded-[4px] text-[10px] text-[var(--text-secondary)] border border-[var(--border-subtle)] flex items-center gap-1 font-sans">
+            {pendingEditSelection.text.length} Ch
+            <button className="chip-remove text-[var(--text-muted)] hover:text-[var(--text)] font-sans ml-0.5 cursor-pointer animate-fade-in" onClick={() => setPendingEditSelection(null)}>&times;</button>
+          </span>
+        </div>
+      )}
       <div className="flex items-start gap-1.5 w-full">
         <div
           ref={inputRef}
@@ -482,9 +439,8 @@ export function SimpleAssist() {
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
           onMouseDown={handleContentMouseDown}
-          onFocus={handleFocus}
-          data-placeholder="How can I help you?"
-          className="flex-1 min-w-0 bg-transparent border-0 p-0 text-xs focus:ring-0 focus:outline-none resize-none text-[var(--text)] min-h-[44px] font-sans leading-relaxed whitespace-pre-wrap empty:before:content-[attr(data-placeholder)] empty:before:text-[var(--text-muted)] [&_.inline-chip]:inline-flex [&_.inline-chip]:items-center [&_.inline-chip]:gap-0.5 [&_.inline-chip]:bg-[var(--bg-chip)] [&_.inline-chip]:text-[var(--text-accent)] [&_.inline-chip]:border [&_.inline-chip]:border-[var(--border-chip)]/30 [&_.inline-chip]:rounded-[6px] [&_.inline-chip]:px-1.5 [&_.inline-chip]:h-4 [&_.inline-chip]:text-[10px] [&_.inline-chip]:font-mono [&_.inline-chip]:select-none [&_.inline-chip_.chip-remove]:text-[var(--text-accent)]/60 [&_.inline-chip_.chip-remove]:hover:text-[var(--text-accent)] [&_.inline-chip_.chip-remove]:cursor-pointer [&_.inline-chip_.chip-remove]:bg-none [&_.inline-chip_.chip-remove]:border-none [&_.inline-chip_.chip-remove]:p-0 [&_.inline-chip_.chip-remove]:text-[10px] [&_.inline-chip_.chip-remove]:leading-none"
+          data-placeholder={mode === 'chat' ? 'Ask a question...' : 'Describe changes...'}
+          className="flex-1 min-w-0 bg-transparent border-0 p-0 text-xs focus:ring-0 focus:outline-none resize-none text-[var(--text)] min-h-[44px] font-sans leading-relaxed whitespace-pre-wrap empty:before:content-[attr(data-placeholder)] empty:before:text-[var(--text-muted)]"
         />
       </div>
 
@@ -525,32 +481,41 @@ export function SimpleAssist() {
 
       {/* Input Action Bar */}
       <div className="flex items-center justify-between select-none">
-        {/* Paperclip attach icon in bottom-left */}
-        <button
-          className="flex items-center justify-center transition-[color,background-color,transform] duration-150 cursor-pointer select-none border rounded-full w-8 h-8 active:scale-[0.9] text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] border-transparent"
-          title="Attach files (type @ in text box)"
-          onClick={() => {
-            const el = inputRef.current
-            if (el) {
-              el.focus()
-              document.execCommand('insertText', false, '@')
-              handleInput()
-            }
-          }}
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
-            <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-          </svg>
-        </button>
+        {/* Mode Toggle */}
+        <div className="flex items-center gap-0.5 bg-[var(--bg-hover)] rounded-full p-0.5 border border-[var(--border-subtle)]">
+          <button
+            onClick={() => setMode('edit')}
+            className={`flex items-center justify-center w-7 h-7 rounded-full transition-colors cursor-pointer ${
+              mode === 'edit' ? 'bg-[var(--accent-brown)] text-white' : 'text-[var(--text-secondary)] hover:text-[var(--text-heading)]'
+            }`}
+            title="Edit mode"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+              <path d="m15 5 4 4" />
+            </svg>
+          </button>
+          <button
+            onClick={() => setMode('chat')}
+            className={`flex items-center justify-center w-7 h-7 rounded-full transition-colors cursor-pointer ${
+              mode === 'chat' ? 'bg-[var(--accent-brown)] text-white' : 'text-[var(--text-secondary)] hover:text-[var(--text-heading)]'
+            }`}
+            title="Chat mode"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M10 3h4a8 8 0 1 1 0 16v3.5c-5-2-12-5-12-11.5a8 8 0 0 1 8-8Zm2 14h2a6 6 0 0 0 0-12h-4a6 6 0 0 0-6 6c0 3.61 2.462 5.966 8 8.48V17Z" />
+            </svg>
+          </button>
+        </div>
 
         {/* Action Button: Solid circular button with up arrow */}
         <button
-          onClick={hasSelection ? handleReplace : handleInsert}
+          onClick={mode === 'chat' ? handleChat : handleEdit}
           disabled={!instructionText || isWorking}
           className="
-            flex items-center justify-center transition-[background-color,transform,opacity] duration-150 cursor-pointer select-none border rounded-full w-8 h-8 active:scale-[0.9] bg-[var(--accent-brown)] hover:bg-[var(--accent-brown-hover)] text-white disabled:bg-[var(--bg-disabled)] disabled:text-[var(--text-disabled)] disabled:border-transparent border-transparent
+            flex items-center justify-center transition-[background-color,transform,opacity] duration-150 cursor-pointer select-none border rounded-full w-7 h-7 active:scale-[0.9] bg-[var(--accent-brown)] hover:bg-[var(--accent-brown-hover)] text-white disabled:bg-[var(--bg-disabled)] disabled:text-[var(--text-disabled)] disabled:border-transparent border-transparent
           "
-          title={hasSelection ? 'Replace Selection' : 'Insert Content'}
+          title={mode === 'chat' ? 'Send Message' : hasSelection ? 'Replace Selection' : 'Insert Content'}
         >
           {isWorking ? (
             <RefreshCw className="w-3.5 h-3.5 animate-spin" />
@@ -597,20 +562,14 @@ export function SimpleAssist() {
               return (
                 <div key={log.id} className="flex flex-col gap-3">
                   {/* User Speech Capsule Bubble */}
-                  <div className="self-end max-w-[85%] bg-[var(--bg-bubble)] border border-[var(--border)] rounded-[16px] rounded-tr-[4px] px-3.5 py-2.5 font-sans text-xs text-[var(--text)] shadow-none leading-relaxed select-text flex flex-col gap-1.5 animate-scale-in">
-                    {log.ref_files && log.ref_files.length > 0 && (
-                      <div className="flex flex-wrap gap-1 select-none">
-                        {log.ref_files.map((file) => (
-                          <span
-                            key={file.path}
-                            className="bg-[var(--bg-chip)] text-[var(--text-accent)] border border-[var(--border-chip)]/30 rounded-[3px] px-1.5 py-0.5 text-[9px] font-mono font-semibold"
-                          >
-                            @{file.name}
-                          </span>
-                        ))}
-                      </div>
+                  <div className="self-end max-w-[85%] bg-[var(--bg-bubble)] border border-[var(--border)] rounded-[16px] rounded-tr-[4px] px-3.5 py-2.5 font-sans text-xs text-[var(--text)] shadow-none leading-relaxed select-text flex flex-wrap items-center gap-1 animate-scale-in">
+                    {log.mode !== 'chat' && log.selected_text && (
+                      <span className="inline-chip" data-role="char-count">{log.selected_text.length} Ch</span>
                     )}
-                    <div>{cleanUserPrompt(log)}</div>
+                    {log.ref_files?.map((file) => (
+                      <span key={file.path} className="inline-chip" data-path={file.path} data-name={file.name}>@{file.name}</span>
+                    ))}
+                    <span>{cleanUserPrompt(log)}</span>
                   </div>
 
                   {/* AI Assistant Plain Text Response */}
@@ -626,9 +585,7 @@ export function SimpleAssist() {
                           <path d="m9 18 6-6-6-6" />
                         </svg>
                       </button>
-                      <span className="text-[10px] text-[var(--text-accent)] font-semibold select-none flex items-center gap-0.5 ml-auto">
-                        {log.mode === 'chat' ? '✓ Replied' : '✓ Applied'}
-                      </span>
+
                     </div>
                     <div className="text-xs font-sans text-[var(--text)] leading-relaxed whitespace-pre-wrap select-text">
                       {log.output}
@@ -647,20 +604,14 @@ export function SimpleAssist() {
             {isWorking && activeInstruction && (
               <div className="flex flex-col gap-3 animate-fade-in">
                 {/* User Prompt */}
-                <div className="self-end max-w-[85%] bg-[var(--bg-bubble)] border border-[var(--border)] rounded-[16px] rounded-tr-[4px] px-3.5 py-2.5 font-sans text-xs text-[var(--text)] shadow-none leading-relaxed select-text flex flex-col gap-1.5 opacity-70">
-                  {activeRefFiles && activeRefFiles.length > 0 && (
-                    <div className="flex flex-wrap gap-1 select-none">
-                      {activeRefFiles.map((file) => (
-                        <span
-                          key={file.path}
-                          className="bg-[var(--bg-chip)] text-[var(--text-accent)] border border-[var(--border-chip-active)] rounded-[3px] px-1.5 py-0.5 text-[9px] font-mono font-semibold"
-                        >
-                          @{file.name}
-                        </span>
-                      ))}
-                    </div>
+                <div className="self-end max-w-[85%] bg-[var(--bg-bubble)] border border-[var(--border)] rounded-[16px] rounded-tr-[4px] px-3.5 py-2.5 font-sans text-xs text-[var(--text)] shadow-none leading-relaxed select-text flex flex-wrap items-center gap-1 opacity-70">
+                  {activeSelectedLength != null && (
+                    <span className="inline-chip" data-role="char-count">{activeSelectedLength} Ch</span>
                   )}
-                  <div>{activeInstruction}</div>
+                  {activeRefFiles.map((file) => (
+                    <span key={file.path} className="inline-chip" data-path={file.path} data-name={file.name}>@{file.name}</span>
+                  ))}
+                  <span>{activeInstruction}</span>
                 </div>
 
                 {/* Thinking Status */}
@@ -695,18 +646,6 @@ export function SimpleAssist() {
             )}
           </div>
         </>
-      )}
-
-      {!hasHistory && (
-        <div className="flex-1 flex flex-col items-center justify-center text-center select-none animate-fade-in gap-3">
-          <svg width="24" height="24" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" className="text-[var(--text-secondary)]" stroke="currentColor" strokeWidth="1.5"><g fill="none" stroke="currentColor" strokeWidth="1.5"><path strokeLinecap="round" strokeLinejoin="round" d="M23.204 6.103a1.5 1.5 0 0 1-2.122 0L17.9 2.921A1.5 1.5 0 0 1 17.9.8m-.175 10.676c-1.405 1.405-6.47 1.166-6.47 1.166s-.24-5.064 1.167-6.47a3.677 3.677 0 0 1 5.2.106a3.68 3.68 0 0 1 .103 5.198" /><path d="M14.995 9.332a.375.375 0 0 1 0-.75m0 .75a.375.375 0 0 0 0-.75" /><path strokeLinecap="round" strokeLinejoin="round" d="M8.5 14.25H6a2.25 2.25 0 0 0 0 4.5h14.5a2.25 2.25 0 0 1 0 4.5H.75" /></g></svg>
-          <span className="text-[11px] font-semibold text-[var(--text-secondary)] font-sans">AI Assist</span>
-          <div className="flex flex-col gap-1.5 text-[10px] text-[var(--text-muted)] font-sans leading-relaxed">
-            <span>Select text to rewrite, or place cursor to insert</span>
-            <span>Edit prompts in sidebar to customize</span>
-            <span>@ to add context from your files</span>
-          </div>
-        </div>
       )}
 
       {/* Input Card always anchored cleanly at the bottom */}

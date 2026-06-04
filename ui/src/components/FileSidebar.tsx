@@ -317,13 +317,6 @@ export function FileSidebar({
         </div>
       </div>
 
-      {/* Workspace header path */}
-      {workspaceDir && !loading && (
-        <div className="flex items-center gap-1.5 text-[11px] text-[var(--text-secondary)] font-medium truncate font-sans px-1 pt-1 animate-fade-in">
-          <FolderOpen className="w-3.5 h-3.5 shrink-0 text-[var(--text-secondary)]/70" strokeWidth={1.5} />
-          <span className="truncate">{workspaceDir}</span>
-        </div>
-      )}
 
       {/* Loading state */}
       {loading && (

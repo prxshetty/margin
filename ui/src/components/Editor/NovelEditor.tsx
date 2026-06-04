@@ -5,6 +5,7 @@ import { useProjectStore } from '../../stores/projectStore'
 import { useEffect, useRef } from 'react'
 import { Markdown } from 'tiptap-markdown'
 import { InlineSelectionPopup } from './InlineSelectionPopup'
+import { SimpleAssistSelectionPopup } from './SimpleAssistSelectionPopup'
 import { getDocPath } from '../../lib/docInfo'
 
 export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: boolean }) {
@@ -96,6 +97,7 @@ export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: bool
     <div className="bg-[var(--bg)] relative">
       <EditorContent editor={editor} />
       {showInlinePopup && <InlineSelectionPopup localEditor={editor} />}
+      <SimpleAssistSelectionPopup />
     </div>
   )
 }

@@ -1,11 +1,6 @@
 @import "tailwindcss";
 
-@theme {
-  --color-primary: #3b82f6;
-  --color-primary-foreground: #ffffff;
-}
-
-/* ─── Design Tokens (Light) ──────────────────────────────────────────── */
+/* ── Light theme ─────────────────────────── */
 :root {
   --bg: #FFFFFF;
   --bg-bubble: #EFEAE4;
@@ -42,7 +37,7 @@
   --accent-gradient-2: #FCA5A5;
 }
 
-/* ─── Design Tokens (Dark) ───────────────────────────────────────────── */
+/* ── Dark theme ──────────────────────────── */
 .dark {
   --bg: #1C1A16;
   --bg-bubble: #332F28;
@@ -79,231 +74,133 @@
   --accent-gradient-2: #C4A27A;
 }
 
+.inline-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--bg-chip);
+  color: var(--text-accent);
+  border: 1px solid color-mix(in srgb, var(--border-chip) 30%, transparent);
+  border-radius: 6px;
+  padding: 0 6px;
+  height: 16px;
+  font-size: 10px;
+  font-family: ui-monospace, 'SFMono-Regular', 'SF Mono', Menlo, Consolas, monospace;
+  user-select: none;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.inline-chip .chip-remove {
+  color: color-mix(in srgb, var(--text-accent) 60%, transparent);
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+  margin-left: 2px;
+}
+
+.inline-chip .chip-remove:hover {
+  color: var(--text-accent);
+}
+
 body {
-  @apply bg-slate-50 text-slate-900;
-}
-
-.dark body {
-  @apply bg-[#1C1A16] text-[#D9D3C8];
-}
-
-/* ─── Prose (Tiptap editor content) ──────────────────────────────────── */
-.prose {
-  color: #1e293b;
-  line-height: 1.75;
-  font-size: 0.95rem;
-}
-
-.dark .prose {
-  color: #D9D3C8;
-}
-
-.prose h1 {
-  font-size: 1.875rem;
-  font-weight: 700;
-  line-height: 1.25;
-  margin-top: 0;
-  margin-bottom: 0.75rem;
-  color: #0f172a;
-}
-
-.dark .prose h1 {
-  color: #E8E2D5;
-}
-
-.prose h2 {
-  font-size: 1.25rem;
-  font-weight: 700;
-  line-height: 1.35;
-  margin-top: 1.5rem;
-  margin-bottom: 0.5rem;
-  color: #0f172a;
-  border-bottom: 1px solid #e2e8f0;
-  padding-bottom: 0.25rem;
-}
-
-.dark .prose h2 {
-  color: #E8E2D5;
-  border-bottom-color: #3C3831;
-}
-
-.prose h3 {
-  font-size: 1.05rem;
-  font-weight: 600;
-  line-height: 1.4;
-  margin-top: 1.25rem;
-  margin-bottom: 0.4rem;
-  color: #1e293b;
-}
-
-.dark .prose h3 {
-  color: #D9D3C8;
-}
-
-.prose h4 {
-  font-size: 0.95rem;
-  font-weight: 600;
-  margin-top: 1rem;
-  margin-bottom: 0.35rem;
-  color: #334155;
-}
-
-.dark .prose h4 {
-  color: #C4BAA8;
-}
-
-.prose p {
-  margin-top: 0.75rem;
-  margin-bottom: 0.75rem;
-}
-
-.prose p:first-child {
-  margin-top: 0;
-}
-
-.prose ul {
-  list-style-type: disc;
-  padding-left: 1.5rem;
-  margin-top: 0.5rem;
-  margin-bottom: 0.75rem;
-}
-
-.prose ol {
-  list-style-type: decimal;
-  padding-left: 1.5rem;
-  margin-top: 0.5rem;
-  margin-bottom: 0.75rem;
-}
-
-.prose li {
-  margin-top: 0.25rem;
-  margin-bottom: 0.25rem;
-}
-
-.prose li p {
+  background: var(--bg);
+  color: var(--text);
   margin: 0;
 }
 
+.prose {
+  font-size: 0.9375rem;
+  line-height: 1.75;
+  color: var(--text);
+}
+
+/* ── Prose typography ────────────────── */
+.prose {
+  font-size: 0.9375rem;
+  line-height: 1.75;
+  color: var(--text);
+}
+
+.prose p {
+  margin: 0.75em 0;
+}
+
+.prose h1, .prose h2, .prose h3, .prose h4 {
+  color: var(--text-heading);
+  font-weight: 600;
+  margin: 1.5em 0 0.5em;
+}
+
 .prose strong {
-  font-weight: 700;
-  color: #0f172a;
+  color: var(--text-heading);
 }
 
-.dark .prose strong {
-  color: #E8E2D5;
+.prose ul, .prose ol {
+  padding-left: 1.5em;
 }
 
-.prose em {
-  font-style: italic;
-}
-
-.prose code {
-  background: #f1f5f9;
-  border: 1px solid #e2e8f0;
-  border-radius: 0.25rem;
-  font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
-  font-size: 0.85em;
-  padding: 0.1em 0.4em;
-  color: #0f172a;
-}
-
-.dark .prose code {
-  background: #2E2A23;
-  border-color: #3C3831;
-  color: #E8E2D5;
-}
-
-.prose pre {
-  background: #0f172a;
-  color: #e2e8f0;
-  border-radius: 0.5rem;
-  padding: 1rem 1.25rem;
-  overflow-x: auto;
-  margin-top: 1rem;
-  margin-bottom: 1rem;
-}
-
-.dark .prose pre {
-  background: #1C1A16;
-  color: #D9D3C8;
-}
-
-.prose pre code {
-  background: transparent;
-  border: none;
-  padding: 0;
-  color: inherit;
-  font-size: 0.875em;
+.prose li {
+  margin: 0.25em 0;
 }
 
 .prose blockquote {
-  border-left: 3px solid #94a3b8;
-  padding-left: 1rem;
-  color: #64748b;
+  border-left: 3px solid var(--border);
+  padding-left: 1em;
+  color: var(--text-secondary);
   font-style: italic;
-  margin-top: 1rem;
-  margin-bottom: 1rem;
+  margin: 1em 0;
 }
 
-.dark .prose blockquote {
-  border-left-color: #6B655A;
-  color: #968F83;
+.prose code {
+  font-family: 'SF Mono', ui-monospace, monospace;
+  font-size: 0.85em;
+  padding: 0.15em 0.3em;
+  border-radius: 3px;
+  background: var(--bg-hover);
 }
 
-.prose hr {
-  border: none;
-  border-top: 1px solid #e2e8f0;
-  margin-top: 1.5rem;
-  margin-bottom: 1.5rem;
+.prose pre {
+  background: var(--bg-hover);
+  border-radius: 8px;
+  padding: 1em;
+  overflow-x: auto;
 }
 
-.dark .prose hr {
-  border-top-color: #3C3831;
+.prose pre code {
+  background: none;
+  padding: 0;
 }
 
-.prose a {
-  color: #3b82f6;
-  text-decoration: underline;
-}
-
-.prose a:hover {
-  color: #1d4ed8;
-}
-
-/* ─── Auto-hiding thin scrollbars ────────────────────────────────────── */
-/* 3px, hidden until container is hovered or actively scrolling */
+/* ── Thin auto-hiding scrollbars ────── */
 ::-webkit-scrollbar {
-  width: 3px;
-  height: 3px;
+  width: 4px;
+  height: 4px;
 }
-
 ::-webkit-scrollbar-track {
   background: transparent;
 }
-
 ::-webkit-scrollbar-thumb {
   background: transparent;
-  border-radius: 2px;
+  border-radius: 4px;
+  transition: background 0.2s;
 }
-
 *:hover::-webkit-scrollbar-thumb {
   background: rgba(203, 213, 225, 0.6);
 }
-
 .dark *:hover::-webkit-scrollbar-thumb {
   background: rgba(107, 101, 90, 0.5);
 }
-
 ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
-
 .dark ::-webkit-scrollbar-thumb:hover {
   background: #968F83;
 }
-
 * {
   scrollbar-width: thin;
   scrollbar-color: transparent transparent;
 }
-

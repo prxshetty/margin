@@ -1,3 +1,7 @@
+---
+title: 'Chapter 1: The Weight of the Canvas'
+---
+
 # Chapter 1: The Weight of the Canvas
 
 Elara Vance spends the night obsessively painting over the same canvas until the surface becomes muddy and ruined. Around her studio are signs she hasn’t been functioning properly for weeks — unopened mail, dead plants, voice memos from collectors she refuses to answer, and a half-written interview draft calling her “the next great modern surrealist,” a label she secretly hates.

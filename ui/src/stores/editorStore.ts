@@ -29,6 +29,8 @@ interface EditorState {
   setAnchorPosition: (pos: number) => void
   aiAssistPreload: { text: string; range: { from: number; to: number } } | null
   setAIAssistPreload: (preload: { text: string; range: { from: number; to: number } } | null) => void
+  pendingEditSelection: { text: string; from: number; to: number } | null
+  setPendingEditSelection: (sel: { text: string; from: number; to: number } | null) => void
   activeContextPath: string | null
   setActiveContextPath: (path: string | null) => void
   reloadDocSignal: number
@@ -67,6 +69,8 @@ export const useEditorStore = create<EditorState>((set) => ({
   setAnchorPosition: (anchorPosition) => set({ anchorPosition }),
   aiAssistPreload: null,
   setAIAssistPreload: (aiAssistPreload) => set({ aiAssistPreload }),
+  pendingEditSelection: null,
+  setPendingEditSelection: (pendingEditSelection) => set({ pendingEditSelection }),
   activeContextPath: null,
   setActiveContextPath: (activeContextPath) => set({ activeContextPath }),
   reloadDocSignal: 0,

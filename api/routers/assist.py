@@ -330,10 +330,11 @@ def edit(payload: AssistEditRequest):
 
 
 def _load_simple_prompt(filename: str) -> str:
-    path = Path(__file__).parent.parent / "prompts" / "simple" / filename
+    path = Path(__file__).parent.parent.parent / "prompts" / "simple" / filename
     try:
         return path.read_text(encoding="utf-8").strip()
-    except Exception:
+    except Exception as e:
+        print(f"Error loading prompt {filename} from {path}: {e}")
         return ""
 
 
@@ -368,7 +369,8 @@ def _log_simple_assist(
     selected_text: Optional[str] = None,
     text_before: Optional[str] = None,
     text_after: Optional[str] = None,
-    ref_files: Optional[List[Dict[str, Any]]] = None
+    ref_files: Optional[List[Dict[str, Any]]] = None,
+    edit_mode: Optional[str] = None
 ) -> None:
     log_entry = {
         "id": f"simple_{uuid.uuid4().hex}",
@@ -384,6 +386,8 @@ def _log_simple_assist(
         "ref_files": ref_files,
         "success": True,
     }
+    if edit_mode is not None:
+        log_entry["edit_mode"] = edit_mode
     storage.save_simple_ai_log(log_entry)
 
 
@@ -393,78 +397,105 @@ def simple_assist(payload: SimpleAssistRequest):
     if not message:
         raise HTTPException(status_code=400, detail="Missing message")
 
-    # Replace mode — rewrite selected text
-    if payload.selected_text:
-        agent = RewriteAgent()
-        rewritten = agent.generate(
-            selected_text=payload.selected_text,
-            feedback=message,
-            context_text=payload.content or "",
-        )
-        _log_simple_assist(
-            mode="replace",
-            system_prompt=agent.system_prompt,
-            user_prompt=f"REWRITE INSTRUCTIONS:\nFeedback: {message}\n\nFULL SCENE CONTEXT:\n{payload.content or ''}\n\nTEXT TO REWRITE:\n{payload.selected_text}",
-            response=rewritten,
-            instruction=message,
-            selected_text=payload.selected_text,
-            ref_files=payload.ref_files,
-        )
-        return {"type": "applied", "output": rewritten}
+    mode = payload.mode.strip().lower()
 
-    # Insert mode — generate content between text_before and text_after
-    if payload.text_before is not None or payload.text_after is not None:
-        agent = RewriteAgent()
-        inserted = agent.generate_insert(
-            text_before=payload.text_before or "",
-            text_after=payload.text_after or "",
-            block_type="paragraph",
-            feedback=message,
-            context_text=payload.content or "",
+    if mode == "edit":
+        system_prompt = _load_simple_prompt("simple-edit.md")
+        user_context = f"INSTRUCTION: {message}\n\n"
+        if payload.selected_text:
+            user_context += f"SELECTED TEXT:\n{payload.selected_text}\n\n"
+
+        if payload.text_before is not None:
+            user_context += f"CONTENT BEFORE CURSOR:\n{payload.text_before[-500:]}\n\n"
+        if payload.text_after is not None:
+            user_context += f"CONTENT AFTER CURSOR:\n{payload.text_after[:300]}\n\n"
+
+        client = llm.LLMClient()
+        raw = client.generate_to_completion(
+            system_prompt=system_prompt,
+            user_prompt=user_context,
+            temperature=0.7,
+            max_tokens=config.AGENT_CONFIG.get("writer", {}).get("max_tokens", 500),
         )
+
+        clean_raw = raw.strip()
+        # Clean markdown code block fences if present
+        if clean_raw.startswith("```"):
+            lines = clean_raw.splitlines()
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].startswith("```"):
+                lines = lines[:-1]
+            clean_raw = "\n".join(lines).strip()
+
+        try:
+            parsed = json.loads(clean_raw)
+            output_text = parsed["text"]
+            edit_mode = parsed["mode"]
+        except (json.JSONDecodeError, KeyError):
+            # Try parsing with brace matching
+            start = clean_raw.find("{")
+            end = clean_raw.rfind("}") + 1
+            if start != -1 and end != -1:
+                try:
+                    parsed = json.loads(clean_raw[start:end])
+                    output_text = parsed["text"]
+                    edit_mode = parsed["mode"]
+                except (json.JSONDecodeError, KeyError):
+                    raise HTTPException(status_code=500, detail=f"LLM returned non-JSON response: {raw}")
+            else:
+                raise HTTPException(status_code=500, detail=f"LLM returned non-JSON response: {raw}")
+
         _log_simple_assist(
-            mode="insert",
-            system_prompt=_load_simple_prompt("simple-insert.md"),
-            user_prompt=f"INSTRUCTION: {message}\n\nBLOCK TYPE AT CURSOR: paragraph\n\nCONTEXT BEFORE:\n{payload.text_before or ''}\n\nCONTEXT AFTER:\n{payload.text_after or ''}",
-            response=inserted,
+            mode="edit",
+            system_prompt=system_prompt,
+            user_prompt=user_context,
+            response=raw,
             instruction=message,
+            selected_text=payload.selected_text,
             text_before=payload.text_before,
             text_after=payload.text_after,
             ref_files=payload.ref_files,
+            edit_mode=edit_mode,
         )
-        return {"type": "applied", "output": inserted}
+        return {"type": "applied", "output": output_text, "edit_mode": edit_mode}
 
-    # Chat mode — LLM with full content as context
-    system_prompt = _load_simple_prompt("simple-chat.md")
-    client = llm.LLMClient()
-    full_system = system_prompt
-    if payload.content:
-        full_system += f"\n\nHere is the user's document for context:\n{payload.content}"
+    else:  # chat
+        system_prompt = _load_simple_prompt("simple-chat.md")
+        client = llm.LLMClient()
+        full_system = system_prompt
+        if payload.content:
+            full_system += f"\n\nHere is the user's document for context:\n{payload.content}"
 
-    user_prompt = ""
-    for h in payload.history:
-        role = h.get("role", "user")
-        content = h.get("content", "")
-        tag = "User" if role == "user" else "Assistant"
-        user_prompt += f"{tag}: {content}\n\n"
-    user_prompt += f"User: {message}"
+        user_message = message
+        if payload.selected_text:
+            user_message = f"[{len(payload.selected_text)} Ch]: \"{payload.selected_text[:120]}...\"\n\n{user_message}"
 
-    result = client.generate_to_completion(
-        system_prompt=full_system,
-        user_prompt=user_prompt,
-        temperature=0.7,
-        max_tokens=config.AGENT_CONFIG.get("writer", {}).get("max_tokens", 500),
-    )
-    _log_simple_assist(
-        mode="chat",
-        system_prompt=full_system,
-        user_prompt=user_prompt,
-        response=result,
-        instruction=message,
-        ref_files=payload.ref_files,
-    )
+        user_prompt = ""
+        for h in payload.history:
+            role = h.get("role", "user")
+            content = h.get("content", "")
+            tag = "User" if role == "user" else "Assistant"
+            user_prompt += f"{tag}: {content}\n\n"
+        user_prompt += f"User: {user_message}"
 
-    return {"type": "chat", "output": result}
+        result = client.generate_to_completion(
+            system_prompt=full_system,
+            user_prompt=user_prompt,
+            temperature=0.7,
+            max_tokens=config.AGENT_CONFIG.get("writer", {}).get("max_tokens", 500),
+        )
+        _log_simple_assist(
+            mode="chat",
+            system_prompt=full_system,
+            user_prompt=user_prompt,
+            response=result,
+            instruction=message,
+            ref_files=payload.ref_files,
+            selected_text=payload.selected_text,
+        )
+
+        return {"type": "chat", "output": result}
 
 
 class PromptSaveRequest(BaseModel):
