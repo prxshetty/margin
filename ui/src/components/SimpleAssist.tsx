@@ -333,6 +333,29 @@ export function SimpleAssist() {
         const docSize = editor.state.doc.content.size
         body.text_before = editor.state.doc.textBetween(0, pos, '\n')
         body.text_after = editor.state.doc.textBetween(pos, docSize, '\n')
+      } else {
+        const paragraphs: { from: number; to: number }[] = []
+        editor.state.doc.forEach((node, offset) => {
+          if (node.type.name === 'paragraph' || node.type.name === 'heading') {
+            paragraphs.push({ from: offset, to: offset + node.nodeSize })
+          }
+        })
+
+        let cursorParagraphIndex = 0
+        let minDiff = Infinity
+        for (let i = 0; i < paragraphs.length; i++) {
+          const para = paragraphs[i]
+          if (anchorPosition >= para.from && anchorPosition <= para.to) {
+            cursorParagraphIndex = i
+            break
+          }
+          const diff = Math.min(Math.abs(anchorPosition - para.from), Math.abs(anchorPosition - para.to))
+          if (diff < minDiff) {
+            minDiff = diff
+            cursorParagraphIndex = i
+          }
+        }
+        body.cursor_paragraph_index = cursorParagraphIndex
       }
 
       const res = await fetch(`${API_BASE}/api/assist/simple`, {
@@ -945,6 +968,34 @@ export function SimpleAssist() {
             )}
           </div>
         </>
+      )}
+
+      {!hasHistory && (
+        <div className="flex-1 flex flex-col justify-center px-6 py-10 animate-fade-in max-w-[280px] mx-auto select-none font-sans text-left">
+          <div className="text-[var(--text)] font-serif italic text-base text-center mb-1">
+            Simple Assist
+          </div>
+          <p className="text-[var(--text-muted)] text-[10.5px] leading-relaxed text-center mb-6 font-sans">
+            compatible with small language models.
+          </p>
+
+          <div className="flex flex-col gap-4 text-[10.5px] text-[var(--text-secondary)]">
+            <div>
+              <div className="font-mono text-[9px] text-center uppercase tracking-wider text-[var(--text-muted)] mb-1">Context</div>
+              <p className="leading-normal text-center text-[var(--text)]">Type <code className="font-mono text-[9.5px] bg-[var(--bg-hover)] px-1 py-0.5 rounded border border-[var(--border-subtle)] text-[var(--text)]">@</code> to add markdown files.</p>
+            </div>
+
+            <div>
+              <div className="font-mono text-[9px] text-center uppercase tracking-wider text-[var(--text-muted)] mb-1">Modes</div>
+              <p className="leading-normal text-[var(--text)]"><strong className="font-medium">Chat</strong> for questions, <strong className="font-medium">Edit</strong> to modify content.</p>
+            </div>
+
+            <div>
+              <div className="font-mono text-[9px] text-center uppercase tracking-wider text-[var(--text-muted)] mb-1">Placement</div>
+              <p className="leading-normal text-center text-[var(--text)]">Place your cursor to insert new text, or highlight paragraphs to replace them.</p>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Input Card always anchored cleanly at the bottom */}

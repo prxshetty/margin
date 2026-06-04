@@ -332,6 +332,63 @@ def edit(payload: AssistEditRequest):
     return {"type": "applied", "message": "Text updated.", "content": rewritten, "strategy": "text"}
 
 
+def _resolve_simple_assist_client() -> llm.LLMClient:
+    """Return an LLMClient configured with the active endpoint from settings,
+    falling back to .env defaults if no endpoint is active."""
+    s = storage.get_settings()
+    ep_id = s.get("active_endpoint")
+    if ep_id:
+        endpoints = s.get("endpoints") or {}
+        ep = endpoints.get(ep_id)
+        if ep:
+            return llm.LLMClient(
+                model=ep.get("model") or None,
+                base_url=ep.get("url") or None,
+                api_key=ep.get("api_key") or None,
+            )
+    return llm.LLMClient()
+
+
+def _build_simple_system_prompt(base_text: str) -> str:
+    """Prepend additional_context to a system prompt if it's non-empty."""
+    s = storage.get_settings()
+    ctx = (s.get("additional_context") or "").strip()
+    if ctx:
+        return f"\n\n--- USER CONTEXT ---\n{ctx}\n--- END USER CONTEXT ---\n\n{base_text}"
+    return base_text
+
+
+def _inject_pinned_ref_files(system_parts: list, already_seen: set) -> list:
+    """Append pinned ref file contents to the system prompt parts list."""
+    s = storage.get_settings()
+    pinned = s.get("pinned_ref_files") or []
+    if not pinned:
+        return system_parts
+    available = {f["path"]: f["name"] for f in storage.list_input_files()}
+    for pp in pinned:
+        if pp in already_seen:
+            continue
+        if pp not in available:
+            continue
+        try:
+            content = storage.read_input_file(pp)
+        except Exception:
+            continue
+        label = available[pp].replace("_", " ").replace(".md", "").upper()
+        system_parts.append(f"--- PINNED CONTEXT: {label} ---\n{content}")
+        already_seen.add(pp)
+    return system_parts
+
+
+def _pick_writer_max_tokens() -> int | None:
+    """Pick max_tokens from default_verbosity setting. None if token limits disabled."""
+    if config.DISABLE_TOKEN_LIMITS:
+        return None
+    s = storage.get_settings()
+    mapping = {"concise": 250, "balanced": 500, "expansive": 1000}
+    return mapping.get(s.get("default_verbosity", "balanced"), 500)
+
+
 def _load_simple_prompt(filename: str) -> str:
     path = Path(__file__).parent.parent.parent / "prompts" / "simple" / filename
     try:
@@ -350,6 +407,8 @@ class SimpleAssistRequest(BaseModel):
     text_before: Optional[str] = None
     text_after: Optional[str] = None
     ref_files: Optional[List[Dict[str, Any]]] = None
+    cursor_paragraph_index: Optional[int] = None
+
 
 
 @router.get("/simple/logs")
@@ -403,21 +462,16 @@ def _log_simple_assist(
     storage.save_simple_ai_log(log_entry)
 
 
-def run_planner(message: str, content: str, selected_text: Optional[str] = None) -> tuple[dict, str, str, str]:
+def run_planner(message: str, selected_text: Optional[str] = None) -> tuple[dict, str, str, str]:
     system = _load_simple_prompt("simple-planner.md")
     
     available = storage.list_input_files()
-    paragraphs = [p for p in content.split('\n\n') if p.strip()]
-    para_list = "\n".join(
-        f"\u00b6{i}: {p[:80].strip()}" for i, p in enumerate(paragraphs)
-    )
     
     user_prompt_lines = [f"INSTRUCTION: {message}\n"]
     if selected_text:
         user_prompt_lines.append(f"SELECTED TEXT (hint for placement):\n{selected_text}\n")
     
-    user_prompt_lines.append(f"AVAILABLE FILES:\n" + "\n".join(f['path'] for f in available) + "\n")
-    user_prompt_lines.append(f"DOCUMENT PARAGRAPHS:\n{para_list}")
+    user_prompt_lines.append(f"AVAILABLE FILES:\n" + "\n".join(f['path'] for f in available))
     
     user = "\n".join(user_prompt_lines)
     
@@ -431,23 +485,26 @@ def run_planner(message: str, content: str, selected_text: Optional[str] = None)
     try:
         return json.loads(raw), system, user, raw
     except Exception:
-        start, end = raw.find("{"), raw.rfind("}") + 1
-        return json.loads(raw[start:end]), system, user, raw
+        try:
+            start, end = raw.find("{"), raw.rfind("}") + 1
+            return json.loads(raw[start:end]), system, user, raw
+        except Exception:
+            return {"context_needed": []}, system, user, raw
+
 
 
 def build_generator_prompts(
     message: str,
-    plan: dict,
+    context_needed: List[str],
     content: str,
+    target_paragraph_index: int,
+    replace: bool,
     selected_text: Optional[str] = None,
 ) -> tuple[str, str]:
     
     paragraphs = [p for p in content.split('\n\n') if p.strip()]
     
-    idx = plan.get("target_paragraph_index", -1)
-    if idx == -1:
-        idx = len(paragraphs) - 1
-    idx = max(0, min(idx, len(paragraphs) - 1))
+    idx = max(0, min(target_paragraph_index, len(paragraphs) - 1))
     
     target_para = paragraphs[idx] if paragraphs else ""
     
@@ -455,7 +512,7 @@ def build_generator_prompts(
     
     available_paths = [f['path'] for f in storage.list_input_files()]
     
-    for filepath in plan.get("context_needed", []):
+    for filepath in context_needed:
         actual_path = filepath
         if actual_path not in available_paths:
             matches = difflib.get_close_matches(filepath, available_paths, n=1, cutoff=0.5)
@@ -495,12 +552,13 @@ def build_generator_prompts(
     if selected_text:
         user_parts.append(f"USER'S SELECTED TEXT:\n{selected_text}")
     
-    if plan.get("replace"):
+    if replace:
         user_parts.append(f"REPLACE THIS PARAGRAPH:\n{target_para}")
     else:
         user_parts.append(f"INSERT AFTER THIS PARAGRAPH:\n{target_para}")
     
     return "\n\n".join(system_parts), "\n\n".join(user_parts)
+
 
 
 @router.post("/simple")
@@ -519,7 +577,7 @@ async def simple_assist(payload: SimpleAssistRequest):
                 loop = asyncio.get_running_loop()
                 plan, planner_system, planner_user, planner_raw = await loop.run_in_executor(
                     None,
-                    lambda: run_planner(payload.message, payload.content, payload.selected_text)
+                    lambda: run_planner(payload.message, payload.selected_text)
                 )
 
                 context_needed = plan.get("context_needed", [])
@@ -531,11 +589,23 @@ async def simple_assist(payload: SimpleAssistRequest):
                 yield {"data": json.dumps({"status": "generating"})}
 
                 paragraphs = [p for p in payload.content.split('\n\n') if p.strip()]
-                resolved_idx = len(paragraphs) - 1 if plan.get("target_paragraph_index", -1) == -1 \
-                               else plan.get("target_paragraph_index", -1)
+                
+                # Determine placement mechanically
+                if payload.selected_text:
+                    replace = True
+                    # Find which paragraph contains the selected text
+                    target_idx = next(
+                        (i for i, p in enumerate(paragraphs) if payload.selected_text[:50] in p),
+                        len(paragraphs) - 1
+                    )
+                else:
+                    replace = False
+                    target_idx = payload.cursor_paragraph_index if payload.cursor_paragraph_index is not None else len(paragraphs) - 1
+                
+                resolved_idx = max(0, min(target_idx, len(paragraphs) - 1))
 
                 system_prompt, user_prompt = build_generator_prompts(
-                    payload.message, plan, payload.content, payload.selected_text
+                    payload.message, context_needed, payload.content, resolved_idx, replace, payload.selected_text
                 )
 
                 raw = await loop.run_in_executor(
@@ -583,9 +653,9 @@ async def simple_assist(payload: SimpleAssistRequest):
                     "status": "applied",
                     "output": output_text,
                     "placement": {
-                        "anchor_text": plan.get("anchor_text", ""),
+                        "anchor_text": "",
                         "paragraph_index": resolved_idx,
-                        "replace": plan.get("replace", False)
+                        "replace": replace
                     }
                 })}
 
