@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import type { Editor } from '@tiptap/react'
 import { RefreshCw } from 'lucide-react'
 import { useEditorStore } from '../stores/editorStore'
 import { API_BASE } from '../lib/api'
@@ -17,6 +18,9 @@ interface SimpleLogEntry {
   text_after?: string
   ref_files?: Array<{ name: string, path: string }>
   success?: boolean
+  planner_system_prompt?: string
+  planner_user_prompt?: string
+  planner_output?: string
 }
 
 interface MarkdownStorage {
@@ -70,14 +74,68 @@ function getTextBeforeCaret(el: HTMLElement): string {
   return result
 }
 
-function getInputData(el: HTMLElement): { text: string; refPaths: string[] } {
+function getInputData(el: HTMLElement): {
+  text: string
+  refPaths: string[]
+  selection: { text: string; from: number; to: number } | null
+} {
   const refPaths: string[] = []
   el.querySelectorAll<HTMLElement>('[data-path]').forEach((chip) => {
     refPaths.push(chip.dataset.path ?? '')
   })
+
+  let selection: { text: string; from: number; to: number } | null = null
+  const selectionChip = el.querySelector<HTMLElement>('[data-role="selection"]')
+  if (selectionChip) {
+    selection = {
+      text: selectionChip.dataset.text ?? '',
+      from: Number(selectionChip.dataset.from ?? '0'),
+      to: Number(selectionChip.dataset.to ?? '0'),
+    }
+  }
+
   const clone = el.cloneNode(true) as HTMLElement
   clone.querySelectorAll<HTMLElement>('.inline-chip').forEach((chip) => chip.remove())
-  return { text: clone.textContent?.trim() ?? '', refPaths }
+  return { text: clone.textContent?.trim() ?? '', refPaths, selection }
+}
+
+function resolvePlacementPosition(
+  editor: Editor,
+  placement: { anchor_text?: string; paragraph_index: number; replace: boolean } | undefined,
+  fallbackPos: number
+): { from: number; to?: number } {
+  if (!placement) return { from: fallbackPos }
+
+  const doc = editor.state.doc
+
+  const paragraphs: { from: number; to: number, text: string }[] = []
+  doc.forEach((node, offset) => {
+    if (node.type.name === 'paragraph' || node.type.name === 'heading') {
+      paragraphs.push({ from: offset, to: offset + node.nodeSize, text: node.textContent })
+    }
+  })
+
+  // Primary: anchor text
+  if (placement.anchor_text) {
+    for (const para of paragraphs) {
+      if (para.text.includes(placement.anchor_text)) {
+        return placement.replace
+          ? { from: para.from, to: para.to }
+          : { from: para.to }
+      }
+    }
+  }
+
+  // Fallback: paragraph index
+  const targetIdx = placement.paragraph_index !== -1 ? placement.paragraph_index : paragraphs.length - 1
+  const target = paragraphs[targetIdx]
+  if (target) {
+    return placement.replace
+      ? { from: target.from, to: target.to }
+      : { from: target.to }
+  }
+
+  return { from: fallbackPos }
 }
 
 export function SimpleAssist() {
@@ -91,6 +149,9 @@ export function SimpleAssist() {
   const currentFilePath = useEditorStore((s) => s.currentFilePath)
   const updateFileContent = useEditorStore((s) => s.updateFileContent)
   const [isWorking, setIsWorking] = useState(false)
+  const [isPlanning, setIsPlanning] = useState(false)
+  const [isGenerating, setIsGenerating] = useState(false)
+  const [plannerContextFiles, setPlannerContextFiles] = useState<string[]>([])
   const [instructionText, setInstructionText] = useState('')
   const [historyLogs, setHistoryLogs] = useState<SimpleLogEntry[]>([])
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({})
@@ -157,8 +218,12 @@ export function SimpleAssist() {
     if (!el) return
 
     const textBefore = getTextBeforeCaret(el)
-    const { text } = getInputData(el)
+    const { text, selection: domSelection } = getInputData(el)
     setInstructionText(text)
+
+    if (!domSelection && pendingEditSelection) {
+      setPendingEditSelection(null)
+    }
 
     const atIndex = textBefore.lastIndexOf('@')
     if (atIndex === -1 || (atIndex > 0 && textBefore[atIndex - 1] !== ' ' && textBefore[atIndex - 1] !== '\n')) {
@@ -205,7 +270,8 @@ export function SimpleAssist() {
     chip.dataset.name = file.name
     chip.innerHTML = `@${file.name} <button class="chip-remove" data-path="${file.path}">&times;</button>`
 
-    const zwsp = document.createTextNode('\u200B')
+    const isEditorContent = file.name === 'editorcontent.ts'
+    const zwsp = document.createTextNode(isEditorContent ? '\u200B ' : '\u200B')
     const fragment = document.createDocumentFragment()
     fragment.appendChild(chip)
     fragment.appendChild(zwsp)
@@ -228,14 +294,17 @@ export function SimpleAssist() {
   const handleEdit = async () => {
     if (!editor) return
     const inputEl = inputRef.current!
-    const { text: currentInstruction, refPaths } = getInputData(inputEl)
+    const { text: currentInstruction, refPaths, selection: domSelection } = getInputData(inputEl)
     if (!currentInstruction) return
 
-    const selectionInfo = pendingEditSelection
+    const selectionInfo = domSelection
     const localHasSelection = !!selectionInfo
     const selectionText = selectionInfo ? selectionInfo.text : ''
 
     setIsWorking(true)
+    setIsPlanning(true)
+    setIsGenerating(false)
+    setPlannerContextFiles([])
     setActiveInstruction(currentInstruction)
     const currentRefFiles = openedFiles.filter((f) => refPaths.includes(f.path))
     setActiveRefFiles(currentRefFiles)
@@ -260,12 +329,11 @@ export function SimpleAssist() {
 
       if (localHasSelection) {
         body.selected_text = selectionText
+        const pos = anchorPosition
+        const docSize = editor.state.doc.content.size
+        body.text_before = editor.state.doc.textBetween(0, pos, '\n')
+        body.text_after = editor.state.doc.textBetween(pos, docSize, '\n')
       }
-
-      const pos = anchorPosition
-      const docSize = editor.state.doc.content.size
-      body.text_before = editor.state.doc.textBetween(0, pos, '\n')
-      body.text_after = editor.state.doc.textBetween(pos, docSize, '\n')
 
       const res = await fetch(`${API_BASE}/api/assist/simple`, {
         method: 'POST',
@@ -273,35 +341,83 @@ export function SimpleAssist() {
         body: JSON.stringify(body),
       })
       if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}))
-        throw new Error(errorData.detail || 'Edit failed')
+        throw new Error('Edit failed')
       }
-      const data = await res.json()
-      const output = data.output
 
-      if (data.edit_mode === 'replace' && selectionInfo) {
-        const from = selectionInfo.from
-        const to = selectionInfo.to
-        if (from !== to) {
-          editor.chain().deleteRange({ from, to }).insertContentAt(from, output).run()
+      const reader = res.body!.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          const cleanLine = line.trim()
+          if (!cleanLine.startsWith('data: ')) continue
+          const rawData = cleanLine.slice(6)
+          try {
+            const data = JSON.parse(rawData)
+            if (data.status === 'planning') {
+              setIsPlanning(true)
+              setIsGenerating(false)
+            } else if (data.status === 'context_resolved') {
+              if (Array.isArray(data.context_needed)) {
+                setPlannerContextFiles(data.context_needed)
+              }
+            } else if (data.status === 'generating') {
+              setIsPlanning(false)
+              setIsGenerating(true)
+            } else if (data.status === 'applied') {
+              const output = data.output
+
+              if (data.placement) {
+                const resolved = resolvePlacementPosition(editor, data.placement, anchorPosition)
+                if (resolved.to !== undefined) {
+                  editor.chain()
+                    .deleteRange({ from: resolved.from, to: resolved.to })
+                    .insertContentAt(resolved.from, '\n\n' + output)
+                    .run()
+                } else {
+                  editor.commands.insertContentAt(resolved.from, '\n\n' + output)
+                }
+              } else if (data.edit_mode === 'replace' && selectionInfo) {
+                const from = selectionInfo.from
+                const to = selectionInfo.to
+                if (from !== to) {
+                  editor.chain().deleteRange({ from, to }).insertContentAt(from, output).run()
+                }
+              } else {
+                editor.commands.insertContentAt(anchorPosition, output)
+              }
+
+              const storage = editor.storage as unknown as MarkdownStorage
+              if (storage.markdown) {
+                const md = storage.markdown.getMarkdown()
+                setContent(md)
+                if (currentFilePath) updateFileContent(currentFilePath, md)
+              }
+              setPendingEditSelection(null)
+            } else if (data.status === 'error') {
+              throw new Error(data.detail || 'Edit failed')
+            }
+          } catch (e) {
+            console.error('Error parsing stream chunk:', e)
+          }
         }
-      } else {
-        editor.commands.insertContentAt(anchorPosition, output)
       }
-
-      const storage = editor.storage as unknown as MarkdownStorage
-      if (storage.markdown) {
-        const md = storage.markdown.getMarkdown()
-        setContent(md)
-        if (currentFilePath) updateFileContent(currentFilePath, md)
-      }
-      setPendingEditSelection(null)
       await fetchLogs()
     } catch (err) {
       console.error(err)
       setErrorText('Error: ' + (err as Error).message)
     } finally {
       setIsWorking(false)
+      setIsPlanning(false)
+      setIsGenerating(false)
+      setPlannerContextFiles([])
       setActiveInstruction('')
       setActiveRefFiles([])
       setActiveSelectedLength(undefined)
@@ -311,14 +427,17 @@ export function SimpleAssist() {
   const handleChat = async () => {
     if (!editor) return
     const inputEl = inputRef.current!
-    const { text: currentInstruction, refPaths } = getInputData(inputEl)
+    const { text: currentInstruction, refPaths, selection: domSelection } = getInputData(inputEl)
     if (!currentInstruction) return
 
-    const selectionInfo = pendingEditSelection
+    const selectionInfo = domSelection
     const localHasSelection = !!selectionInfo
     const selectionText = selectionInfo ? selectionInfo.text : ''
 
     setIsWorking(true)
+    setIsPlanning(false)
+    setIsGenerating(true)
+    setPlannerContextFiles([])
     setActiveInstruction(currentInstruction)
     const currentRefFiles = openedFiles.filter((f) => refPaths.includes(f.path))
     setActiveRefFiles(currentRefFiles)
@@ -350,8 +469,38 @@ export function SimpleAssist() {
         body: JSON.stringify(body),
       })
       if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}))
-        throw new Error(errorData.detail || 'Chat failed')
+        throw new Error('Chat failed')
+      }
+
+      const reader = res.body!.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          const cleanLine = line.trim()
+          if (!cleanLine.startsWith('data: ')) continue
+          const rawData = cleanLine.slice(6)
+          try {
+            const data = JSON.parse(rawData)
+            if (data.status === 'generating') {
+              setIsPlanning(false)
+              setIsGenerating(true)
+            } else if (data.status === 'chat') {
+              // Done generating
+            } else if (data.status === 'error') {
+              throw new Error(data.detail || 'Chat failed')
+            }
+          } catch (e) {
+            console.error('Error parsing stream chunk:', e)
+          }
+        }
       }
       await fetchLogs()
     } catch (err) {
@@ -359,13 +508,16 @@ export function SimpleAssist() {
       setErrorText('Error: ' + (err as Error).message)
     } finally {
       setIsWorking(false)
+      setIsPlanning(false)
+      setIsGenerating(false)
+      setPlannerContextFiles([])
       setActiveInstruction('')
       setActiveRefFiles([])
       setActiveSelectedLength(undefined)
     }
   }
 
-    const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Backspace' && !inputRef.current?.textContent?.trim() && pendingEditSelection) {
       e.preventDefault()
       setPendingEditSelection(null)
@@ -395,10 +547,20 @@ export function SimpleAssist() {
     }
     if (e.key === 'Enter') {
       e.preventDefault()
-      document.execCommand('insertText', false, '\n')
+      if (e.shiftKey) {
+        document.execCommand('insertText', false, '\n')
+      } else {
+        if (instructionText && !isWorking) {
+          if (mode === 'chat') {
+            handleChat()
+          } else {
+            handleEdit()
+          }
+        }
+      }
     }
   }
-  
+
   const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
     e.preventDefault()
     const text = e.clipboardData.getData('text/plain')
@@ -411,24 +573,90 @@ export function SimpleAssist() {
       e.preventDefault()
       const chip = target.closest('.inline-chip') as HTMLElement
       if (chip) {
+        const isSelection = chip.dataset.role === 'selection'
         chip.remove()
+        if (isSelection) {
+          setPendingEditSelection(null)
+        }
         handleInput()
       }
     }
   }
 
+  // Handle sync of pendingEditSelection into inline tag chips and autofocus
+  useEffect(() => {
+    const div = inputRef.current
+    if (!div) return
+
+    if (pendingEditSelection) {
+      // Find and remove any existing selection chip first to avoid duplicates
+      const existingSelectionChip = div.querySelector('[data-role="selection"]')
+      if (existingSelectionChip) {
+        existingSelectionChip.remove()
+      }
+
+      // Create the new selection tag/chip
+      const chip = document.createElement('span')
+      chip.contentEditable = 'false'
+      chip.className = 'inline-chip'
+      chip.dataset.role = 'selection'
+      chip.dataset.from = String(pendingEditSelection.from)
+      chip.dataset.to = String(pendingEditSelection.to)
+      chip.dataset.text = pendingEditSelection.text
+
+      const len = pendingEditSelection.text.length
+      chip.innerHTML = `@editorcontent.ts (${len} Ch) <button class="chip-remove" data-role="selection-remove">&times;</button>`
+
+      // Insert it at current selection/caret of input, or at the end if not inside
+      const sel = window.getSelection()
+      let range: Range | null = null
+      if (sel && sel.rangeCount > 0) {
+        const potentialRange = sel.getRangeAt(0)
+        if (div.contains(potentialRange.startContainer)) {
+          range = potentialRange
+        }
+      }
+
+      if (!range) {
+        range = document.createRange()
+        range.selectNodeContents(div)
+        range.collapse(false)
+      }
+
+      // Add a space after the selection tag.
+      const zwsp = document.createTextNode('\u200B ')
+      const fragment = document.createDocumentFragment()
+      fragment.appendChild(chip)
+      fragment.appendChild(zwsp)
+      range.insertNode(fragment)
+
+      // Focus and move caret after the space
+      setTimeout(() => {
+        const currentSel = window.getSelection()
+        if (currentSel) {
+          const rangeAfter = document.createRange()
+          rangeAfter.setStartAfter(zwsp)
+          rangeAfter.collapse(true)
+          currentSel.removeAllRanges()
+          currentSel.addRange(rangeAfter)
+        }
+        div.focus()
+        handleInput()
+      }, 0)
+    } else {
+      // When pendingEditSelection is null, clean up the selection chip if it exists in DOM
+      const existingSelectionChip = div.querySelector('[data-role="selection"]')
+      if (existingSelectionChip) {
+        existingSelectionChip.remove()
+        handleInput()
+      }
+    }
+  }, [pendingEditSelection])
+
   const hasHistory = historyLogs.length > 0 || isWorking || !!errorText
 
   const renderInputCard = () => (
     <div className="bg-[var(--bg)] border border-[var(--border)] focus-within:border-[var(--text-secondary)] shadow-[0_4px_12px_rgba(0,0,0,0.01)] focus-within:shadow-[0_4px_16px_rgba(0,0,0,0.02)] transition-[border-color,box-shadow] duration-200 rounded-[20px] p-3 flex flex-col relative animate-scale-in">
-      {pendingEditSelection && (
-        <div className="flex items-center gap-1 mb-1.5 select-none">
-          <span className="inline-chip bg-[var(--bg-hover)] px-2 py-0.5 rounded-[4px] text-[10px] text-[var(--text-secondary)] border border-[var(--border-subtle)] flex items-center gap-1 font-sans">
-            {pendingEditSelection.text.length} Ch
-            <button className="chip-remove text-[var(--text-muted)] hover:text-[var(--text)] font-sans ml-0.5 cursor-pointer animate-fade-in" onClick={() => setPendingEditSelection(null)}>&times;</button>
-          </span>
-        </div>
-      )}
       <div className="flex items-start gap-1.5 w-full">
         <div
           ref={inputRef}
@@ -460,11 +688,10 @@ export function SimpleAssist() {
                   key={file.path}
                   onClick={() => handleSelectFile(file)}
                   onMouseEnter={() => setHighlightedIndex(index)}
-                  className={`w-full flex items-center gap-2 px-3 py-2 text-left transition-colors cursor-pointer ${
-                    index === highlightedIndex
-                      ? 'bg-[var(--bg-hover)]'
-                      : 'hover:bg-[var(--bg-hover)]'
-                  }`}
+                  className={`w-full flex items-center gap-2 px-3 py-2 text-left transition-colors cursor-pointer ${index === highlightedIndex
+                    ? 'bg-[var(--bg-hover)]'
+                    : 'hover:bg-[var(--bg-hover)]'
+                    }`}
                 >
                   <span className="text-xs text-[var(--text)] font-medium font-sans truncate">
                     {file.name}
@@ -485,9 +712,8 @@ export function SimpleAssist() {
         <div className="flex items-center gap-0.5 bg-[var(--bg-hover)] rounded-full p-0.5 border border-[var(--border-subtle)]">
           <button
             onClick={() => setMode('edit')}
-            className={`flex items-center justify-center w-7 h-7 rounded-full transition-colors cursor-pointer ${
-              mode === 'edit' ? 'bg-[var(--accent-brown)] text-white' : 'text-[var(--text-secondary)] hover:text-[var(--text-heading)]'
-            }`}
+            className={`flex items-center justify-center w-7 h-7 rounded-full transition-colors cursor-pointer ${mode === 'edit' ? 'bg-[var(--accent-brown)] text-white' : 'text-[var(--text-secondary)] hover:text-[var(--text-heading)]'
+              }`}
             title="Edit mode"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -497,9 +723,8 @@ export function SimpleAssist() {
           </button>
           <button
             onClick={() => setMode('chat')}
-            className={`flex items-center justify-center w-7 h-7 rounded-full transition-colors cursor-pointer ${
-              mode === 'chat' ? 'bg-[var(--accent-brown)] text-white' : 'text-[var(--text-secondary)] hover:text-[var(--text-heading)]'
-            }`}
+            className={`flex items-center justify-center w-7 h-7 rounded-full transition-colors cursor-pointer ${mode === 'chat' ? 'bg-[var(--accent-brown)] text-white' : 'text-[var(--text-secondary)] hover:text-[var(--text-heading)]'
+              }`}
             title="Chat mode"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
@@ -559,6 +784,24 @@ export function SimpleAssist() {
           <div className="flex-1 overflow-y-auto flex flex-col gap-4 pr-1 min-h-0 select-text">
             {historyLogs.map((log) => {
               const isExpanded = !!expandedIds[log.id]
+
+              const plannerContextFiles: string[] = (() => {
+                if (!log.planner_output) return []
+                try {
+                  const start = log.planner_output.indexOf('{')
+                  const end = log.planner_output.lastIndexOf('}') + 1
+                  if (start !== -1 && end > start) {
+                    const data = JSON.parse(log.planner_output.slice(start, end))
+                    if (Array.isArray(data.context_needed)) {
+                      return data.context_needed
+                    }
+                  }
+                } catch (e) {
+                  // ignore
+                }
+                return []
+              })()
+
               return (
                 <div key={log.id} className="flex flex-col gap-3">
                   {/* User Speech Capsule Bubble */}
@@ -580,29 +823,75 @@ export function SimpleAssist() {
                         className="flex items-center gap-0.5 text-[10px] text-[var(--text-secondary)] hover:text-[var(--text-heading)] transition-colors cursor-pointer"
                         title="Toggle prompt details"
                       >
-                        <span>Telemetry</span>
+                        <span>Thinking</span>
                         <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`w-2.5 h-2.5 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}>
                           <path d="m9 18 6-6-6-6" />
                         </svg>
                       </button>
-
                     </div>
+                    {isExpanded && (
+                      <div className="text-[10px] font-mono text-[var(--text-secondary)] leading-normal select-text whitespace-pre-wrap mt-1 p-2 bg-[var(--bg-expanded)]/50 border border-[var(--border)] rounded-[6px] animate-fade-in w-full flex flex-col gap-3">
+                        {((log.ref_files && log.ref_files.length > 0) || log.selected_text || plannerContextFiles.length > 0) && (
+                          <div className="flex flex-col gap-1 border-b border-[var(--border)] pb-2 mb-1 select-none">
+                            {log.ref_files?.map((file) => (
+                              <div key={file.path} className="flex items-center gap-1.5 text-[10.5px] text-[var(--text-secondary)] font-sans">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 text-[var(--text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0z" />
+                                  <circle cx="12" cy="12" r="3" />
+                                </svg>
+                                <span>Read {file.name}</span>
+                              </div>
+                            ))}
+                            {plannerContextFiles.map((filepath) => {
+                              return (
+                                <div key={filepath} className="flex items-center gap-1.5 text-[10.5px] text-[var(--text-secondary)] font-sans">
+                                  <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 text-[var(--text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0z" />
+                                    <circle cx="12" cy="12" r="3" />
+                                  </svg>
+                                  <span>{filepath}</span>
+                                </div>
+                              )
+                            })}
+                            {log.selected_text && (
+                              <div className="flex items-center gap-1.5 text-[10.5px] text-[var(--text-secondary)] font-sans">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 text-[var(--text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0z" />
+                                  <circle cx="12" cy="12" r="3" />
+                                </svg>
+                                <span>Read editor selection ({log.selected_text.length} Ch)</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {log.planner_system_prompt && (
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[9px] uppercase tracking-widest font-sans text-[var(--text-muted)] font-semibold">① Planner</span>
+                            <div><strong>System:</strong> {log.planner_system_prompt}</div>
+                            <div className="mt-1"><strong>User:</strong> {log.planner_user_prompt}</div>
+                            <div className="mt-1"><strong>Output:</strong> {log.planner_output}</div>
+                          </div>
+                        )}
+                        {log.planner_system_prompt && (
+                          <div className="border-t border-[var(--border)] pt-2 mt-1" />
+                        )}
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[9px] uppercase tracking-widest font-sans text-[var(--text-muted)] font-semibold">{log.planner_system_prompt ? '② Generator' : 'Prompt'}</span>
+                          <div><strong>System:</strong> {log.system_prompt}</div>
+                          <div className="mt-1"><strong>User:</strong> {log.user_prompt}</div>
+                        </div>
+                      </div>
+                    )}
                     <div className="text-xs font-sans text-[var(--text)] leading-relaxed whitespace-pre-wrap select-text">
                       {log.output}
                     </div>
-                    {isExpanded && (
-                      <div className="text-[10px] font-mono text-[var(--text-secondary)] leading-normal select-text whitespace-pre-wrap mt-1 p-2 bg-[var(--bg-expanded)]/50 border border-[var(--border)] rounded-[6px] animate-fade-in w-full">
-                        <strong>System Prompt:</strong> {log.system_prompt}<br /><br />
-                        <strong>Full User Prompt:</strong> {log.user_prompt}
-                      </div>
-                    )}
                   </div>
                 </div>
               )
             })}
 
             {isWorking && activeInstruction && (
-              <div className="flex flex-col gap-3 animate-fade-in">
+              <div className="flex flex-col gap-2.5 animate-fade-in">
                 {/* User Prompt */}
                 <div className="self-end max-w-[85%] bg-[var(--bg-bubble)] border border-[var(--border)] rounded-[16px] rounded-tr-[4px] px-3.5 py-2.5 font-sans text-xs text-[var(--text)] shadow-none leading-relaxed select-text flex flex-wrap items-center gap-1 opacity-70">
                   {activeSelectedLength != null && (
@@ -613,28 +902,38 @@ export function SimpleAssist() {
                   ))}
                   <span>{activeInstruction}</span>
                 </div>
+                {/* Context Readings Logs */}
+                {activeRefFiles.map((file) => (
+                  <div key={file.path} className="flex items-center gap-1.5 text-[11px] text-[var(--text-secondary)] font-sans select-none ml-1">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 text-[var(--text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0z" />
+                      <circle cx="12" cy="12" r="3" />
+                    </svg>
+                    <span>Reading {file.name}</span>
+                  </div>
+                ))}
+                {plannerContextFiles.map((filepath) => {
+                  const name = filepath.split('/').pop() || filepath
+                  return (
+                    <div key={filepath} className="flex items-center gap-1.5 text-[11px] text-[var(--text-secondary)] font-sans select-none ml-1">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 text-[var(--text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0z" />
+                        <circle cx="12" cy="12" r="3" />
+                      </svg>
+                      <span>Reading {name} <span className="text-[9px] text-[var(--text-muted)] font-serif italic">(Auto-selected by Planner)</span></span>
+                    </div>
+                  )
+                })}
 
                 {/* Thinking Status */}
-                <div className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)] font-serif italic py-1 select-none animate-pulse">
+                <div className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)] font-serif italic py-1 select-none animate-pulse" ref={outputRef}>
                   <svg className="w-3.5 h-3.5 animate-spin text-[var(--accent-brown)]" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <circle cx="12" cy="12" r="10" stroke="var(--border)" strokeWidth="3" />
                     <path d="M12 2C6.47715 2 2 6.47715 2 12C2 13.5796 2.36592 15.071 3.01662 16.4024" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
                   </svg>
-                  <span>Thinking about the edit...</span>
-                </div>
-
-                {/* Step Progress Indicator (from the image) */}
-                <div className="flex flex-col gap-2 py-2 select-none" ref={outputRef}>
-                  <div className="text-[10px] text-[var(--text-secondary)] font-sans flex items-center justify-between">
-                    <span>Drafting manuscript changes</span>
-                    <span className="font-semibold text-[var(--text-heading)]">Step 1 of 4</span>
-                  </div>
-                  <div className="flex gap-1.5">
-                    <div className="h-1 bg-[var(--accent-brown)] rounded-full flex-1 animate-pulse" />
-                    <div className="h-1 bg-[var(--border)] rounded-full flex-1" />
-                    <div className="h-1 bg-[var(--border)] rounded-full flex-1" />
-                    <div className="h-1 bg-[var(--border)] rounded-full flex-1" />
-                  </div>
+                  <span>
+                    {isPlanning ? 'Planning...' : isGenerating ? 'Generating...' : 'Thinking about the edit...'}
+                  </span>
                 </div>
               </div>
             )}

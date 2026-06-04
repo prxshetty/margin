@@ -1,12 +1,15 @@
 import json
 import re
 import uuid
+import asyncio
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+import difflib
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
+from sse_starlette.sse import EventSourceResponse
 
 from agents.document_edit_agent import DocumentEditAgent
 from agents.rewrite_agent import RewriteAgent
@@ -370,7 +373,10 @@ def _log_simple_assist(
     text_before: Optional[str] = None,
     text_after: Optional[str] = None,
     ref_files: Optional[List[Dict[str, Any]]] = None,
-    edit_mode: Optional[str] = None
+    edit_mode: Optional[str] = None,
+    planner_system_prompt: Optional[str] = None,
+    planner_user_prompt: Optional[str] = None,
+    planner_output: Optional[str] = None,
 ) -> None:
     log_entry = {
         "id": f"simple_{uuid.uuid4().hex}",
@@ -388,114 +394,257 @@ def _log_simple_assist(
     }
     if edit_mode is not None:
         log_entry["edit_mode"] = edit_mode
+    if planner_system_prompt is not None:
+        log_entry["planner_system_prompt"] = planner_system_prompt
+    if planner_user_prompt is not None:
+        log_entry["planner_user_prompt"] = planner_user_prompt
+    if planner_output is not None:
+        log_entry["planner_output"] = planner_output
     storage.save_simple_ai_log(log_entry)
 
 
+def run_planner(message: str, content: str, selected_text: Optional[str] = None) -> tuple[dict, str, str, str]:
+    system = _load_simple_prompt("simple-planner.md")
+    
+    available = storage.list_input_files()
+    paragraphs = [p for p in content.split('\n\n') if p.strip()]
+    para_list = "\n".join(
+        f"\u00b6{i}: {p[:80].strip()}" for i, p in enumerate(paragraphs)
+    )
+    
+    user_prompt_lines = [f"INSTRUCTION: {message}\n"]
+    if selected_text:
+        user_prompt_lines.append(f"SELECTED TEXT (hint for placement):\n{selected_text}\n")
+    
+    user_prompt_lines.append(f"AVAILABLE FILES:\n" + "\n".join(f['path'] for f in available) + "\n")
+    user_prompt_lines.append(f"DOCUMENT PARAGRAPHS:\n{para_list}")
+    
+    user = "\n".join(user_prompt_lines)
+    
+    raw = llm.LLMClient().generate_to_completion(
+        system_prompt=system,
+        user_prompt=user,
+        temperature=0.1,
+        max_tokens=300
+    )
+    
+    try:
+        return json.loads(raw), system, user, raw
+    except Exception:
+        start, end = raw.find("{"), raw.rfind("}") + 1
+        return json.loads(raw[start:end]), system, user, raw
+
+
+def build_generator_prompts(
+    message: str,
+    plan: dict,
+    content: str,
+    selected_text: Optional[str] = None,
+) -> tuple[str, str]:
+    
+    paragraphs = [p for p in content.split('\n\n') if p.strip()]
+    
+    idx = plan.get("target_paragraph_index", -1)
+    if idx == -1:
+        idx = len(paragraphs) - 1
+    idx = max(0, min(idx, len(paragraphs) - 1))
+    
+    target_para = paragraphs[idx] if paragraphs else ""
+    
+    system_parts = [_load_simple_prompt("simple-edit.md")]
+    
+    available_paths = [f['path'] for f in storage.list_input_files()]
+    
+    for filepath in plan.get("context_needed", []):
+        actual_path = filepath
+        if actual_path not in available_paths:
+            matches = difflib.get_close_matches(filepath, available_paths, n=1, cutoff=0.5)
+            if matches:
+                actual_path = matches[0]
+            else:
+                # Fallback: check if the first part of the filename matches (e.g. "kaelen")
+                req_base = filepath.split('/')[-1].split('_')[0].lower()
+                for p in available_paths:
+                    if p.split('/')[-1].lower().startswith(req_base):
+                        actual_path = p
+                        break
+        
+        try:
+            file_content = storage.read_input_file(actual_path)
+            parts = actual_path.split("/")
+            folder_name = parts[0] if len(parts) > 1 else ""
+            file_name = parts[-1]
+            
+            if folder_name.lower().endswith("s"):
+                folder_str = folder_name[:-1].upper()
+            else:
+                folder_str = folder_name.upper()
+                
+            label = file_name.replace("_", " ").replace(".md", "").upper()
+            
+            if folder_str:
+                header = f"--- {folder_str} CONTEXT: {label} ---"
+            else:
+                header = f"--- CONTEXT: {label} ---"
+                
+            system_parts.append(f"{header}\n{file_content}")
+        except Exception:
+            pass
+    
+    user_parts = [f"INSTRUCTION:\n{message}"]
+    if selected_text:
+        user_parts.append(f"USER'S SELECTED TEXT:\n{selected_text}")
+    
+    if plan.get("replace"):
+        user_parts.append(f"REPLACE THIS PARAGRAPH:\n{target_para}")
+    else:
+        user_parts.append(f"INSERT AFTER THIS PARAGRAPH:\n{target_para}")
+    
+    return "\n\n".join(system_parts), "\n\n".join(user_parts)
+
+
 @router.post("/simple")
-def simple_assist(payload: SimpleAssistRequest):
+async def simple_assist(payload: SimpleAssistRequest):
     message = payload.message.strip()
     if not message:
         raise HTTPException(status_code=400, detail="Missing message")
 
     mode = payload.mode.strip().lower()
 
-    if mode == "edit":
-        system_prompt = _load_simple_prompt("simple-edit.md")
-        user_context = f"INSTRUCTION: {message}\n\n"
-        if payload.selected_text:
-            user_context += f"SELECTED TEXT:\n{payload.selected_text}\n\n"
-
-        if payload.text_before is not None:
-            user_context += f"CONTENT BEFORE CURSOR:\n{payload.text_before[-500:]}\n\n"
-        if payload.text_after is not None:
-            user_context += f"CONTENT AFTER CURSOR:\n{payload.text_after[:300]}\n\n"
-
-        client = llm.LLMClient()
-        raw = client.generate_to_completion(
-            system_prompt=system_prompt,
-            user_prompt=user_context,
-            temperature=0.7,
-            max_tokens=config.AGENT_CONFIG.get("writer", {}).get("max_tokens", 500),
-        )
-
-        clean_raw = raw.strip()
-        # Clean markdown code block fences if present
-        if clean_raw.startswith("```"):
-            lines = clean_raw.splitlines()
-            if lines[0].startswith("```"):
-                lines = lines[1:]
-            if lines and lines[-1].startswith("```"):
-                lines = lines[:-1]
-            clean_raw = "\n".join(lines).strip()
-
+    async def event_generator():
         try:
-            parsed = json.loads(clean_raw)
-            output_text = parsed["text"]
-            edit_mode = parsed["mode"]
-        except (json.JSONDecodeError, KeyError):
-            # Try parsing with brace matching
-            start = clean_raw.find("{")
-            end = clean_raw.rfind("}") + 1
-            if start != -1 and end != -1:
-                try:
-                    parsed = json.loads(clean_raw[start:end])
-                    output_text = parsed["text"]
-                    edit_mode = parsed["mode"]
-                except (json.JSONDecodeError, KeyError):
-                    raise HTTPException(status_code=500, detail=f"LLM returned non-JSON response: {raw}")
-            else:
-                raise HTTPException(status_code=500, detail=f"LLM returned non-JSON response: {raw}")
+            if mode == "edit":
+                yield {"data": json.dumps({"status": "planning"})}
 
-        _log_simple_assist(
-            mode="edit",
-            system_prompt=system_prompt,
-            user_prompt=user_context,
-            response=raw,
-            instruction=message,
-            selected_text=payload.selected_text,
-            text_before=payload.text_before,
-            text_after=payload.text_after,
-            ref_files=payload.ref_files,
-            edit_mode=edit_mode,
-        )
-        return {"type": "applied", "output": output_text, "edit_mode": edit_mode}
+                loop = asyncio.get_running_loop()
+                plan, planner_system, planner_user, planner_raw = await loop.run_in_executor(
+                    None,
+                    lambda: run_planner(payload.message, payload.content, payload.selected_text)
+                )
 
-    else:  # chat
-        system_prompt = _load_simple_prompt("simple-chat.md")
-        client = llm.LLMClient()
-        full_system = system_prompt
-        if payload.content:
-            full_system += f"\n\nHere is the user's document for context:\n{payload.content}"
+                context_needed = plan.get("context_needed", [])
+                yield {"data": json.dumps({
+                    "status": "context_resolved",
+                    "context_needed": context_needed
+                })}
 
-        user_message = message
-        if payload.selected_text:
-            user_message = f"[{len(payload.selected_text)} Ch]: \"{payload.selected_text[:120]}...\"\n\n{user_message}"
+                yield {"data": json.dumps({"status": "generating"})}
 
-        user_prompt = ""
-        for h in payload.history:
-            role = h.get("role", "user")
-            content = h.get("content", "")
-            tag = "User" if role == "user" else "Assistant"
-            user_prompt += f"{tag}: {content}\n\n"
-        user_prompt += f"User: {user_message}"
+                paragraphs = [p for p in payload.content.split('\n\n') if p.strip()]
+                resolved_idx = len(paragraphs) - 1 if plan.get("target_paragraph_index", -1) == -1 \
+                               else plan.get("target_paragraph_index", -1)
 
-        result = client.generate_to_completion(
-            system_prompt=full_system,
-            user_prompt=user_prompt,
-            temperature=0.7,
-            max_tokens=config.AGENT_CONFIG.get("writer", {}).get("max_tokens", 500),
-        )
-        _log_simple_assist(
-            mode="chat",
-            system_prompt=full_system,
-            user_prompt=user_prompt,
-            response=result,
-            instruction=message,
-            ref_files=payload.ref_files,
-            selected_text=payload.selected_text,
-        )
+                system_prompt, user_prompt = build_generator_prompts(
+                    payload.message, plan, payload.content, payload.selected_text
+                )
 
-        return {"type": "chat", "output": result}
+                raw = await loop.run_in_executor(
+                    None,
+                    lambda: llm.LLMClient().generate_to_completion(
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                        temperature=0.7,
+                        max_tokens=config.AGENT_CONFIG.get("writer", {}).get("max_tokens", 500)
+                    )
+                )
+
+                clean_raw = raw.strip()
+                if clean_raw.startswith("```"):
+                    lines = clean_raw.splitlines()
+                    if lines[0].startswith("```"):
+                        lines = lines[1:]
+                    if lines and lines[-1].startswith("```"):
+                        lines = lines[:-1]
+                    clean_raw = "\n".join(lines).strip()
+
+                output_text = clean_raw
+                edit_mode = "replace" if payload.selected_text else "insert"
+
+                await loop.run_in_executor(
+                    None,
+                    lambda: _log_simple_assist(
+                        mode="edit",
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                        response=raw,
+                        instruction=payload.message,
+                        selected_text=payload.selected_text,
+                        text_before=payload.text_before,
+                        text_after=payload.text_after,
+                        ref_files=payload.ref_files,
+                        edit_mode=edit_mode,
+                        planner_system_prompt=planner_system,
+                        planner_user_prompt=planner_user,
+                        planner_output=planner_raw,
+                    )
+                )
+
+                yield {"data": json.dumps({
+                    "status": "applied",
+                    "output": output_text,
+                    "placement": {
+                        "anchor_text": plan.get("anchor_text", ""),
+                        "paragraph_index": resolved_idx,
+                        "replace": plan.get("replace", False)
+                    }
+                })}
+
+            else:  # chat
+                yield {"data": json.dumps({"status": "generating"})}
+
+                system_prompt = _load_simple_prompt("simple-chat.md")
+                client = llm.LLMClient()
+                full_system = system_prompt
+                if payload.content:
+                    full_system += f"\n\nHere is the user's document for context:\n{payload.content}"
+
+                user_message = message
+                if payload.selected_text:
+                    user_message = f"[{len(payload.selected_text)} Ch]: \"{payload.selected_text[:120]}...\"\n\n{user_message}"
+
+                user_prompt = ""
+                for h in payload.history:
+                    role = h.get("role", "user")
+                    content = h.get("content", "")
+                    tag = "User" if role == "user" else "Assistant"
+                    user_prompt += f"{tag}: {content}\n\n"
+                user_prompt += f"User: {user_message}"
+
+                loop = asyncio.get_running_loop()
+                result = await loop.run_in_executor(
+                    None,
+                    lambda: client.generate_to_completion(
+                        system_prompt=full_system,
+                        user_prompt=user_prompt,
+                        temperature=0.7,
+                        max_tokens=config.AGENT_CONFIG.get("writer", {}).get("max_tokens", 500),
+                    )
+                )
+                
+                await loop.run_in_executor(
+                    None,
+                    lambda: _log_simple_assist(
+                        mode="chat",
+                        system_prompt=full_system,
+                        user_prompt=user_prompt,
+                        response=result,
+                        instruction=message,
+                        ref_files=payload.ref_files,
+                        selected_text=payload.selected_text,
+                    )
+                )
+
+                yield {"data": json.dumps({
+                    "status": "chat",
+                    "output": result
+                })}
+        except Exception as e:
+            yield {"data": json.dumps({
+                "status": "error",
+                "detail": str(e)
+            })}
+
+    return EventSourceResponse(event_generator())
 
 
 class PromptSaveRequest(BaseModel):
