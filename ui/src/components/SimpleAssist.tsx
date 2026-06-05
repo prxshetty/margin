@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import type { Editor } from '@tiptap/react'
-import { RefreshCw } from 'lucide-react'
+import { RefreshCw, Trash2 } from 'lucide-react'
 import { useEditorStore } from '../stores/editorStore'
 import { API_BASE } from '../lib/api'
 import type { FileEntry } from '../stores/editorStore'
@@ -9,6 +9,7 @@ interface SimpleLogEntry {
   id: string
   timestamp: string
   mode: 'replace' | 'insert' | 'chat'
+  session_id?: string
   system_prompt: string
   user_prompt: string
   output: string
@@ -21,6 +22,13 @@ interface SimpleLogEntry {
   planner_system_prompt?: string
   planner_user_prompt?: string
   planner_output?: string
+}
+
+interface SessionInfo {
+  id: string
+  name: string
+  logCount: number
+  timestamp: string
 }
 
 interface MarkdownStorage {
@@ -159,6 +167,10 @@ export function SimpleAssist() {
   const [activeRefFiles, setActiveRefFiles] = useState<FileEntry[]>([])
   const [activeSelectedLength, setActiveSelectedLength] = useState<number | undefined>()
   const [errorText, setErrorText] = useState('')
+  const [currentSessionId, setCurrentSessionId] = useState(() => crypto.randomUUID())
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
+  const [showHistoryDropdown, setShowHistoryDropdown] = useState(false)
+  const [sessionLoadCount, setSessionLoadCount] = useState(3)
   const [mode, setMode] = useState<'chat' | 'edit'>('edit')
   const hasSelection = !!pendingEditSelection
 
@@ -182,6 +194,32 @@ export function SimpleAssist() {
       console.error('Failed to fetch simple logs:', err)
     }
   }
+
+  const sessions = React.useMemo(() => {
+    const map = new Map<string, { name: string; logCount: number; timestamp: string }>()
+    for (const log of historyLogs) {
+      const sid = log.session_id || ''
+      if (!sid) continue
+      const existing = map.get(sid)
+      if (existing) {
+        existing.logCount++
+        if (log.timestamp > existing.timestamp) existing.timestamp = log.timestamp
+      } else {
+        map.set(sid, {
+          name: log.instruction || log.mode || 'Assist',
+          logCount: 1,
+          timestamp: log.timestamp,
+        })
+      }
+    }
+    return Array.from(map.entries())
+      .map(([id, data]) => ({ id, ...data }))
+      .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+  }, [historyLogs])
+
+  const filteredLogs = activeSessionId
+    ? historyLogs.filter(l => l.session_id === activeSessionId)
+    : historyLogs
 
   useEffect(() => {
     fetchLogs()
@@ -324,6 +362,7 @@ export function SimpleAssist() {
         content: fullContent,
         message: currentInstruction,
         mode: 'edit',
+        session_id: currentSessionId,
         ref_files: currentRefFiles.map(f => ({ name: f.name, path: f.path })),
         available_files: openedFiles.map(f => ({ name: f.name, path: f.path })),
       }
@@ -480,6 +519,7 @@ export function SimpleAssist() {
         content: fullContent,
         message: currentInstruction,
         mode: 'chat',
+        session_id: currentSessionId,
         ref_files: currentRefFiles.map(f => ({ name: f.name, path: f.path })),
         available_files: openedFiles.map(f => ({ name: f.name, path: f.path })),
       }
@@ -678,7 +718,7 @@ export function SimpleAssist() {
     }
   }, [pendingEditSelection])
 
-  const hasHistory = historyLogs.length > 0 || isWorking || !!errorText
+  const hasHistory = filteredLogs.length > 0 || isWorking || !!errorText
 
   const renderInputCard = () => (
     <div className="bg-[var(--bg)] border border-[var(--border)] focus-within:border-[var(--text-secondary)] shadow-[0_4px_12px_rgba(0,0,0,0.01)] focus-within:shadow-[0_4px_16px_rgba(0,0,0,0.02)] transition-[border-color,box-shadow] duration-200 rounded-[20px] p-3 flex flex-col relative animate-scale-in">
@@ -907,7 +947,7 @@ export function SimpleAssist() {
                         </div>
                       </div>
                     )}
-                    <div className="text-xs font-sans text-[var(--text)] leading-relaxed whitespace-pre-wrap select-text">
+                    <div className={`text-xs font-sans leading-relaxed whitespace-pre-wrap select-text ${log.success === false ? 'text-red-600 font-medium' : 'text-[var(--text)]'}`}>
                       {log.output}
                     </div>
                   </div>

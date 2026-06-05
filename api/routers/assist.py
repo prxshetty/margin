@@ -87,6 +87,7 @@ class SimpleAssistRequest(BaseModel):
     content: str = ""
     message: str
     mode: str = "chat"
+    session_id: Optional[str] = None
     history: List[Dict[str, Any]] = Field(default_factory=list)
     selected_text: Optional[str] = None
     text_before: Optional[str] = None
@@ -102,9 +103,9 @@ def get_simple_logs():
     return storage.get_simple_ai_logs()
 
 
-@router.delete("/simple/logs")
-def clear_simple_logs():
-    storage.clear_simple_ai_logs()
+@router.delete("/simple/session/{session_id}")
+def delete_session_logs(session_id: str):
+    storage.delete_simple_ai_logs_by_session(session_id)
     return {"status": "ok"}
 
 
@@ -114,6 +115,7 @@ def _log_simple_assist(
     user_prompt: str,
     response: str,
     instruction: str,
+    session_id: Optional[str] = None,
     selected_text: Optional[str] = None,
     text_before: Optional[str] = None,
     text_after: Optional[str] = None,
@@ -122,11 +124,13 @@ def _log_simple_assist(
     planner_system_prompt: Optional[str] = None,
     planner_user_prompt: Optional[str] = None,
     planner_output: Optional[str] = None,
+    success: bool = True,
 ) -> None:
     log_entry = {
         "id": f"simple_{uuid.uuid4().hex}",
         "timestamp": datetime.utcnow().isoformat(),
         "mode": mode,
+        "session_id": session_id,
         "system_prompt": system_prompt,
         "user_prompt": user_prompt,
         "output": response,
@@ -135,7 +139,7 @@ def _log_simple_assist(
         "text_before": text_before,
         "text_after": text_after,
         "ref_files": ref_files,
-        "success": True,
+        "success": success,
     }
     if edit_mode is not None:
         log_entry["edit_mode"] = edit_mode
@@ -262,6 +266,13 @@ async def simple_assist(payload: SimpleAssistRequest):
     mode = payload.mode.strip().lower()
 
     async def event_generator():
+        planner_system = None
+        planner_user = None
+        planner_raw = None
+        system_prompt = ""
+        user_prompt = ""
+        edit_mode = "replace" if payload.selected_text else "insert"
+
         try:
             if mode == "edit":
                 yield {"data": json.dumps({"status": "planning"})}
@@ -320,12 +331,12 @@ async def simple_assist(payload: SimpleAssistRequest):
                     clean_raw = "\n".join(lines).strip()
 
                 output_text = clean_raw
-                edit_mode = "replace" if payload.selected_text else "insert"
 
                 await loop.run_in_executor(
                     None,
                     lambda: _log_simple_assist(
                         mode="edit",
+                        session_id=payload.session_id,
                         system_prompt=system_prompt,
                         user_prompt=user_prompt,
                         response=raw,
@@ -338,6 +349,7 @@ async def simple_assist(payload: SimpleAssistRequest):
                         planner_system_prompt=planner_system,
                         planner_user_prompt=planner_user,
                         planner_output=planner_raw,
+                        success=True,
                     )
                 )
 
@@ -372,6 +384,8 @@ async def simple_assist(payload: SimpleAssistRequest):
                     user_prompt += f"{tag}: {content}\n\n"
                 user_prompt += f"User: {user_message}"
 
+                system_prompt = full_system
+
                 loop = asyncio.get_running_loop()
                 result = await loop.run_in_executor(
                     None,
@@ -387,12 +401,14 @@ async def simple_assist(payload: SimpleAssistRequest):
                     None,
                     lambda: _log_simple_assist(
                         mode="chat",
+                        session_id=payload.session_id,
                         system_prompt=full_system,
                         user_prompt=user_prompt,
                         response=result,
                         instruction=message,
                         ref_files=payload.ref_files,
                         selected_text=payload.selected_text,
+                        success=True,
                     )
                 )
 
@@ -401,6 +417,31 @@ async def simple_assist(payload: SimpleAssistRequest):
                     "output": result
                 })}
         except Exception as e:
+            try:
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(
+                    None,
+                    lambda: _log_simple_assist(
+                        mode=mode,
+                        session_id=payload.session_id,
+                        system_prompt=system_prompt or "",
+                        user_prompt=user_prompt or payload.message,
+                        response=f"Error: {str(e)}",
+                        instruction=payload.message,
+                        selected_text=payload.selected_text,
+                        text_before=payload.text_before,
+                        text_after=payload.text_after,
+                        ref_files=payload.ref_files,
+                        edit_mode=edit_mode if mode == "edit" else None,
+                        planner_system_prompt=planner_system,
+                        planner_user_prompt=planner_user,
+                        planner_output=planner_raw,
+                        success=False,
+                    )
+                )
+            except Exception as log_ex:
+                print(f"Failed to log error simple assist: {log_ex}")
+
             yield {"data": json.dumps({
                 "status": "error",
                 "detail": str(e)
