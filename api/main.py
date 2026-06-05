@@ -2,7 +2,7 @@ import uuid
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routers import assist, chapters, blueprint, scenes, characters, styles, settings, workspace
+from api.routers import assist, workspace
 
 app = FastAPI(title="SLM Writing Engine API")
 
@@ -14,12 +14,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(chapters.router)
-app.include_router(blueprint.router)
-app.include_router(scenes.router)
-app.include_router(characters.router)
-app.include_router(styles.router)
-app.include_router(settings.router)
 app.include_router(assist.router)
 app.include_router(workspace.router)
 

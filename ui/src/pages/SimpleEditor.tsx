@@ -72,15 +72,25 @@ export default function SimpleEditor() {
     results: { name: string; path: string }[]
   ) {
     for await (const entry of handle.values()) {
-      const path = basePath ? `${basePath}/${entry.name}` : entry.name
+      const fullPath = basePath ? `${basePath}/${entry.name}` : entry.name
       if (entry.kind === 'directory') {
-        await scanDir(await handle.getDirectoryHandle(entry.name), path, results)
+        await scanDir(await handle.getDirectoryHandle(entry.name), fullPath, results)
       } else if (
         entry.name.endsWith('.md') ||
         entry.name.endsWith('.markdown') ||
         entry.name.endsWith('.txt')
       ) {
-        results.push({ name: entry.name, path })
+        // Normalize path so it matches FileSidebar's hardcoded prefixes
+        let normalizedPath = fullPath;
+        const knownFolders = ['chapters/', 'characters/', 'styles/', 'prompts/'];
+        for (const folder of knownFolders) {
+          const idx = normalizedPath.indexOf(folder);
+          if (idx !== -1) {
+            normalizedPath = normalizedPath.substring(idx);
+            break;
+          }
+        }
+        results.push({ name: entry.name, path: normalizedPath })
       }
     }
   }

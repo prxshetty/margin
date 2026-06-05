@@ -1,12 +1,9 @@
 import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { useEditorStore } from '../../stores/editorStore'
-import { useProjectStore } from '../../stores/projectStore'
 import { useEffect, useRef } from 'react'
 import { Markdown } from 'tiptap-markdown'
-import { InlineSelectionPopup } from './InlineSelectionPopup'
 import { SimpleAssistSelectionPopup } from './SimpleAssistSelectionPopup'
-import { getDocPath } from '../../lib/docInfo'
 
 export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: boolean }) {
   const content = useEditorStore(state => state.content)
@@ -15,8 +12,6 @@ export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: bool
   const setSelectedText = useEditorStore(state => state.setSelectedText)
   const setSelectionRange = useEditorStore(state => state.setSelectionRange)
   const setAnchorPosition = useEditorStore(state => state.setAnchorPosition)
-  const setActiveContextPath = useEditorStore(state => state.setActiveContextPath)
-  const { activeDoc, activeSceneId, activeChapterId, sceneViewMode, currentBeatIndex } = useProjectStore()
   const lastContentRef = useRef('')
   // Flag: true while we are programmatically calling setContent so onUpdate
   // doesn't echo the change back into Zustand and cause an infinite loop.
@@ -55,7 +50,6 @@ export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: bool
     },
     onFocus: ({ editor }) => {
       setEditor(editor)
-      setActiveContextPath(resolveContextPath())
     },
     editorProps: {
       attributes: {
@@ -67,17 +61,8 @@ export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: bool
   useEffect(() => {
     if (editor) {
       setEditor(editor)
-      setActiveContextPath(resolveContextPath())
     }
-  }, [editor, setEditor, activeDoc, activeSceneId, activeChapterId, sceneViewMode, currentBeatIndex])
-
-  const resolveContextPath = () => {
-    if (activeDoc?.type === 'scene') {
-      if (sceneViewMode === 'content') return `scenes/${activeSceneId || activeDoc.sceneId}/prose`
-      return `scenes/${activeSceneId || activeDoc.sceneId}/beats/${currentBeatIndex + 1}`
-    }
-    return getDocPath(activeDoc, activeSceneId, activeChapterId) || null
-  }
+  }, [editor, setEditor])
 
   // Sync external content changes (e.g. doc switch, streaming) into the editor.
   // Pass raw markdown — tiptap-markdown parses it, no html intermediary needed.
@@ -96,8 +81,7 @@ export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: bool
   return (
     <div className="bg-[var(--bg)] relative">
       <EditorContent editor={editor} />
-      {showInlinePopup && <InlineSelectionPopup localEditor={editor} />}
-      <SimpleAssistSelectionPopup />
+      {showInlinePopup && <SimpleAssistSelectionPopup />}
     </div>
   )
 }
