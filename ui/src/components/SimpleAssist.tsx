@@ -325,6 +325,7 @@ export function SimpleAssist() {
         message: currentInstruction,
         mode: 'edit',
         ref_files: currentRefFiles.map(f => ({ name: f.name, path: f.path })),
+        available_files: openedFiles.map(f => ({ name: f.name, path: f.path })),
       }
 
       if (localHasSelection) {
@@ -480,6 +481,7 @@ export function SimpleAssist() {
         message: currentInstruction,
         mode: 'chat',
         ref_files: currentRefFiles.map(f => ({ name: f.name, path: f.path })),
+        available_files: openedFiles.map(f => ({ name: f.name, path: f.path })),
       }
 
       if (localHasSelection) {

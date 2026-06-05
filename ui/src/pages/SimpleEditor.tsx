@@ -47,8 +47,8 @@ export default function SimpleEditor() {
     try {
       const dirHandle = await (window as Window & typeof globalThis & { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }).showDirectoryPicker()
       dirHandleRef.current = dirHandle
-      setWorkspaceDir(dirHandle.name)
       clearFiles()
+      setWorkspaceDir(dirHandle.name)
       const entries: { name: string; path: string }[] = []
       await scanDir(dirHandle, '', entries)
       entries.sort((a, b) => a.path.localeCompare(b.path))
@@ -240,7 +240,7 @@ export default function SimpleEditor() {
         )}
 
 
-        <NovelEditor showInlinePopup={false} />
+        <NovelEditor showInlinePopup={true} />
       </div>
 
       {/* Right Sidebar (SimpleAssist) with Slide/Fade Transition */}

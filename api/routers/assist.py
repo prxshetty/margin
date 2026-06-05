@@ -93,6 +93,7 @@ class SimpleAssistRequest(BaseModel):
     text_after: Optional[str] = None
     ref_files: Optional[List[Dict[str, Any]]] = None
     cursor_paragraph_index: Optional[int] = None
+    available_files: List[Dict[str, str]] = Field(default_factory=list)
 
 
 
@@ -147,10 +148,14 @@ def _log_simple_assist(
     storage.save_simple_ai_log(log_entry)
 
 
-def run_planner(message: str, selected_text: Optional[str] = None) -> tuple[dict, str, str, str]:
+def run_planner(
+    message: str,
+    selected_text: Optional[str] = None,
+    available_files: List[Dict[str, str]] = None,
+) -> tuple[dict, str, str, str]:
     system = _load_simple_prompt("simple-planner.md")
     
-    available = storage.list_input_files()
+    available = available_files if available_files is not None else []
     
     user_prompt_lines = [f"INSTRUCTION: {message}\n"]
     if selected_text:
@@ -185,6 +190,7 @@ def build_generator_prompts(
     target_paragraph_index: int,
     replace: bool,
     selected_text: Optional[str] = None,
+    available_files: List[Dict[str, str]] = None,
 ) -> tuple[str, str]:
     
     paragraphs = [p for p in content.split('\n\n') if p.strip()]
@@ -195,7 +201,8 @@ def build_generator_prompts(
     
     system_parts = [_load_simple_prompt("simple-writer.md")]
     
-    available_paths = [f['path'] for f in storage.list_input_files()]
+    available = available_files if available_files is not None else []
+    available_paths = [f['path'] for f in available]
     
     for filepath in context_needed:
         actual_path = filepath
@@ -262,7 +269,7 @@ async def simple_assist(payload: SimpleAssistRequest):
                 loop = asyncio.get_running_loop()
                 plan, planner_system, planner_user, planner_raw = await loop.run_in_executor(
                     None,
-                    lambda: run_planner(payload.message, payload.selected_text)
+                    lambda: run_planner(payload.message, payload.selected_text, payload.available_files)
                 )
 
                 context_needed = plan.get("context_needed", [])
@@ -290,7 +297,7 @@ async def simple_assist(payload: SimpleAssistRequest):
                 resolved_idx = max(0, min(target_idx, len(paragraphs) - 1))
 
                 system_prompt, user_prompt = build_generator_prompts(
-                    payload.message, context_needed, payload.content, resolved_idx, replace, payload.selected_text
+                    payload.message, context_needed, payload.content, resolved_idx, replace, payload.selected_text, payload.available_files
                 )
 
                 raw = await loop.run_in_executor(
