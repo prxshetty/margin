@@ -41,6 +41,27 @@ export default function SimpleEditor() {
   const [isResizing, setIsResizing] = useState(false)
 
   const dirHandleRef = useRef<FileSystemDirectoryHandle | null>(null)
+  const editorContainerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const el = editorContainerRef.current
+    if (!el) return
+
+    let timeoutId: number
+    const handleScroll = () => {
+      el.classList.add('is-scrolling')
+      clearTimeout(timeoutId)
+      timeoutId = window.setTimeout(() => {
+        el.classList.remove('is-scrolling')
+      }, 1000)
+    }
+
+    el.addEventListener('scroll', handleScroll, { passive: true })
+    return () => {
+      el.removeEventListener('scroll', handleScroll)
+      clearTimeout(timeoutId)
+    }
+  }, [])
 
   const handleOpenFolder = async () => {
     if (!('showDirectoryPicker' in window)) return
@@ -224,7 +245,7 @@ export default function SimpleEditor() {
       </div>
 
       {/* Floating Manuscript Editor Card */}
-      <div className="flex-1 bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[24px] shadow-[0_2px_8px_rgba(0,0,0,0.03),0_16px_48px_rgba(0,0,0,0.06)] p-8 overflow-y-auto min-w-0 select-text animate-scale-in relative">
+      <div ref={editorContainerRef} className="flex-1 bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[24px] shadow-[0_2px_8px_rgba(0,0,0,0.03),0_16px_48px_rgba(0,0,0,0.06)] p-8 overflow-y-auto min-w-0 select-text animate-scale-in relative">
         {/* Floating Sidebar Restore Controls inside the Editor Card */}
         {!filesPanelOpen && (
           <button

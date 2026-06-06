@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { FolderOpen, FileText, Loader, Check, Plus, Trash2, Pencil } from 'lucide-react'
 import { useEditorStore, type FileEntry } from '../stores/editorStore'
 import { API_BASE } from '../lib/api'
@@ -28,7 +27,6 @@ export function FileSidebar({
   aiPanelOpen?: boolean
   setAiPanelOpen?: (open: boolean) => void
 }) {
-  const navigate = useNavigate()
   const {
     workspaceDir, setWorkspaceDir,
     openedFiles, addFile,
@@ -237,16 +235,6 @@ export function FileSidebar({
     <div ref={containerRef} className="flex flex-col gap-3 w-full h-full overflow-y-auto select-none">
       {/* Low-profile action row inside FileSidebar */}
       <div className="flex items-center gap-1.5 pb-2.5 border-b border-[var(--border-sidebar)] shrink-0 select-none animate-fade-in">
-        <button
-          onClick={() => navigate('/')}
-          className="flex items-center justify-center w-7 h-7 text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 bg-[var(--bg-icon)]/20 rounded-[6px] transition-all cursor-pointer active:scale-[0.95]"
-          title="Home"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M3 9.5L12 3l9 6.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5z" />
-            <polyline points="9 22 9 12 15 12 15 22" />
-          </svg>
-        </button>
         {onOpenFolder && (
           <button
             onClick={onOpenFolder}

@@ -169,5 +169,18 @@ class FileStorageService:
         except Exception:
             pass
 
+    def delete_simple_ai_logs_by_session(self, session_id: str) -> None:
+        logs_path = self.outputs_dir / "simple_ai_logs.json"
+        if not logs_path.exists():
+            return
+        try:
+            with open(logs_path, "r", encoding="utf-8") as f:
+                logs = json.load(f)
+                filtered = [log for log in logs if log.get("session_id") != session_id]
+                with open(logs_path, "w", encoding="utf-8") as f:
+                    json.dump(filtered, f, indent=2)
+        except Exception:
+            pass
+
 # Global singleton
 storage = FileStorageService()

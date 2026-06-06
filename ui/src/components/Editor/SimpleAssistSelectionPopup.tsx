@@ -3,7 +3,6 @@ import { useEditorStore } from '../../stores/editorStore'
 
 export function SimpleAssistSelectionPopup() {
   const { editor, selectionRange, selectedText, setPendingEditSelection } = useEditorStore()
-  const [dismissedRange, setDismissedRange] = useState<{ from: number; to: number } | null>(null)
   const [isMouseDown, setIsMouseDown] = useState(false)
   const popupRef = useRef<HTMLDivElement>(null)
 
@@ -31,7 +30,7 @@ export function SimpleAssistSelectionPopup() {
       if (!selectionRange || !popupRef.current) return
       if (editor?.view?.dom?.contains(e.target as Node)) return
       if (popupRef.current.contains(e.target as Node)) return
-      setDismissedRange(selectionRange)
+      editor?.commands.setTextSelection(editor.state.selection.from)
     }
     window.addEventListener('mousedown', handleClickOutside)
     return () => window.removeEventListener('mousedown', handleClickOutside)
@@ -47,10 +46,6 @@ export function SimpleAssistSelectionPopup() {
   }, [editor, selectionRange])
 
   if (isMouseDown || !selectedText || !selectionRange || !coords) return null
-
-  if (dismissedRange && dismissedRange.from === selectionRange.from && dismissedRange.to === selectionRange.to) {
-    return null
-  }
 
   const wrapper = editor?.view?.dom?.parentElement
   const wrapperRect = wrapper?.getBoundingClientRect()
@@ -68,7 +63,7 @@ export function SimpleAssistSelectionPopup() {
       from: selectionRange.from,
       to: selectionRange.to
     })
-    setDismissedRange(selectionRange)
+    editor?.commands.setTextSelection(selectionRange.from)
   }
 
   return (

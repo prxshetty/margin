@@ -204,3 +204,18 @@ body {
   scrollbar-width: thin;
   scrollbar-color: transparent transparent;
 }
+
+/* Show scrollbar when active scrolling is detected */
+.is-scrolling::-webkit-scrollbar-thumb {
+  background: rgba(115, 79, 45, 0.35) !important;
+}
+.dark .is-scrolling::-webkit-scrollbar-thumb {
+  background: rgba(176, 137, 92, 0.35) !important;
+}
+.is-scrolling {
+  scrollbar-color: rgba(115, 79, 45, 0.35) transparent !important;
+}
+.dark .is-scrolling {
+  scrollbar-color: rgba(176, 137, 92, 0.35) transparent !important;
+}
+

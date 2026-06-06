@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import type { Editor } from '@tiptap/react'
 import { RefreshCw, Trash2 } from 'lucide-react'
 import { useEditorStore } from '../stores/editorStore'
@@ -24,12 +24,6 @@ interface SimpleLogEntry {
   planner_output?: string
 }
 
-interface SessionInfo {
-  id: string
-  name: string
-  logCount: number
-  timestamp: string
-}
 
 interface MarkdownStorage {
   markdown: { getMarkdown: () => string }
@@ -167,7 +161,7 @@ export function SimpleAssist() {
   const [activeRefFiles, setActiveRefFiles] = useState<FileEntry[]>([])
   const [activeSelectedLength, setActiveSelectedLength] = useState<number | undefined>()
   const [errorText, setErrorText] = useState('')
-  const [currentSessionId, setCurrentSessionId] = useState(() => crypto.randomUUID())
+  const [currentSessionId, setCurrentSessionId] = useState(() => Date.now().toString(36))
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [showHistoryDropdown, setShowHistoryDropdown] = useState(false)
   const [sessionLoadCount, setSessionLoadCount] = useState(3)
@@ -195,22 +189,21 @@ export function SimpleAssist() {
     }
   }
 
-  const sessions = React.useMemo(() => {
+  const sessions = useMemo(() => {
     const map = new Map<string, { name: string; logCount: number; timestamp: string }>()
+    const sessionLogs = new Map<string, SimpleLogEntry[]>()
     for (const log of historyLogs) {
       const sid = log.session_id || ''
       if (!sid) continue
-      const existing = map.get(sid)
-      if (existing) {
-        existing.logCount++
-        if (log.timestamp > existing.timestamp) existing.timestamp = log.timestamp
-      } else {
-        map.set(sid, {
-          name: log.instruction || log.mode || 'Assist',
-          logCount: 1,
-          timestamp: log.timestamp,
-        })
-      }
+      if (!sessionLogs.has(sid)) sessionLogs.set(sid, [])
+      sessionLogs.get(sid)!.push(log)
+    }
+    for (const [sid, logs] of sessionLogs) {
+      const first = logs.reduce((a, b) => a.timestamp < b.timestamp ? a : b)
+      const raw = first.instruction || ''
+      const name = raw.slice(0, 35) + (raw.length > 35 ? '...' : '') || 'Assist'
+      const latest = logs.reduce((a, b) => a.timestamp > b.timestamp ? a : b)
+      map.set(sid, { name, logCount: logs.length, timestamp: latest.timestamp })
     }
     return Array.from(map.entries())
       .map(([id, data]) => ({ id, ...data }))
@@ -822,17 +815,13 @@ export function SimpleAssist() {
 
   return (
     <div ref={containerRef} className="flex flex-col gap-4 w-full h-full select-none animate-fade-in">
-      {/* Header: new chat button only */}
+      {/* Header: new chat on left, history on right */}
       <div className="flex items-center justify-end gap-1.5 pb-3.5 border-b border-[var(--border-sidebar)] select-none shrink-0 w-full animate-fade-in">
         <button
-          onClick={async () => {
-            try {
-              const res = await fetch(`${API_BASE}/api/assist/simple/logs`, { method: 'DELETE' })
-              if (!res.ok) console.warn('DELETE logs returned', res.status)
-            } catch (e) {
-              console.error('Failed to clear logs:', e)
-            }
-            setHistoryLogs([])
+          onClick={() => {
+            const newId = Date.now().toString(36)
+            setCurrentSessionId(newId)
+            setActiveSessionId(newId)
           }}
           className="flex items-center justify-center w-7 h-7 text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 bg-[var(--bg-icon)]/20 rounded-[6px] transition-all cursor-pointer active:scale-[0.95]"
           title="New Chat"
@@ -841,13 +830,73 @@ export function SimpleAssist() {
             <path d="M10 3v14M3 10h14" />
           </svg>
         </button>
+
+        <div className="relative">
+          <button
+            onClick={() => setShowHistoryDropdown(!showHistoryDropdown)}
+            className="flex items-center justify-center w-7 h-7 text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 bg-[var(--bg-icon)]/20 rounded-[6px] transition-all cursor-pointer active:scale-[0.95]"
+            title="History"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="var(--text-secondary)"><g fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5"><path d="M11.25 7.75v5h3" /><path d="M4.855 7.875a8.25 8.25 0 1 1-.824 6.26m-.176-5.26v-4.75m0 4.75h4.75" /></g></svg>
+          </button>
+
+          {showHistoryDropdown && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setShowHistoryDropdown(false)} />
+              <div className="absolute right-0 top-full mt-1 z-50 bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-[10px] overflow-hidden shadow-[0_4px_16px_rgba(0,0,0,0.06)] w-max min-w-[180px] max-w-[280px] py-1">
+                {sessions.length === 0 ? (
+                  <div className="px-3 py-4 text-center text-[11px] text-[var(--text-muted)] font-sans">
+                    No logs
+                  </div>
+                ) : (
+                  <>
+                    {sessions.slice(0, sessionLoadCount).map(session => (
+                      <div key={session.id} className="group flex items-center gap-1 px-2 py-1 rounded-[4px] mx-1 hover:bg-[var(--bg-hover)] transition-colors">
+                        <button
+                          onClick={() => { setActiveSessionId(session.id); setShowHistoryDropdown(false) }}
+                          className={`flex-1 min-w-0 text-left text-[11px] cursor-pointer ${activeSessionId === session.id ? 'text-[var(--text-heading)]' : 'text-[var(--text-secondary)]'}`}
+                        >
+                          <span className="truncate block pr-1">{session.name}</span>
+                        </button>
+                        <button
+                          onClick={async () => {
+                            try {
+                              const res = await fetch(`${API_BASE}/api/assist/simple/session/${session.id}`, { method: 'DELETE' })
+                              if (!res.ok) console.warn('DELETE session returned', res.status)
+                            } catch (e) {
+                              console.error('Failed to delete session:', e)
+                            }
+                            if (activeSessionId === session.id) setActiveSessionId(null)
+                            await fetchLogs()
+                          }}
+                          className="flex items-center justify-center w-5 h-5 text-[var(--text-muted)] hover:text-red-400 hover:bg-[var(--border-sidebar)]/60 rounded-[4px] transition-all cursor-pointer active:scale-[0.9] opacity-0 group-hover:opacity-100"
+                          title="Delete session"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                    {sessions.length > sessionLoadCount && (
+                      <button
+                        onClick={() => setSessionLoadCount(c => c + 5)}
+                        className="w-full px-3 py-2 text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-heading)] text-center transition-colors hover:bg-[var(--bg-hover)] cursor-pointer"
+                      >
+                        Show {sessions.length - sessionLoadCount} more...
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {/* History area (scrollable) */}
       {hasHistory && (
         <>
           <div className="flex-1 overflow-y-auto flex flex-col gap-4 pr-1 min-h-0 select-text">
-            {historyLogs.map((log) => {
+            {filteredLogs.map((log) => {
               const isExpanded = !!expandedIds[log.id]
 
               const plannerContextFiles: string[] = (() => {
