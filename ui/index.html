@@ -5,7 +5,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <script>
-      (function(){try{if(localStorage.getItem('simple-dark-mode')==='true'){document.documentElement.classList.add('dark')}}catch(e){}})()
+      (function(){try{var r=document.documentElement;var f=localStorage.getItem('simple-theme-family')||'sand';var t=localStorage.getItem('simple-text-style')||'system';var m=localStorage.getItem('simple-theme-mode')||'';var d=m==='system'?window.matchMedia('(prefers-color-scheme: dark)').matches:localStorage.getItem('simple-dark-mode')==='true';r.dataset.themeFamily=f;r.dataset.textStyle=t;if(d)r.classList.add('dark')}catch(e){}})()
     </script>
     <title>ui</title>
   </head>

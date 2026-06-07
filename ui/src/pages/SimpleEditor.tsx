@@ -3,6 +3,8 @@ import { NovelEditor } from '../components/Editor/NovelEditor'
 import { SimpleAssist } from '../components/SimpleAssist'
 import { FileSidebar } from '../components/FileSidebar'
 import { useEditorStore } from '../stores/editorStore'
+import { useSettingsStore } from '../stores/settingsStore'
+import { SettingsModal } from '../components/SettingsModal'
 import { API_BASE } from '../lib/api'
 
 interface FileSystemFileHandle {
@@ -31,6 +33,33 @@ function getStoredWidth(key: string, fallback: number): number {
 export default function SimpleEditor() {
   const setContent = useEditorStore(state => state.setContent)
   const { addFile, clearFiles, setWorkspaceDir, setCurrentFilePath, markFileClean, currentFilePath } = useEditorStore()
+  const { showSettings, setShowSettings, settings } = useSettingsStore()
+
+  useEffect(() => {
+    if (!settings?.theme) return
+
+    const root = document.documentElement
+    const themeMode = settings.theme
+    const themeFamily = settings.theme_family || 'sand'
+    const textStyle = settings.text_style || 'system'
+    const media = window.matchMedia('(prefers-color-scheme: dark)')
+    const applyTheme = () => {
+      const isDark = themeMode === 'dark' || (themeMode === 'system' && media.matches)
+      root.classList.toggle('dark', isDark)
+      root.dataset.themeFamily = themeFamily
+      root.dataset.textStyle = textStyle
+      localStorage.setItem('simple-dark-mode', String(isDark))
+      localStorage.setItem('simple-theme-mode', themeMode)
+      localStorage.setItem('simple-theme-family', themeFamily)
+      localStorage.setItem('simple-text-style', textStyle)
+    }
+
+    applyTheme()
+    if (themeMode !== 'system') return
+
+    media.addEventListener('change', applyTheme)
+    return () => media.removeEventListener('change', applyTheme)
+  }, [settings?.theme, settings?.theme_family, settings?.text_style])
   const [panelOpen, setPanelOpen] = useState(true)
   const [panelWidth, setPanelWidth] = useState(() => getStoredWidth('simple-ai-panel-width', PANEL_DEFAULT_WIDTH))
   const aiDraggingRef = useRef(false)
@@ -291,7 +320,10 @@ export default function SimpleEditor() {
           <SimpleAssist />
         </div>
       </div>
+
+      {showSettings && (
+        <SettingsModal onClose={() => setShowSettings(false)} />
+      )}
     </div>
   )
 }
-

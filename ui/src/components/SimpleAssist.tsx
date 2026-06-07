@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import type { Editor } from '@tiptap/react'
-import { RefreshCw, Trash2 } from 'lucide-react'
+import { AtSign, Code2, MousePointer2, RefreshCw, Settings, Trash2 } from 'lucide-react'
 import { useEditorStore } from '../stores/editorStore'
+import { useSettingsStore } from '../stores/settingsStore'
 import { API_BASE } from '../lib/api'
 import type { FileEntry } from '../stores/editorStore'
 
@@ -42,6 +43,86 @@ function cleanUserPrompt(log: SimpleLogEntry): string {
     return log.instruction.trim()
   }
   return log.mode === 'chat' ? 'AI Assistant Query' : 'Edit text'
+}
+
+function formatCharacterCount(length: number): string {
+  return `${length.toLocaleString()} ch`
+}
+
+function appendChipText(chip: HTMLElement, glyph: string, label: string, removeDataset: Record<string, string>) {
+  const glyphEl = document.createElement('span')
+  glyphEl.className = 'chip-glyph flex items-center'
+  glyphEl.innerHTML = `<svg class="w-2.5 h-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M11.688 3.063a3.5 3.5 0 0 1 1.027.712l5.968 5.97c.3.3.54.647.711 1.026m-7.706-7.708a3.5 3.5 0 0 0-1.448-.313H7.792a3.5 3.5 0 0 0-3.5 3.5v11.5a3.5 3.5 0 0 0 3.5 3.5h8.416a3.5 3.5 0 0 0 3.5-3.5v-5.53c0-.505-.109-.999-.314-1.45m-7.706-7.707V8.77a2 2 0 0 0 2 2h5.706"/>
+  </svg>`
+
+  const divider = document.createElement('span')
+  divider.className = 'chip-divider'
+
+  const labelEl = document.createElement('span')
+  labelEl.className = 'chip-label'
+  labelEl.textContent = label
+
+  const removeButton = document.createElement('button')
+  removeButton.className = 'chip-remove'
+  removeButton.type = 'button'
+  removeButton.textContent = '×'
+  Object.entries(removeDataset).forEach(([key, value]) => {
+    removeButton.dataset[key] = value
+  })
+
+  chip.appendChild(glyphEl)
+  chip.appendChild(divider)
+  chip.appendChild(labelEl)
+  chip.appendChild(removeButton)
+}
+
+function appendSelectionChipText(chip: HTMLElement, length: number) {
+  const glyphEl = document.createElement('span')
+  glyphEl.className = 'chip-glyph flex items-center'
+  glyphEl.innerHTML = `<svg class="w-2.5 h-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="m4 4 7.07 16.97 2.51-7.39 7.39-2.51L4 4Z" />
+    <path d="m13 13 6 6" />
+  </svg>`
+
+  const divider = document.createElement('span')
+  divider.className = 'chip-divider'
+
+  const labelEl = document.createElement('span')
+  labelEl.className = 'chip-label'
+  labelEl.textContent = formatCharacterCount(length)
+
+  const removeButton = document.createElement('button')
+  removeButton.className = 'chip-remove'
+  removeButton.type = 'button'
+  removeButton.dataset.role = 'selection-remove'
+  removeButton.textContent = '×'
+
+  chip.appendChild(glyphEl)
+  chip.appendChild(divider)
+  chip.appendChild(labelEl)
+  chip.appendChild(removeButton)
+}
+
+function EditModeIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M5 19.25h5.25" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" />
+      <path d="M6.25 15.5 15.9 5.85a2.2 2.2 0 0 1 3.1 0l.15.15a2.2 2.2 0 0 1 0 3.1L9.5 18.75 5 19l.25-4.5Z" stroke="currentColor" strokeWidth="1.85" strokeLinejoin="round" />
+      <path d="m14.5 7.25 2.25 2.25" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" />
+      <path d="M6.75 4.75h.01M9.75 3h.01M4 8h.01" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function ChatModeIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M6.75 16.75 3.5 20.25V7.75A4.25 4.25 0 0 1 7.75 3.5h8.5a4.25 4.25 0 0 1 4.25 4.25v4.75a4.25 4.25 0 0 1-4.25 4.25h-9.5Z" stroke="currentColor" strokeWidth="1.85" strokeLinejoin="round" />
+      <path d="M8 9.25h8M8 12.25h4.75" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" />
+      <path d="M17.75 5.75c.45.3.78.7 1 1.2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" opacity=".65" />
+    </svg>
+  )
 }
 
 function getTextBeforeCaret(el: HTMLElement): string {
@@ -167,6 +248,43 @@ export function SimpleAssist() {
   const [sessionLoadCount, setSessionLoadCount] = useState(3)
   const [mode, setMode] = useState<'chat' | 'edit'>('edit')
   const hasSelection = !!pendingEditSelection
+
+  const { settings, fetchSettings, setShowSettings } = useSettingsStore()
+
+  const renderFileChip = (file: { name: string; path: string }) => (
+    <span key={file.path} className="inline-chip inline-chip-file" data-path={file.path} data-name={file.name}>
+      <span className="chip-glyph flex items-center">
+        <svg className="w-2.5 h-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M11.688 3.063a3.5 3.5 0 0 1 1.027.712l5.968 5.97c.3.3.54.647.711 1.026m-7.706-7.708a3.5 3.5 0 0 0-1.448-.313H7.792a3.5 3.5 0 0 0-3.5 3.5v11.5a3.5 3.5 0 0 0 3.5 3.5h8.416a3.5 3.5 0 0 0 3.5-3.5v-5.53c0-.505-.109-.999-.314-1.45m-7.706-7.707V8.77a2 2 0 0 0 2 2h5.706"/>
+        </svg>
+      </span>
+      <span className="chip-divider" />
+      <span className="chip-label">{file.name}</span>
+    </span>
+  )
+
+  const renderSelectionChip = (length: number) => (
+    <span className="inline-chip inline-chip-selection" data-role="char-count">
+      <span className="chip-glyph flex items-center">
+        <svg className="w-2.5 h-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="m4 4 7.07 16.97 2.51-7.39 7.39-2.51L4 4Z" />
+          <path d="m13 13 6 6" />
+        </svg>
+      </span>
+      <span className="chip-divider" />
+      <span className="chip-label">{formatCharacterCount(length)}</span>
+    </span>
+  )
+
+  useEffect(() => {
+    fetchSettings()
+  }, [])
+
+  useEffect(() => {
+    if (settings?.default_mode) {
+      setMode(settings.default_mode as 'chat' | 'edit')
+    }
+  }, [settings?.default_mode])
 
   const [showFileDropdown, setShowFileDropdown] = useState(false)
   const [fileQuery, setFileQuery] = useState('')
@@ -296,10 +414,10 @@ export function SimpleAssist() {
 
     const chip = document.createElement('span')
     chip.contentEditable = 'false'
-    chip.className = 'inline-chip'
+    chip.className = 'inline-chip inline-chip-file'
     chip.dataset.path = file.path
     chip.dataset.name = file.name
-    chip.innerHTML = `@${file.name} <button class="chip-remove" data-path="${file.path}">&times;</button>`
+    appendChipText(chip, '@', file.name, { path: file.path })
 
     const isEditorContent = file.name === 'editorcontent.ts'
     const zwsp = document.createTextNode(isEditorContent ? '\u200B ' : '\u200B')
@@ -656,14 +774,14 @@ export function SimpleAssist() {
       // Create the new selection tag/chip
       const chip = document.createElement('span')
       chip.contentEditable = 'false'
-      chip.className = 'inline-chip'
+      chip.className = 'inline-chip inline-chip-selection'
       chip.dataset.role = 'selection'
       chip.dataset.from = String(pendingEditSelection.from)
       chip.dataset.to = String(pendingEditSelection.to)
       chip.dataset.text = pendingEditSelection.text
 
       const len = pendingEditSelection.text.length
-      chip.innerHTML = `@editorcontent.ts (${len} Ch) <button class="chip-remove" data-role="selection-remove">&times;</button>`
+      appendSelectionChipText(chip, len)
 
       // Insert it at current selection/caret of input, or at the end if not inside
       const sel = window.getSelection()
@@ -714,7 +832,7 @@ export function SimpleAssist() {
   const hasHistory = filteredLogs.length > 0 || isWorking || !!errorText
 
   const renderInputCard = () => (
-    <div className="bg-[var(--bg)] border border-[var(--border)] focus-within:border-[var(--text-secondary)] shadow-[0_4px_12px_rgba(0,0,0,0.01)] focus-within:shadow-[0_4px_16px_rgba(0,0,0,0.02)] transition-[border-color,box-shadow] duration-200 rounded-[20px] p-3 flex flex-col relative animate-scale-in">
+    <div className="bg-[var(--assist-command-bg)] border border-[var(--assist-command-border)] focus-within:border-[var(--assist-focus-ring)] shadow-[var(--assist-command-shadow)] transition-[border-color,box-shadow] duration-200 rounded-[14px] p-3 flex flex-col relative animate-scale-in">
       <div className="flex items-start gap-1.5 w-full">
         <div
           ref={inputRef}
@@ -767,28 +885,25 @@ export function SimpleAssist() {
       {/* Input Action Bar */}
       <div className="flex items-center justify-between select-none">
         {/* Mode Toggle */}
-        <div className="flex items-center gap-0.5 bg-[var(--bg-hover)] rounded-full p-0.5 border border-[var(--border-subtle)]">
-          <button
-            onClick={() => setMode('edit')}
-            className={`flex items-center justify-center w-7 h-7 rounded-full transition-colors cursor-pointer ${mode === 'edit' ? 'bg-[var(--accent-brown)] text-white' : 'text-[var(--text-secondary)] hover:text-[var(--text-heading)]'
-              }`}
-            title="Edit mode"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
-              <path d="m15 5 4 4" />
-            </svg>
-          </button>
-          <button
-            onClick={() => setMode('chat')}
-            className={`flex items-center justify-center w-7 h-7 rounded-full transition-colors cursor-pointer ${mode === 'chat' ? 'bg-[var(--accent-brown)] text-white' : 'text-[var(--text-secondary)] hover:text-[var(--text-heading)]'
-              }`}
-            title="Chat mode"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M10 3h4a8 8 0 1 1 0 16v3.5c-5-2-12-5-12-11.5a8 8 0 0 1 8-8Zm2 14h2a6 6 0 0 0 0-12h-4a6 6 0 0 0-6 6c0 3.61 2.462 5.966 8 8.48V17Z" />
-            </svg>
-          </button>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-0.5 bg-[var(--assist-mode-bg)] rounded-full p-0.5 border border-[var(--assist-command-border)]">
+            <button
+              onClick={() => setMode('edit')}
+              className={`flex items-center justify-center w-7 h-7 rounded-full transition-colors cursor-pointer ${mode === 'edit' ? 'bg-[var(--assist-mode-active)] text-[var(--text-inverse)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-heading)]'
+                }`}
+              title="Edit mode"
+            >
+              <EditModeIcon />
+            </button>
+            <button
+              onClick={() => setMode('chat')}
+              className={`flex items-center justify-center w-7 h-7 rounded-full transition-colors cursor-pointer ${mode === 'chat' ? 'bg-[var(--assist-mode-active)] text-[var(--text-inverse)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-heading)]'
+                }`}
+              title="Chat mode"
+            >
+              <ChatModeIcon />
+            </button>
+          </div>
         </div>
 
         {/* Action Button: Solid circular button with up arrow */}
@@ -796,7 +911,7 @@ export function SimpleAssist() {
           onClick={mode === 'chat' ? handleChat : handleEdit}
           disabled={!instructionText || isWorking}
           className="
-            flex items-center justify-center transition-[background-color,transform,opacity] duration-150 cursor-pointer select-none border rounded-full w-7 h-7 active:scale-[0.9] bg-[var(--accent-brown)] hover:bg-[var(--accent-brown-hover)] text-white disabled:bg-[var(--bg-disabled)] disabled:text-[var(--text-disabled)] disabled:border-transparent border-transparent
+            flex items-center justify-center transition-[background-color,transform,opacity] duration-150 cursor-pointer select-none border rounded-full w-7 h-7 active:scale-[0.9] bg-[var(--assist-mode-active)] hover:bg-[var(--accent-brown-hover)] text-[var(--text-inverse)] disabled:bg-[var(--bg-disabled)] disabled:text-[var(--text-disabled)] disabled:border-transparent border-transparent
           "
           title={mode === 'chat' ? 'Send Message' : hasSelection ? 'Replace Selection' : 'Insert Content'}
         >
@@ -815,7 +930,7 @@ export function SimpleAssist() {
 
   return (
     <div ref={containerRef} className="flex flex-col gap-4 w-full h-full select-none animate-fade-in">
-      {/* Header: new chat on left, history on right */}
+      {/* Header: actions on right */}
       <div className="flex items-center justify-end gap-1.5 pb-3.5 border-b border-[var(--border-sidebar)] select-none shrink-0 w-full animate-fade-in">
         <button
           onClick={() => {
@@ -843,7 +958,7 @@ export function SimpleAssist() {
           {showHistoryDropdown && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setShowHistoryDropdown(false)} />
-              <div className="absolute right-0 top-full mt-1 z-50 bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-[10px] overflow-hidden shadow-[0_4px_16px_rgba(0,0,0,0.06)] w-max min-w-[180px] max-w-[280px] py-1">
+              <div className="absolute right-0 top-full mt-1.5 z-50 bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-[10px] overflow-hidden shadow-[0_4px_16px_rgba(0,0,0,0.06)] w-max min-w-[180px] max-w-[280px] py-1 animate-scale-in">
                 {sessions.length === 0 ? (
                   <div className="px-3 py-4 text-center text-[11px] text-[var(--text-muted)] font-sans">
                     No logs
@@ -859,7 +974,8 @@ export function SimpleAssist() {
                           <span className="truncate block pr-1">{session.name}</span>
                         </button>
                         <button
-                          onClick={async () => {
+                          onClick={async (e) => {
+                            e.stopPropagation()
                             try {
                               const res = await fetch(`${API_BASE}/api/assist/simple/session/${session.id}`, { method: 'DELETE' })
                               if (!res.ok) console.warn('DELETE session returned', res.status)
@@ -869,7 +985,7 @@ export function SimpleAssist() {
                             if (activeSessionId === session.id) setActiveSessionId(null)
                             await fetchLogs()
                           }}
-                          className="flex items-center justify-center w-5 h-5 text-[var(--text-muted)] hover:text-red-400 hover:bg-[var(--border-sidebar)]/60 rounded-[4px] transition-all cursor-pointer active:scale-[0.9] opacity-0 group-hover:opacity-100"
+                          className="flex items-center justify-center w-5 h-5 text-[var(--text-muted)] hover:text-[var(--danger)] hover:bg-[var(--danger-bg)] rounded-[4px] transition-all cursor-pointer active:scale-[0.9] opacity-0 group-hover:opacity-100"
                           title="Delete session"
                         >
                           <Trash2 className="w-3 h-3" />
@@ -890,6 +1006,15 @@ export function SimpleAssist() {
             </>
           )}
         </div>
+
+        {/* Settings Button */}
+        <button
+          onClick={() => setShowSettings(true)}
+          className="flex items-center justify-center w-7 h-7 text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 bg-[var(--bg-icon)]/20 rounded-[6px] transition-all cursor-pointer active:scale-[0.95]"
+          title="Settings"
+        >
+          <Settings size={14} />
+        </button>
       </div>
 
       {/* History area (scrollable) */}
@@ -921,11 +1046,9 @@ export function SimpleAssist() {
                   {/* User Speech Capsule Bubble */}
                   <div className="self-end max-w-[85%] bg-[var(--bg-bubble)] border border-[var(--border)] rounded-[16px] rounded-tr-[4px] px-3.5 py-2.5 font-sans text-xs text-[var(--text)] shadow-none leading-relaxed select-text flex flex-wrap items-center gap-1 animate-scale-in">
                     {log.mode !== 'chat' && log.selected_text && (
-                      <span className="inline-chip" data-role="char-count">{log.selected_text.length} Ch</span>
+                      renderSelectionChip(log.selected_text.length)
                     )}
-                    {log.ref_files?.map((file) => (
-                      <span key={file.path} className="inline-chip" data-path={file.path} data-name={file.name}>@{file.name}</span>
-                    ))}
+                    {log.ref_files?.map(renderFileChip)}
                     <span>{cleanUserPrompt(log)}</span>
                   </div>
 
@@ -937,7 +1060,7 @@ export function SimpleAssist() {
                         className="flex items-center gap-0.5 text-[10px] text-[var(--text-secondary)] hover:text-[var(--text-heading)] transition-colors cursor-pointer"
                         title="Toggle prompt details"
                       >
-                        <span>Thinking</span>
+                        <span>Telemetry</span>
                         <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`w-2.5 h-2.5 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}>
                           <path d="m9 18 6-6-6-6" />
                         </svg>
@@ -996,7 +1119,7 @@ export function SimpleAssist() {
                         </div>
                       </div>
                     )}
-                    <div className={`text-xs font-sans leading-relaxed whitespace-pre-wrap select-text ${log.success === false ? 'text-red-600 font-medium' : 'text-[var(--text)]'}`}>
+                    <div className={`text-xs font-sans leading-relaxed whitespace-pre-wrap select-text ${log.success === false ? 'text-[var(--danger)] font-medium' : 'text-[var(--text)]'}`}>
                       {log.output}
                     </div>
                   </div>
@@ -1009,11 +1132,9 @@ export function SimpleAssist() {
                 {/* User Prompt */}
                 <div className="self-end max-w-[85%] bg-[var(--bg-bubble)] border border-[var(--border)] rounded-[16px] rounded-tr-[4px] px-3.5 py-2.5 font-sans text-xs text-[var(--text)] shadow-none leading-relaxed select-text flex flex-wrap items-center gap-1 opacity-70">
                   {activeSelectedLength != null && (
-                    <span className="inline-chip" data-role="char-count">{activeSelectedLength} Ch</span>
+                    renderSelectionChip(activeSelectedLength)
                   )}
-                  {activeRefFiles.map((file) => (
-                    <span key={file.path} className="inline-chip" data-path={file.path} data-name={file.name}>@{file.name}</span>
-                  ))}
+                  {activeRefFiles.map(renderFileChip)}
                   <span>{activeInstruction}</span>
                 </div>
                 {/* Context Readings Logs */}
@@ -1053,7 +1174,7 @@ export function SimpleAssist() {
             )}
 
             {errorText && (
-              <div className="flex items-center gap-1.5 text-xs text-red-600 font-sans py-1 self-start select-none animate-fade-in" ref={outputRef}>
+              <div className="flex items-center gap-1.5 text-xs text-[var(--danger)] bg-[var(--danger-bg)] border border-[var(--danger-muted)] rounded-[8px] px-2.5 py-2 font-sans self-start select-none animate-fade-in" ref={outputRef}>
                 <span>{errorText}</span>
               </div>
             )}
@@ -1062,28 +1183,30 @@ export function SimpleAssist() {
       )}
 
       {!hasHistory && (
-        <div className="flex-1 flex flex-col justify-center px-6 py-10 animate-fade-in max-w-[280px] mx-auto select-none font-sans text-left">
-          <div className="text-[var(--text)] font-serif italic text-base text-center mb-1">
-            Simple Assist
+        <div className="flex-1 flex flex-col justify-center px-5 py-10 animate-fade-in max-w-[300px] mx-auto select-none font-sans text-left">
+          <div className="text-center mb-6">
+            <div className="mt-3 text-[18px] font-medium text-[var(--text-heading)]">
+              Margin
+            </div>
+            <p className="mt-1 text-[10.5px] leading-relaxed text-[var(--text-muted)] font-sans">
+              Edit, ask, and pull context into the draft.
+            </p>
           </div>
-          <p className="text-[var(--text-muted)] text-[10.5px] leading-relaxed text-center mb-6 font-sans">
-            compatible with small language models.
-          </p>
 
-          <div className="flex flex-col gap-4 text-[10.5px] text-[var(--text-secondary)]">
-            <div>
-              <div className="font-mono text-[9px] text-center uppercase tracking-wider text-[var(--text-muted)] mb-1">Context</div>
-              <p className="leading-normal text-center text-[var(--text)]">Type <code className="font-mono text-[9.5px] bg-[var(--bg-hover)] px-1 py-0.5 rounded border border-[var(--border-subtle)] text-[var(--text)]">@</code> to add markdown files.</p>
+          <div className="flex flex-col gap-2.5 text-[11px] text-[var(--text-secondary)]">
+            <div className="flex gap-2.5 rounded-[8px] border border-[var(--border-subtle)] bg-[var(--bg-elevated)] px-3 py-2">
+              <AtSign size={14} className="mt-0.5 shrink-0 text-[var(--text-muted)]" />
+              <p className="leading-normal text-[var(--text)]">Type <code className="font-mono text-[9.5px] bg-[var(--bg-hover)] px-1 py-0.5 rounded border border-[var(--border-subtle)] text-[var(--text)]">@</code> to add markdown files.</p>
             </div>
 
-            <div>
-              <div className="font-mono text-[9px] text-center uppercase tracking-wider text-[var(--text-muted)] mb-1">Modes</div>
-              <p className="leading-normal text-[var(--text)]"><strong className="font-medium">Chat</strong> for questions, <strong className="font-medium">Edit</strong> to modify content.</p>
+            <div className="flex gap-2.5 rounded-[8px] border border-[var(--border-subtle)] bg-[var(--bg-elevated)] px-3 py-2">
+              <Code2 size={14} className="mt-0.5 shrink-0 text-[var(--text-muted)]" />
+              <p className="leading-normal text-[var(--text)]"><strong className="font-medium">Edit</strong> changes text, <strong className="font-medium">Chat</strong> answers questions.</p>
             </div>
 
-            <div>
-              <div className="font-mono text-[9px] text-center uppercase tracking-wider text-[var(--text-muted)] mb-1">Placement</div>
-              <p className="leading-normal text-center text-[var(--text)]">Place your cursor to insert new text, or highlight paragraphs to replace them.</p>
+            <div className="flex gap-2.5 rounded-[8px] border border-[var(--border-subtle)] bg-[var(--bg-elevated)] px-3 py-2">
+              <MousePointer2 size={14} className="mt-0.5 shrink-0 text-[var(--text-muted)]" />
+              <p className="leading-normal text-[var(--text)]">Place the cursor or highlight text to guide the edit.</p>
             </div>
           </div>
         </div>

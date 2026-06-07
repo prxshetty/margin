@@ -35,6 +35,30 @@
   --accent-green-bg: #EDF3EC;
   --accent-gradient-1: #FFD3C4;
   --accent-gradient-2: #FCA5A5;
+  --danger: #A3423F;
+  --danger-muted: #E4B9B5;
+  --danger-bg: #FAEEEE;
+  --assist-command-bg: #FFFFFF;
+  --assist-command-border: #DDD8CF;
+  --assist-command-shadow: 0 2px 10px rgba(47, 52, 55, 0.04);
+  --assist-focus-ring: #734f2d;
+  --assist-mode-bg: #F4F1EA;
+  --assist-mode-active: #734f2d;
+  --assist-pill-bg: #F2EDE5;
+  --assist-pill-text: #5E4328;
+  --assist-pill-border: #DDD0BF;
+  --assist-pill-glyph: #734f2d;
+  --assist-pill-selection-bg: #EDF3EC;
+  --assist-pill-selection-text: #346538;
+  --assist-pill-selection-border: #D5E6D3;
+
+  --font-ui: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-editor: var(--font-ui);
+  --font-editor-heading: var(--font-editor);
+  --font-code: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, monospace;
+  --editor-font-size: 0.9375rem;
+  --editor-line-height: 1.75;
+  --editor-letter-spacing: 0;
 }
 
 /* ── Dark theme ──────────────────────────── */
@@ -72,64 +96,552 @@
   --accent-green-bg: #1E2E1D;
   --accent-gradient-1: #B0895C;
   --accent-gradient-2: #C4A27A;
+  --danger: #F0A8A2;
+  --danger-muted: #6F3A35;
+  --danger-bg: #2D1F1C;
+  --assist-command-bg: #211F1B;
+  --assist-command-border: #3C3831;
+  --assist-command-shadow: 0 2px 14px rgba(0, 0, 0, 0.18);
+  --assist-focus-ring: #B0895C;
+  --assist-mode-bg: #2E2A23;
+  --assist-mode-active: #B0895C;
+  --assist-pill-bg: #302A22;
+  --assist-pill-text: #D8C4A9;
+  --assist-pill-border: #4A4033;
+  --assist-pill-glyph: #C4A27A;
+  --assist-pill-selection-bg: #1E2E1D;
+  --assist-pill-selection-text: #9CCB9F;
+  --assist-pill-selection-border: #2A4228;
+}
+
+/* ── Text styles ────────────────────────── */
+:root[data-text-style="editorial"] {
+  --font-editor: Georgia, "Times New Roman", Times, serif;
+  --font-editor-heading: Georgia, "Times New Roman", Times, serif;
+  --editor-font-size: 1rem;
+  --editor-line-height: 1.78;
+}
+
+:root[data-text-style="manuscript"] {
+  --font-editor: Charter, "Bitstream Charter", "Iowan Old Style", Georgia, serif;
+  --font-editor-heading: Charter, "Bitstream Charter", "Iowan Old Style", Georgia, serif;
+  --editor-font-size: 1.03rem;
+  --editor-line-height: 1.85;
+}
+
+:root[data-text-style="technical"] {
+  --font-editor: "SF Pro Text", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-editor-heading: "SF Pro Display", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-code: "SFMono-Regular", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  --editor-font-size: 0.925rem;
+  --editor-line-height: 1.68;
+}
+
+:root[data-text-style="warm"] {
+  --font-editor: "Avenir Next", Avenir, "Trebuchet MS", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-editor-heading: "Avenir Next", Avenir, "Trebuchet MS", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --editor-font-size: 0.96rem;
+  --editor-line-height: 1.76;
+}
+
+.theme-font-preview-system {
+  font-family: var(--font-ui);
+}
+
+.theme-font-preview-editorial {
+  font-family: Georgia, "Times New Roman", Times, serif;
+}
+
+.theme-font-preview-manuscript {
+  font-family: Charter, "Bitstream Charter", "Iowan Old Style", Georgia, serif;
+  letter-spacing: 0.01em;
+}
+
+.theme-font-preview-technical {
+  font-family: "SFMono-Regular", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+.theme-font-preview-warm {
+  font-family: "Avenir Next", Avenir, "Trebuchet MS", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+/* ── Theme families ─────────────────────── */
+:root[data-theme-family="notion"] {
+  --bg: #FFFFFF;
+  --bg-bubble: #F1F1EF;
+  --bg-chip: #EFF4F8;
+  --bg-hover: #F7F7F5;
+  --bg-selected: #ECECEA;
+  --bg-elevated: #FCFCFB;
+  --bg-disabled: #F8F8F7;
+  --bg-input: #FFFFFF;
+  --bg-editor: #F7F7F5;
+  --bg-icon: #E8E8E5;
+  --bg-char-count: #F1F1EF;
+  --bg-expanded: #F4F4F2;
+
+  --text: #2F3437;
+  --text-secondary: #6F6F6B;
+  --text-muted: #A3A29E;
+  --text-disabled: #C8C7C2;
+  --text-heading: #111111;
+  --text-inverse: #FFFFFF;
+  --text-accent: #2563EB;
+
+  --border: #E5E5E2;
+  --border-subtle: #E9E9E6;
+  --border-sidebar: #E7E7E3;
+  --border-chip: #DDE8F5;
+  --border-chip-active: #CADCF0;
+
+  --accent-brown: #2F3437;
+  --accent-brown-hover: #4B5257;
+  --accent-green: #2563EB;
+  --accent-green-bg: #EFF4F8;
+  --accent-gradient-1: #A8C7FA;
+  --accent-gradient-2: #D7E3FC;
+  --danger: #A3423F;
+  --danger-muted: #E2B6B1;
+  --danger-bg: #FAEEEE;
+  --assist-focus-ring: #2F3437;
+  --assist-mode-active: #2F3437;
+  --assist-pill-bg: #F0F0EE;
+  --assist-pill-text: #2F3437;
+  --assist-pill-border: #DEDEDA;
+  --assist-pill-glyph: #2563EB;
+  --assist-pill-selection-bg: #EFF4F8;
+  --assist-pill-selection-text: #2563EB;
+  --assist-pill-selection-border: #CADCF0;
+}
+
+.dark[data-theme-family="notion"] {
+  --bg: #191A1A;
+  --bg-bubble: #2A2B2B;
+  --bg-chip: #182638;
+  --bg-hover: #252626;
+  --bg-selected: #303131;
+  --bg-elevated: #202121;
+  --bg-disabled: #262727;
+  --bg-input: #202121;
+  --bg-editor: #171818;
+  --bg-icon: #2B2C2C;
+  --bg-char-count: #282929;
+  --bg-expanded: #252626;
+
+  --text: #D7D7D4;
+  --text-secondary: #A0A09A;
+  --text-muted: #73736D;
+  --text-disabled: #4F504B;
+  --text-heading: #F1F1EE;
+  --text-inverse: #191A1A;
+  --text-accent: #8AB4F8;
+
+  --border: #343535;
+  --border-subtle: #343535;
+  --border-sidebar: #303131;
+  --border-chip: #243D5A;
+  --border-chip-active: #2C4C70;
+
+  --accent-brown: #E4E4DF;
+  --accent-brown-hover: #FFFFFF;
+  --accent-green: #8AB4F8;
+  --accent-green-bg: #182638;
+  --accent-gradient-1: #8AB4F8;
+  --accent-gradient-2: #C7D8F4;
+  --danger: #F0A8A2;
+  --danger-muted: #673B37;
+  --danger-bg: #2B2020;
+  --assist-focus-ring: #E4E4DF;
+  --assist-mode-active: #E4E4DF;
+  --assist-pill-bg: #252626;
+  --assist-pill-text: #D7D7D4;
+  --assist-pill-border: #3B3C3C;
+  --assist-pill-glyph: #8AB4F8;
+  --assist-pill-selection-bg: #182638;
+  --assist-pill-selection-text: #A8C7FA;
+  --assist-pill-selection-border: #2C4C70;
+}
+
+:root[data-theme-family="sage"] {
+  --bg: #FBFCF8;
+  --bg-bubble: #EAF1E5;
+  --bg-chip: #E8F2EC;
+  --bg-hover: #F0F5EC;
+  --bg-selected: #E4EDDE;
+  --bg-elevated: #FEFFFB;
+  --bg-disabled: #F5F7F1;
+  --bg-input: #FEFFFB;
+  --bg-editor: #EEF4EA;
+  --bg-icon: #DDE8D7;
+  --bg-char-count: #EDF3E8;
+  --bg-expanded: #EEF3EA;
+
+  --text: #2F382E;
+  --text-secondary: #6F796B;
+  --text-muted: #9AA392;
+  --text-disabled: #C0C8BA;
+  --text-heading: #172016;
+  --text-inverse: #FFFFFF;
+  --text-accent: #2F6F59;
+
+  --border: #DDE7D8;
+  --border-subtle: #E4E9E0;
+  --border-sidebar: #DDE7D8;
+  --border-chip: #D4E6D9;
+  --border-chip-active: #BED8C8;
+
+  --accent-brown: #506C4A;
+  --accent-brown-hover: #647F5E;
+  --accent-green: #2F6F59;
+  --accent-green-bg: #E8F2EC;
+  --accent-gradient-1: #BFDCC7;
+  --accent-gradient-2: #D8E8B8;
+  --danger: #9E463F;
+  --danger-muted: #E0B8B1;
+  --danger-bg: #FAF0ED;
+  --assist-focus-ring: #506C4A;
+  --assist-mode-active: #506C4A;
+  --assist-pill-bg: #ECF2E7;
+  --assist-pill-text: #425C3D;
+  --assist-pill-border: #D6E3CE;
+  --assist-pill-glyph: #2F6F59;
+  --assist-pill-selection-bg: #E8F2EC;
+  --assist-pill-selection-text: #2F6F59;
+  --assist-pill-selection-border: #BED8C8;
+}
+
+.dark[data-theme-family="sage"] {
+  --bg: #171D18;
+  --bg-bubble: #263224;
+  --bg-chip: #173024;
+  --bg-hover: #243022;
+  --bg-selected: #2B3828;
+  --bg-elevated: #1D251E;
+  --bg-disabled: #222A23;
+  --bg-input: #1D251E;
+  --bg-editor: #151B16;
+  --bg-icon: #2B3828;
+  --bg-char-count: #263224;
+  --bg-expanded: #243022;
+
+  --text: #D7DDCF;
+  --text-secondary: #9DAA94;
+  --text-muted: #707D69;
+  --text-disabled: #4D5848;
+  --text-heading: #EEF3E8;
+  --text-inverse: #171D18;
+  --text-accent: #8CC7A4;
+
+  --border: #354133;
+  --border-subtle: #354133;
+  --border-sidebar: #303C2E;
+  --border-chip: #224433;
+  --border-chip-active: #2D5A43;
+
+  --accent-brown: #A7BE8F;
+  --accent-brown-hover: #BDD3A7;
+  --accent-green: #8CC7A4;
+  --accent-green-bg: #173024;
+  --accent-gradient-1: #8CC7A4;
+  --accent-gradient-2: #B8C88B;
+  --danger: #EDA39A;
+  --danger-muted: #633A34;
+  --danger-bg: #2A211D;
+  --assist-focus-ring: #A7BE8F;
+  --assist-mode-active: #A7BE8F;
+  --assist-pill-bg: #263224;
+  --assist-pill-text: #D7DDCF;
+  --assist-pill-border: #3B4A37;
+  --assist-pill-glyph: #8CC7A4;
+  --assist-pill-selection-bg: #173024;
+  --assist-pill-selection-text: #A6DDB8;
+  --assist-pill-selection-border: #2D5A43;
+}
+
+:root[data-theme-family="blue"] {
+  --bg: #FAFCFF;
+  --bg-bubble: #E7F0F8;
+  --bg-chip: #E8F2F6;
+  --bg-hover: #EFF5FA;
+  --bg-selected: #E2EDF6;
+  --bg-elevated: #FFFFFF;
+  --bg-disabled: #F4F7FA;
+  --bg-input: #FFFFFF;
+  --bg-editor: #EEF4FA;
+  --bg-icon: #DAE7F2;
+  --bg-char-count: #EAF2F8;
+  --bg-expanded: #EEF4FA;
+
+  --text: #263747;
+  --text-secondary: #66798A;
+  --text-muted: #98A8B6;
+  --text-disabled: #BBC8D2;
+  --text-heading: #102235;
+  --text-inverse: #FFFFFF;
+  --text-accent: #2F6F9F;
+
+  --border: #DCE7F0;
+  --border-subtle: #E3EAF0;
+  --border-sidebar: #DCE7F0;
+  --border-chip: #D1E5ED;
+  --border-chip-active: #B8D7E4;
+
+  --accent-brown: #243B53;
+  --accent-brown-hover: #334E68;
+  --accent-green: #2F6F9F;
+  --accent-green-bg: #E8F2F6;
+  --accent-gradient-1: #A8DADC;
+  --accent-gradient-2: #BFD7FF;
+  --danger: #A14842;
+  --danger-muted: #E2B8B3;
+  --danger-bg: #FAEEEE;
+  --assist-focus-ring: #243B53;
+  --assist-mode-active: #243B53;
+  --assist-pill-bg: #EAF2F8;
+  --assist-pill-text: #243B53;
+  --assist-pill-border: #CDDFEC;
+  --assist-pill-glyph: #2F6F9F;
+  --assist-pill-selection-bg: #E8F2F6;
+  --assist-pill-selection-text: #2F6F9F;
+  --assist-pill-selection-border: #B8D7E4;
+}
+
+.dark[data-theme-family="blue"] {
+  --bg: #101820;
+  --bg-bubble: #1F2E3C;
+  --bg-chip: #122C38;
+  --bg-hover: #1D2A36;
+  --bg-selected: #243443;
+  --bg-elevated: #16212B;
+  --bg-disabled: #1B2731;
+  --bg-input: #16212B;
+  --bg-editor: #0E151D;
+  --bg-icon: #243443;
+  --bg-char-count: #1D2A36;
+  --bg-expanded: #1D2A36;
+
+  --text: #D5DFE7;
+  --text-secondary: #96AABC;
+  --text-muted: #6B7F91;
+  --text-disabled: #465767;
+  --text-heading: #ECF5FC;
+  --text-inverse: #101820;
+  --text-accent: #7CC7D9;
+
+  --border: #2E4152;
+  --border-subtle: #2E4152;
+  --border-sidebar: #293A49;
+  --border-chip: #1D5060;
+  --border-chip-active: #25687C;
+
+  --accent-brown: #8DB8D8;
+  --accent-brown-hover: #A9CDE7;
+  --accent-green: #7CC7D9;
+  --accent-green-bg: #122C38;
+  --accent-gradient-1: #7CC7D9;
+  --accent-gradient-2: #A9CDE7;
+  --danger: #F0AAA2;
+  --danger-muted: #673D38;
+  --danger-bg: #2B2020;
+  --assist-focus-ring: #8DB8D8;
+  --assist-mode-active: #8DB8D8;
+  --assist-pill-bg: #1D2A36;
+  --assist-pill-text: #D5DFE7;
+  --assist-pill-border: #334A5D;
+  --assist-pill-glyph: #7CC7D9;
+  --assist-pill-selection-bg: #122C38;
+  --assist-pill-selection-text: #9DDCE7;
+  --assist-pill-selection-border: #25687C;
+}
+
+:root[data-theme-family="rose"] {
+  --bg: #FFF9FA;
+  --bg-bubble: #F3E4E8;
+  --bg-chip: #F6EAF0;
+  --bg-hover: #F8EEF1;
+  --bg-selected: #F1E2E7;
+  --bg-elevated: #FFFCFD;
+  --bg-disabled: #FAF3F5;
+  --bg-input: #FFFCFD;
+  --bg-editor: #F7ECEF;
+  --bg-icon: #EBD9DE;
+  --bg-char-count: #F5E8EC;
+  --bg-expanded: #F7ECEF;
+
+  --text: #3D3035;
+  --text-secondary: #806D74;
+  --text-muted: #A8959C;
+  --text-disabled: #CDBBC1;
+  --text-heading: #21181C;
+  --text-inverse: #FFFFFF;
+  --text-accent: #8F4E68;
+
+  --border: #EADDE1;
+  --border-subtle: #EDE1E5;
+  --border-sidebar: #EADDE1;
+  --border-chip: #E9D5DE;
+  --border-chip-active: #DDBFCC;
+
+  --accent-brown: #6E3B4D;
+  --accent-brown-hover: #835065;
+  --accent-green: #8F4E68;
+  --accent-green-bg: #F6EAF0;
+  --accent-gradient-1: #F2C4D0;
+  --accent-gradient-2: #D7C1E8;
+  --danger: #A2454B;
+  --danger-muted: #E6BBC0;
+  --danger-bg: #FAEEF0;
+  --assist-focus-ring: #6E3B4D;
+  --assist-mode-active: #6E3B4D;
+  --assist-pill-bg: #F7ECEF;
+  --assist-pill-text: #6E3B4D;
+  --assist-pill-border: #E4CDD5;
+  --assist-pill-glyph: #8F4E68;
+  --assist-pill-selection-bg: #F6EAF0;
+  --assist-pill-selection-text: #8F4E68;
+  --assist-pill-selection-border: #DDBFCC;
+}
+
+.dark[data-theme-family="rose"] {
+  --bg: #1F171B;
+  --bg-bubble: #34242B;
+  --bg-chip: #38202C;
+  --bg-hover: #30232A;
+  --bg-selected: #3A2A32;
+  --bg-elevated: #271C21;
+  --bg-disabled: #2D2227;
+  --bg-input: #271C21;
+  --bg-editor: #1B1418;
+  --bg-icon: #3A2A32;
+  --bg-char-count: #30232A;
+  --bg-expanded: #30232A;
+
+  --text: #E0D2D6;
+  --text-secondary: #B29AA3;
+  --text-muted: #846873;
+  --text-disabled: #5D4650;
+  --text-heading: #F6E9ED;
+  --text-inverse: #1F171B;
+  --text-accent: #D796AD;
+
+  --border: #49353D;
+  --border-subtle: #49353D;
+  --border-sidebar: #412F37;
+  --border-chip: #5B3245;
+  --border-chip-active: #744159;
+
+  --accent-brown: #D796AD;
+  --accent-brown-hover: #E6B2C3;
+  --accent-green: #D796AD;
+  --accent-green-bg: #38202C;
+  --accent-gradient-1: #D796AD;
+  --accent-gradient-2: #B99FDB;
+  --danger: #F0A4AC;
+  --danger-muted: #72414A;
+  --danger-bg: #332027;
+  --assist-focus-ring: #D796AD;
+  --assist-mode-active: #D796AD;
+  --assist-pill-bg: #34242B;
+  --assist-pill-text: #E0D2D6;
+  --assist-pill-border: #55404A;
+  --assist-pill-glyph: #E6B2C3;
+  --assist-pill-selection-bg: #38202C;
+  --assist-pill-selection-text: #F0B6C8;
+  --assist-pill-selection-border: #744159;
 }
 
 .inline-chip {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  background: var(--bg-chip);
-  color: var(--text-accent);
-  border: 1px solid color-mix(in srgb, var(--border-chip) 30%, transparent);
+  gap: 4px;
+  max-width: 100%;
+  background: var(--assist-pill-bg);
+  color: var(--assist-pill-text);
+  border: 1px solid var(--assist-pill-border);
   border-radius: 6px;
-  padding: 0 6px;
-  height: 16px;
+  padding: 0 5px;
+  height: 18px;
   font-size: 10px;
-  font-family: ui-monospace, 'SFMono-Regular', 'SF Mono', Menlo, Consolas, monospace;
+  font-family: var(--font-ui);
+  font-weight: 500;
   user-select: none;
   vertical-align: middle;
   white-space: nowrap;
 }
 
+.inline-chip-selection {
+  background: var(--assist-pill-selection-bg);
+  color: var(--assist-pill-selection-text);
+  border-color: var(--assist-pill-selection-border);
+}
+
+.inline-chip .chip-glyph {
+  color: var(--assist-pill-glyph);
+  font-family: var(--font-code);
+  font-size: 9.5px;
+  font-weight: 700;
+}
+
+.inline-chip-selection .chip-glyph {
+  color: var(--assist-pill-selection-text);
+  font-family: var(--font-ui);
+  font-size: 9.5px;
+  font-weight: 600;
+}
+
+.inline-chip .chip-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inline-chip .chip-divider {
+  width: 1px;
+  height: 10px;
+  background: currentColor;
+  opacity: 0.24;
+}
+
 .inline-chip .chip-remove {
-  color: color-mix(in srgb, var(--text-accent) 60%, transparent);
+  color: currentColor;
   background: none;
   border: none;
   padding: 0;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1;
   cursor: pointer;
-  margin-left: 2px;
+  margin-left: 1px;
+  opacity: 0.55;
 }
 
 .inline-chip .chip-remove:hover {
-  color: var(--text-accent);
+  opacity: 1;
 }
 
 body {
+  font-family: var(--font-ui);
   background: var(--bg);
   color: var(--text);
   margin: 0;
 }
 
 .prose {
-  font-size: 0.9375rem;
-  line-height: 1.75;
+  font-family: var(--font-editor);
+  font-size: var(--editor-font-size);
+  line-height: var(--editor-line-height);
+  letter-spacing: var(--editor-letter-spacing);
   color: var(--text);
 }
 
 /* ── Prose typography ────────────────── */
-.prose {
-  font-size: 0.9375rem;
-  line-height: 1.75;
-  color: var(--text);
-}
 
 .prose p {
   margin: 0.75em 0;
 }
 
 .prose h1, .prose h2, .prose h3, .prose h4 {
+  font-family: var(--font-editor-heading);
   color: var(--text-heading);
   font-weight: 600;
   margin: 1.5em 0 0.5em;
@@ -156,7 +668,7 @@ body {
 }
 
 .prose code {
-  font-family: 'SF Mono', ui-monospace, monospace;
+  font-family: var(--font-code);
   font-size: 0.85em;
   padding: 0.15em 0.3em;
   border-radius: 3px;
@@ -218,4 +730,3 @@ body {
 .dark .is-scrolling {
   scrollbar-color: rgba(176, 137, 92, 0.35) transparent !important;
 }
-
