@@ -44,6 +44,17 @@ class FileStorageService:
             "reasoning_model": True,
             "prepend_thinking_preamble": False,  # Off by default!
             "dialogue_density": 0.5,
+            "additional_context": "",
+            "tone_preset": "general",
+            "default_mode": "edit",
+            "default_verbosity": "balanced",
+            "show_thinking_by_default": False,
+            "pinned_ref_files": [],
+            "endpoints": {},
+            "active_endpoint": None,
+            "theme": "light",
+            "theme_family": "sand",
+            "text_style": "system"
         }
         if self.settings_path.exists():
             try:
@@ -54,6 +65,16 @@ class FileStorageService:
             except Exception:
                 pass
         return settings
+
+    def update_settings(self, updates: Dict[str, Any]) -> Dict[str, Any]:
+        current = self.get_settings()
+        merged = {**current, **updates}
+        try:
+            with open(self.settings_path, "w", encoding="utf-8") as f:
+                json.dump(merged, f, indent=2)
+        except Exception as e:
+            print(f"Failed to save settings: {e}")
+        return merged
 
     def list_input_files(self) -> List[Dict[str, str]]:
         files = []

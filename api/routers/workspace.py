@@ -53,3 +53,19 @@ def rename_input_file(path: str, req: RenameFileRequest):
         return storage.rename_input_file(decoded_path, req.name)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/styles")
+def get_styles():
+    try:
+        import style_loader
+        styles = style_loader.load_all_styles()
+        result = []
+        for name, data in styles.items():
+            result.append({
+                "name": name,
+                "description": data.get("description") or ""
+            })
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

@@ -10,10 +10,16 @@ import config
 class LLMClient:
     """Client for LMStudio's OpenAI-compatible API."""
 
-    def __init__(self, model: str = None, temperature: float = None):
-        self.base_url = config.LMSTUDIO["base_url"]
+    def __init__(self, model: str = None, temperature: float = None, base_url: str = None, api_key: str = None):
+        base_url = base_url or config.LMSTUDIO["base_url"]
+        if base_url:
+            base_url = base_url.rstrip("/")
+            if not base_url.endswith("/v1"):
+                base_url += "/v1"
+        self.base_url = base_url
         self.model = model or config.LMSTUDIO["model"]
         self.temperature = temperature if temperature is not None else config.LMSTUDIO["temperature"]
+        self.api_key = api_key
 
     def generate(
         self,
@@ -27,6 +33,9 @@ class LLMClient:
         url = f"{self.base_url}/chat/completions"
 
         headers = {"Content-Type": "application/json"}
+        if getattr(self, "api_key", None):
+            headers["Authorization"] = f"Bearer {self.api_key}"
+            
         payload = {
             "model": self.model,
             "messages": [

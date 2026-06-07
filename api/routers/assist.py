@@ -35,13 +35,29 @@ def _resolve_simple_assist_client() -> llm.LLMClient:
     return llm.LLMClient()
 
 
-def _build_simple_system_prompt(base_text: str) -> str:
-    """Prepend additional_context to a system prompt if it's non-empty."""
+def _build_simple_system_prompt(base_text: str = "", include_tone: bool = False) -> str:
+    """Prepend additional_context to a system prompt if it's non-empty, and optionally inject style guidelines."""
     s = storage.get_settings()
     ctx = (s.get("additional_context") or "").strip()
+    system_prompt = base_text
     if ctx:
-        return f"\n\n--- USER CONTEXT ---\n{ctx}\n--- END USER CONTEXT ---\n\n{base_text}"
-    return base_text
+        system_prompt = f"\n\n--- USER CONTEXT ---\n{ctx}\n--- END USER CONTEXT ---\n\n{system_prompt}"
+        
+    if include_tone:
+        tone = s.get("tone_preset")
+        if tone and tone.lower() != "none" and tone.strip() != "":
+            import style_loader
+            try:
+                style_data = style_loader.load_style(tone)
+                if style_data:
+                    agent_sections = style_data.get("agent_sections") or {}
+                    writer_guidelines = agent_sections.get("writer")
+                    if writer_guidelines:
+                        system_prompt = f"{system_prompt}\n\n--- STYLE GUIDELINES ({tone.upper()}) ---\n{writer_guidelines}"
+            except Exception as e:
+                print(f"Error loading style guidelines for {tone}: {e}")
+                
+    return system_prompt
 
 
 def _inject_pinned_ref_files(system_parts: list, already_seen: set) -> list:
@@ -169,8 +185,9 @@ def run_planner(
     user_prompt_lines.append(f"AVAILABLE FILES:\n" + "\n".join(f['path'] for f in available))
     
     user = "\n".join(user_prompt_lines)
+    system = _build_simple_system_prompt(system)
     
-    raw = llm.LLMClient().generate_to_completion(
+    raw = _resolve_simple_assist_client().generate_to_completion(
         system_prompt=system,
         user_prompt=user,
         temperature=0.1,
@@ -193,8 +210,6 @@ def build_generator_prompts(
     context_needed: List[str],
     content: str,
     target_paragraph_index: int,
-    replace: bool,
-    selected_text: Optional[str] = None,
     available_files: List[Dict[str, str]] = None,
 ) -> tuple[str, str]:
     
@@ -204,7 +219,7 @@ def build_generator_prompts(
     
     target_para = paragraphs[idx] if paragraphs else ""
     
-    system_parts = [_load_simple_prompt("simple-writer.md")]
+    system_parts = [_build_simple_system_prompt(_load_simple_prompt("simple-writer.md"), include_tone=True)]
     
     available = available_files if available_files is not None else []
     available_paths = [f['path'] for f in available]
@@ -244,15 +259,13 @@ def build_generator_prompts(
             system_parts.append(f"{header}\n{file_content}")
         except Exception:
             pass
+    already_seen = set(context_needed)
+    system_parts = _inject_pinned_ref_files(system_parts, already_seen)
     
-    user_parts = [f"INSTRUCTION:\n{message}"]
-    if selected_text:
-        user_parts.append(f"USER'S SELECTED TEXT:\n{selected_text}")
-    
-    if replace:
-        user_parts.append(f"REPLACE THIS PARAGRAPH:\n{target_para}")
-    else:
-        user_parts.append(f"INSERT AFTER THIS PARAGRAPH:\n{target_para}")
+    user_parts = [
+        f"INSTRUCTION:\n{message}",
+        f"TARGET PARAGRAPH:\n{target_para}"
+    ]
     
     return "\n\n".join(system_parts), "\n\n".join(user_parts)
 
@@ -308,17 +321,22 @@ async def simple_assist(payload: SimpleAssistRequest):
                 
                 resolved_idx = max(0, min(target_idx, len(paragraphs) - 1))
 
+                query = plan.get("query", payload.message)
+                if not isinstance(query, str) or not query.strip():
+                    query = payload.message
+
                 system_prompt, user_prompt = build_generator_prompts(
-                    payload.message, context_needed, payload.content, resolved_idx, replace, payload.selected_text, payload.available_files
+                    query, context_needed, payload.content, resolved_idx, payload.available_files
                 )
 
+                max_toks = _pick_writer_max_tokens() or config.AGENT_CONFIG.get("writer", {}).get("max_tokens", 500)
                 raw = await loop.run_in_executor(
                     None,
-                    lambda: llm.LLMClient().generate_to_completion(
+                    lambda: _resolve_simple_assist_client().generate_to_completion(
                         system_prompt=system_prompt,
                         user_prompt=user_prompt,
                         temperature=0.7,
-                        max_tokens=config.AGENT_CONFIG.get("writer", {}).get("max_tokens", 500)
+                        max_tokens=max_toks
                     )
                 )
 
@@ -368,8 +386,8 @@ async def simple_assist(payload: SimpleAssistRequest):
                 yield {"data": json.dumps({"status": "generating"})}
 
                 system_prompt = _load_simple_prompt("simple-chat.md")
-                client = llm.LLMClient()
-                full_system = system_prompt
+                client = _resolve_simple_assist_client()
+                full_system = _build_simple_system_prompt(system_prompt)
                 if payload.content:
                     full_system += f"\n\nHere is the user's document for context:\n{payload.content}"
 
@@ -394,7 +412,7 @@ async def simple_assist(payload: SimpleAssistRequest):
                         system_prompt=full_system,
                         user_prompt=user_prompt,
                         temperature=0.7,
-                        max_tokens=config.AGENT_CONFIG.get("writer", {}).get("max_tokens", 500),
+                        max_tokens=_pick_writer_max_tokens() or config.AGENT_CONFIG.get("writer", {}).get("max_tokens", 500),
                     )
                 )
                 

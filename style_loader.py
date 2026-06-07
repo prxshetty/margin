@@ -55,42 +55,17 @@ def load_style(name: str) -> Optional[Dict[str, Any]]:
 
 
 def load_all_styles() -> Dict[str, Dict[str, Any]]:
-    """Load all styles using STYLES.md as the source of truth.
-
-    Reads STYLES.md for the list of available styles, then loads each
-    style's full data from its individual .md file. Validates that the
-    STYLES.md entries match files on disk — raises ValueError on mismatch.
-    """
-    descs = read_styles_md()
-    expected = set(descs.keys())
-
-    actual = set()
+    """Load all styles by scanning inputs/styles/ directly."""
     styles_dir = get_styles_dir()
+    styles = {}
     if styles_dir.exists():
         for fpath in styles_dir.glob("*.md"):
-            if fpath.stem.lower() == "styles":
+            if fpath.stem.lower() in ("styles", "styles.md"):
                 continue
-            actual.add(fpath.stem.lower())
-
-    only_in_md = expected - actual
-    only_on_disk = actual - expected
-
-    if only_in_md:
-        raise ValueError(
-            f"Styles listed in STYLES.md but missing files: {sorted(only_in_md)}\n"
-            f"Add matching .md files to inputs/styles/ or remove the entries from STYLES.md."
-        )
-    if only_on_disk:
-        raise ValueError(
-            f"Style files on disk but not listed in STYLES.md: {sorted(only_on_disk)}\n"
-            f"Add entries to inputs/styles/STYLES.md, or delete the orphaned files."
-        )
-
-    styles = {}
-    for name in expected:
-        style = load_style(name)
-        if style:
-            styles[name] = style
+            name = fpath.stem.lower()
+            style = load_style(name)
+            if style:
+                styles[name] = style
     return styles
 
 
