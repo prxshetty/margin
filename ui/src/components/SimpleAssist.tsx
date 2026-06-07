@@ -39,17 +39,71 @@ function buildMentionContext(files: FileEntry[]): string {
 }
 
 function cleanUserPrompt(log: SimpleLogEntry): string {
+  let text = ''
   if (log.instruction && log.instruction.trim()) {
-    return log.instruction.trim()
+    text = log.instruction.trim()
+  } else {
+    text = log.mode === 'chat' ? 'AI Assistant Query' : 'Edit text'
   }
-  return log.mode === 'chat' ? 'AI Assistant Query' : 'Edit text'
+
+  const hasAt = text.includes('@')
+  if (!hasAt) {
+    if (log.mode !== 'chat' && log.selected_text) {
+      text = `@selection(${formatCharacterCount(log.selected_text.length)}) ` + text
+    }
+    if (log.ref_files && log.ref_files.length > 0) {
+      text += ' ' + log.ref_files.map(f => `@${f.name}`).join(' ')
+    }
+  }
+  return text
+}
+
+function renderUserPrompt(text: string) {
+  const regex = /@([\w.-]+(?:\([^)]+\))?)/g
+  const parts = []
+  let lastIndex = 0
+  let match
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index))
+    }
+    const name = match[1]
+    const isSelection = name.startsWith('selection(')
+    const label = isSelection ? name.replace(/^selection\((.*)\)$/, '$1') : name
+
+    parts.push(
+      <span key={match.index} className="inline-chip inline-chip-selection align-middle mx-0.5">
+        <span className="chip-glyph flex items-center">
+          {isSelection ? (
+            <svg className="w-2.5 h-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="m4 4 7.07 16.97 2.51-7.39 7.39-2.51L4 4Z" />
+              <path d="m13 13 6 6" />
+            </svg>
+          ) : (
+            <svg className="w-2.5 h-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M11.688 3.063a3.5 3.5 0 0 1 1.027.712l5.968 5.97c.3.3.54.647.711 1.026m-7.706-7.708a3.5 3.5 0 0 0-1.448-.313H7.792a3.5 3.5 0 0 0-3.5 3.5v11.5a3.5 3.5 0 0 0 3.5 3.5h8.416a3.5 3.5 0 0 0 3.5-3.5v-5.53c0-.505-.109-.999-.314-1.45m-7.706-7.707V8.77a2 2 0 0 0 2 2h5.706"/>
+            </svg>
+          )}
+        </span>
+        <span className="chip-divider" />
+        <span className="chip-label">{label}</span>
+      </span>
+    )
+    lastIndex = regex.lastIndex
+  }
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex))
+  }
+
+  return parts
 }
 
 function formatCharacterCount(length: number): string {
   return `${length.toLocaleString()} ch`
 }
 
-function appendChipText(chip: HTMLElement, glyph: string, label: string, removeDataset: Record<string, string>) {
+function appendChipText(chip: HTMLElement, label: string, removeDataset: Record<string, string>) {
   const glyphEl = document.createElement('span')
   glyphEl.className = 'chip-glyph flex items-center'
   glyphEl.innerHTML = `<svg class="w-2.5 h-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -178,7 +232,18 @@ function getInputData(el: HTMLElement): {
   }
 
   const clone = el.cloneNode(true) as HTMLElement
-  clone.querySelectorAll<HTMLElement>('.inline-chip').forEach((chip) => chip.remove())
+  clone.querySelectorAll<HTMLElement>('.inline-chip').forEach((chip) => {
+    if (chip.dataset.role === 'selection') {
+      const len = selection?.text.length || 0
+      const textNode = document.createTextNode(`@selection(${formatCharacterCount(len)})`)
+      chip.replaceWith(textNode)
+    } else if (chip.dataset.name) {
+      const textNode = document.createTextNode(`@${chip.dataset.name}`)
+      chip.replaceWith(textNode)
+    } else {
+      chip.remove()
+    }
+  })
   return { text: clone.textContent?.trim() ?? '', refPaths, selection }
 }
 
@@ -240,7 +305,6 @@ export function SimpleAssist() {
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({})
   const [activeInstruction, setActiveInstruction] = useState('')
   const [activeRefFiles, setActiveRefFiles] = useState<FileEntry[]>([])
-  const [activeSelectedLength, setActiveSelectedLength] = useState<number | undefined>()
   const [errorText, setErrorText] = useState('')
   const [currentSessionId, setCurrentSessionId] = useState(() => Date.now().toString(36))
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
@@ -251,30 +315,7 @@ export function SimpleAssist() {
 
   const { settings, fetchSettings, setShowSettings } = useSettingsStore()
 
-  const renderFileChip = (file: { name: string; path: string }) => (
-    <span key={file.path} className="inline-chip inline-chip-file" data-path={file.path} data-name={file.name}>
-      <span className="chip-glyph flex items-center">
-        <svg className="w-2.5 h-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M11.688 3.063a3.5 3.5 0 0 1 1.027.712l5.968 5.97c.3.3.54.647.711 1.026m-7.706-7.708a3.5 3.5 0 0 0-1.448-.313H7.792a3.5 3.5 0 0 0-3.5 3.5v11.5a3.5 3.5 0 0 0 3.5 3.5h8.416a3.5 3.5 0 0 0 3.5-3.5v-5.53c0-.505-.109-.999-.314-1.45m-7.706-7.707V8.77a2 2 0 0 0 2 2h5.706"/>
-        </svg>
-      </span>
-      <span className="chip-divider" />
-      <span className="chip-label">{file.name}</span>
-    </span>
-  )
 
-  const renderSelectionChip = (length: number) => (
-    <span className="inline-chip inline-chip-selection" data-role="char-count">
-      <span className="chip-glyph flex items-center">
-        <svg className="w-2.5 h-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-          <path d="m4 4 7.07 16.97 2.51-7.39 7.39-2.51L4 4Z" />
-          <path d="m13 13 6 6" />
-        </svg>
-      </span>
-      <span className="chip-divider" />
-      <span className="chip-label">{formatCharacterCount(length)}</span>
-    </span>
-  )
 
   useEffect(() => {
     fetchSettings()
@@ -414,10 +455,10 @@ export function SimpleAssist() {
 
     const chip = document.createElement('span')
     chip.contentEditable = 'false'
-    chip.className = 'inline-chip inline-chip-file'
+    chip.className = 'inline-chip inline-chip-selection'
     chip.dataset.path = file.path
     chip.dataset.name = file.name
-    appendChipText(chip, '@', file.name, { path: file.path })
+    appendChipText(chip, file.name, { path: file.path })
 
     const isEditorContent = file.name === 'editorcontent.ts'
     const zwsp = document.createTextNode(isEditorContent ? '\u200B ' : '\u200B')
@@ -441,7 +482,8 @@ export function SimpleAssist() {
   }, [inputRef, setShowFileDropdown])
 
   const handleEdit = async () => {
-    if (!editor) return
+    const activeEditor = useEditorStore.getState().editor || editor
+    if (!activeEditor || activeEditor.isDestroyed || !activeEditor.view || !activeEditor.state) return
     const inputEl = inputRef.current!
     const { text: currentInstruction, refPaths, selection: domSelection } = getInputData(inputEl)
     if (!currentInstruction) return
@@ -455,9 +497,10 @@ export function SimpleAssist() {
     setIsGenerating(false)
     setPlannerContextFiles([])
     setActiveInstruction(currentInstruction)
-    const currentRefFiles = openedFiles.filter((f) => refPaths.includes(f.path))
+    const currentRefFiles = refPaths
+      .map(path => openedFiles.find(f => f.path === path))
+      .filter((f): f is FileEntry => !!f)
     setActiveRefFiles(currentRefFiles)
-    setActiveSelectedLength(localHasSelection ? selectionText.length : undefined)
     setErrorText('')
 
     if (inputRef.current) {
@@ -480,33 +523,21 @@ export function SimpleAssist() {
 
       if (localHasSelection) {
         body.selected_text = selectionText
-        const pos = anchorPosition
-        const docSize = editor.state.doc.content.size
-        body.text_before = editor.state.doc.textBetween(0, pos, '\n')
-        body.text_after = editor.state.doc.textBetween(pos, docSize, '\n')
       } else {
-        const paragraphs: { from: number; to: number }[] = []
-        editor.state.doc.forEach((node, offset) => {
+        const doc = activeEditor.state.doc
+        let cursorParagraphText = ''
+        doc.forEach((node, offset) => {
           if (node.type.name === 'paragraph' || node.type.name === 'heading') {
-            paragraphs.push({ from: offset, to: offset + node.nodeSize })
+            const from = offset
+            const to = offset + node.nodeSize
+            if (anchorPosition >= from && anchorPosition <= to) {
+              cursorParagraphText = node.textContent
+            }
           }
         })
-
-        let cursorParagraphIndex = 0
-        let minDiff = Infinity
-        for (let i = 0; i < paragraphs.length; i++) {
-          const para = paragraphs[i]
-          if (anchorPosition >= para.from && anchorPosition <= para.to) {
-            cursorParagraphIndex = i
-            break
-          }
-          const diff = Math.min(Math.abs(anchorPosition - para.from), Math.abs(anchorPosition - para.to))
-          if (diff < minDiff) {
-            minDiff = diff
-            cursorParagraphIndex = i
-          }
+        if (cursorParagraphText) {
+          body.cursor_paragraph_text = cursorParagraphText
         }
-        body.cursor_paragraph_index = cursorParagraphIndex
       }
 
       const res = await fetch(`${API_BASE}/api/assist/simple`, {
@@ -548,31 +579,34 @@ export function SimpleAssist() {
             } else if (data.status === 'applied') {
               const output = data.output
 
-              if (data.placement) {
-                const resolved = resolvePlacementPosition(editor, data.placement, anchorPosition)
-                if (resolved.to !== undefined) {
-                  editor.chain()
-                    .deleteRange({ from: resolved.from, to: resolved.to })
-                    .insertContentAt(resolved.from, '\n\n' + output)
-                    .run()
+              const liveEditor = useEditorStore.getState().editor || activeEditor
+              if (liveEditor && liveEditor.view && liveEditor.state && !liveEditor.isDestroyed) {
+                if (data.placement) {
+                  const resolved = resolvePlacementPosition(liveEditor, data.placement, anchorPosition)
+                  if (resolved.to !== undefined) {
+                    liveEditor.chain()
+                      .deleteRange({ from: resolved.from, to: resolved.to })
+                      .insertContentAt(resolved.from, '\n\n' + output)
+                      .run()
+                  } else {
+                    liveEditor.commands.insertContentAt(resolved.from, '\n\n' + output)
+                  }
+                } else if (data.edit_mode === 'replace' && selectionInfo) {
+                  const from = selectionInfo.from
+                  const to = selectionInfo.to
+                  if (from !== to) {
+                    liveEditor.chain().deleteRange({ from, to }).insertContentAt(from, output).run()
+                  }
                 } else {
-                  editor.commands.insertContentAt(resolved.from, '\n\n' + output)
+                  liveEditor.commands.insertContentAt(anchorPosition, output)
                 }
-              } else if (data.edit_mode === 'replace' && selectionInfo) {
-                const from = selectionInfo.from
-                const to = selectionInfo.to
-                if (from !== to) {
-                  editor.chain().deleteRange({ from, to }).insertContentAt(from, output).run()
-                }
-              } else {
-                editor.commands.insertContentAt(anchorPosition, output)
-              }
 
-              const storage = editor.storage as unknown as MarkdownStorage
-              if (storage.markdown) {
-                const md = storage.markdown.getMarkdown()
-                setContent(md)
-                if (currentFilePath) updateFileContent(currentFilePath, md)
+                const storage = liveEditor.storage as unknown as MarkdownStorage
+                if (storage.markdown) {
+                  const md = storage.markdown.getMarkdown()
+                  setContent(md)
+                  if (currentFilePath) updateFileContent(currentFilePath, md)
+                }
               }
               setPendingEditSelection(null)
             } else if (data.status === 'error') {
@@ -594,7 +628,6 @@ export function SimpleAssist() {
       setPlannerContextFiles([])
       setActiveInstruction('')
       setActiveRefFiles([])
-      setActiveSelectedLength(undefined)
     }
   }
 
@@ -613,7 +646,9 @@ export function SimpleAssist() {
     setIsGenerating(true)
     setPlannerContextFiles([])
     setActiveInstruction(currentInstruction)
-    const currentRefFiles = openedFiles.filter((f) => refPaths.includes(f.path))
+    const currentRefFiles = refPaths
+      .map(path => openedFiles.find(f => f.path === path))
+      .filter((f): f is FileEntry => !!f)
     setActiveRefFiles(currentRefFiles)
     setErrorText('')
 
@@ -689,7 +724,6 @@ export function SimpleAssist() {
       setPlannerContextFiles([])
       setActiveInstruction('')
       setActiveRefFiles([])
-      setActiveSelectedLength(undefined)
     }
   }
 
@@ -958,7 +992,7 @@ export function SimpleAssist() {
           {showHistoryDropdown && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setShowHistoryDropdown(false)} />
-              <div className="absolute right-0 top-full mt-1.5 z-50 bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-[10px] overflow-hidden shadow-[0_4px_16px_rgba(0,0,0,0.06)] w-max min-w-[180px] max-w-[280px] py-1 animate-scale-in">
+              <div className="absolute right-0 top-full mt-1.5 z-50 bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-[10px] overflow-hidden shadow-[0_4px_16px_rgba(0,0,0,0.06)] w-[260px] py-1 animate-scale-in">
                 {sessions.length === 0 ? (
                   <div className="px-3 py-4 text-center text-[11px] text-[var(--text-muted)] font-sans">
                     No logs
@@ -1045,11 +1079,7 @@ export function SimpleAssist() {
                 <div key={log.id} className="flex flex-col gap-3">
                   {/* User Speech Capsule Bubble */}
                   <div className="self-end max-w-[85%] bg-[var(--bg-bubble)] border border-[var(--border)] rounded-[16px] rounded-tr-[4px] px-3.5 py-2.5 font-sans text-xs text-[var(--text)] shadow-none leading-relaxed select-text flex flex-wrap items-center gap-1 animate-scale-in">
-                    {log.mode !== 'chat' && log.selected_text && (
-                      renderSelectionChip(log.selected_text.length)
-                    )}
-                    {log.ref_files?.map(renderFileChip)}
-                    <span>{cleanUserPrompt(log)}</span>
+                    <span>{renderUserPrompt(cleanUserPrompt(log))}</span>
                   </div>
 
                   {/* AI Assistant Plain Text Response */}
@@ -1131,11 +1161,7 @@ export function SimpleAssist() {
               <div className="flex flex-col gap-2.5 animate-fade-in">
                 {/* User Prompt */}
                 <div className="self-end max-w-[85%] bg-[var(--bg-bubble)] border border-[var(--border)] rounded-[16px] rounded-tr-[4px] px-3.5 py-2.5 font-sans text-xs text-[var(--text)] shadow-none leading-relaxed select-text flex flex-wrap items-center gap-1 opacity-70">
-                  {activeSelectedLength != null && (
-                    renderSelectionChip(activeSelectedLength)
-                  )}
-                  {activeRefFiles.map(renderFileChip)}
-                  <span>{activeInstruction}</span>
+                  <span>{renderUserPrompt(activeInstruction)}</span>
                 </div>
                 {/* Context Readings Logs */}
                 {activeRefFiles.map((file) => (

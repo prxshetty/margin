@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import yaml
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 from datetime import datetime
@@ -76,11 +77,23 @@ class FileStorageService:
             print(f"Failed to save settings: {e}")
         return merged
 
+    def _read_frontmatter_description(self, full_path: Path) -> str:
+        try:
+            content = full_path.read_text(encoding="utf-8")
+            m = re.match(r"^---\s*\n(.*?)\n---", content, re.DOTALL)
+            if m:
+                fm = yaml.safe_load(m.group(1))
+                return fm.get("description", "") if isinstance(fm, dict) else ""
+        except Exception:
+            pass
+        return ""
+
     def list_input_files(self) -> List[Dict[str, str]]:
         files = []
         for f in self.inputs_dir.rglob("*.md"):
             rel_path = str(f.relative_to(self.inputs_dir))
-            files.append({"name": f.name, "path": rel_path})
+            desc = self._read_frontmatter_description(f)
+            files.append({"name": f.name, "path": rel_path, "description": desc})
         files.sort(key=lambda f: f["path"])
         return files
 

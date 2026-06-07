@@ -393,18 +393,6 @@ function FileRow({
         <FileIcon className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-[var(--text)]' : 'text-[var(--text-secondary)]/60'}`} />
         <span className="truncate font-sans font-medium">{file.name}</span>
       </button>
-      {onDelete && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation()
-            onDelete(file.path)
-          }}
-          title={`Delete ${file.name}`}
-          className="flex items-center justify-center w-5 h-5 text-[var(--text-secondary)]/60 hover:text-red-500 hover:bg-[var(--border-sidebar)]/60 rounded-[4px] transition-all cursor-pointer active:scale-[0.9] opacity-0 group-hover:opacity-100"
-        >
-          <Trash2 className="w-3 h-3" strokeWidth={2} />
-        </button>
-      )}
       {onRename && (
         <button
           onClick={(e) => {
@@ -415,6 +403,18 @@ function FileRow({
           className="flex items-center justify-center w-5 h-5 text-[var(--text-secondary)]/60 hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 rounded-[4px] transition-all cursor-pointer active:scale-[0.9] opacity-0 group-hover:opacity-100"
         >
           <Pencil className="w-3 h-3" strokeWidth={2} />
+        </button>
+      )}
+      {onDelete && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            onDelete(file.path)
+          }}
+          title={`Delete ${file.name}`}
+          className="flex items-center justify-center w-5 h-5 text-[var(--text-secondary)]/60 hover:text-red-500 hover:bg-[var(--border-sidebar)]/60 rounded-[4px] transition-all cursor-pointer active:scale-[0.9] opacity-0 group-hover:opacity-100"
+        >
+          <Trash2 className="w-3 h-3" strokeWidth={2} />
         </button>
       )}
     </div>

@@ -107,10 +107,8 @@ class SimpleAssistRequest(BaseModel):
     session_id: Optional[str] = None
     history: List[Dict[str, Any]] = Field(default_factory=list)
     selected_text: Optional[str] = None
-    text_before: Optional[str] = None
-    text_after: Optional[str] = None
+    cursor_paragraph_text: Optional[str] = None
     ref_files: Optional[List[Dict[str, Any]]] = None
-    cursor_paragraph_index: Optional[int] = None
     available_files: List[Dict[str, str]] = Field(default_factory=list)
 
 
@@ -169,20 +167,64 @@ def _log_simple_assist(
     storage.save_simple_ai_log(log_entry)
 
 
+def extract_anchor_context(content: str, selected_text: str | None, anchor_phrase: str | None) -> tuple[str, str, str, int]:
+    """
+    Returns paragraph_before, target_paragraph, paragraph_after, and the target_idx.
+    """
+    paragraphs = [p for p in content.split('\n\n') if p.strip()]
+    target_idx = len(paragraphs) - 1 # default to end
+
+    if selected_text:
+        for i, p in enumerate(paragraphs):
+            if selected_text[:50] in p:
+                target_idx = i
+                break
+    elif anchor_phrase:
+        for i, p in enumerate(paragraphs):
+            if anchor_phrase in p:
+                target_idx = i
+                break
+
+    target_paragraph = paragraphs[target_idx] if paragraphs else ""
+    paragraph_before = paragraphs[target_idx - 1] if target_idx > 0 else ""
+    paragraph_after = paragraphs[target_idx + 1] if target_idx < len(paragraphs) - 1 else ""
+
+    return paragraph_before, target_paragraph, paragraph_after, target_idx
+
+
 def run_planner(
+    content: str,
     message: str,
     selected_text: Optional[str] = None,
+    cursor_paragraph_text: Optional[str] = None,
     available_files: List[Dict[str, str]] = None,
 ) -> tuple[dict, str, str, str]:
     system = _load_simple_prompt("simple-planner.md")
     
     available = available_files if available_files is not None else []
     
-    user_prompt_lines = [f"INSTRUCTION: {message}\n"]
-    if selected_text:
-        user_prompt_lines.append(f"SELECTED TEXT (hint for placement):\n{selected_text}\n")
+    # Build document outline
+    paragraphs = [p for p in content.split('\n\n') if p.strip()]
+    outline_lines = []
+    for i, p in enumerate(paragraphs):
+        preview = p[:60].replace('\n', ' ')
+        outline_lines.append(f"[{i}] {preview}...")
+    outline_text = "\n".join(outline_lines)
     
-    user_prompt_lines.append(f"AVAILABLE FILES:\n" + "\n".join(f['path'] for f in available))
+    user_prompt_lines = [f"USER_INSTRUCTION:\n{message}\n"]
+    user_prompt_lines.append(f"DOCUMENT_OUTLINE:\n{outline_text}\n")
+    
+    if selected_text:
+        user_prompt_lines.append(f"SELECTED_TEXT:\n{selected_text}\n")
+    elif cursor_paragraph_text:
+        user_prompt_lines.append(f"ANCHOR_PARAGRAPH_TEXT:\n{cursor_paragraph_text}\n")
+    
+    file_lines = []
+    for f in available:
+        desc = f.get("description", "").strip()
+        line = f["path"] + (f" | {desc}" if desc else "")
+        file_lines.append(line)
+    user_prompt_lines.append("AVAILABLE_FILES:\n" + "\n".join(file_lines))
     
     user = "\n".join(user_prompt_lines)
     system = _build_simple_system_prompt(system)
@@ -191,7 +233,7 @@ def run_planner(
         system_prompt=system,
         user_prompt=user,
         temperature=0.1,
-        max_tokens=300
+        max_tokens=400
     )
     
     try:
@@ -201,23 +243,18 @@ def run_planner(
             start, end = raw.find("{"), raw.rfind("}") + 1
             return json.loads(raw[start:end]), system, user, raw
         except Exception:
-            return {"context_needed": []}, system, user, raw
+            return {"operation": "modify", "anchor_phrase": None, "context_needed": [], "query": message}, system, user, raw
 
 
 
 def build_generator_prompts(
-    message: str,
+    paragraph_before: str,
+    target_paragraph: str,
+    paragraph_after: str,
+    query: str,
     context_needed: List[str],
-    content: str,
-    target_paragraph_index: int,
     available_files: List[Dict[str, str]] = None,
 ) -> tuple[str, str]:
-    
-    paragraphs = [p for p in content.split('\n\n') if p.strip()]
-    
-    idx = max(0, min(target_paragraph_index, len(paragraphs) - 1))
-    
-    target_para = paragraphs[idx] if paragraphs else ""
     
     system_parts = [_build_simple_system_prompt(_load_simple_prompt("simple-writer.md"), include_tone=True)]
     
@@ -225,6 +262,8 @@ def build_generator_prompts(
     available_paths = [f['path'] for f in available]
     
     for filepath in context_needed:
+        if filepath.startswith("chapters/") or "chapter" in filepath.lower():
+            continue
         actual_path = filepath
         if actual_path not in available_paths:
             matches = difflib.get_close_matches(filepath, available_paths, n=1, cutoff=0.5)
@@ -263,9 +302,13 @@ def build_generator_prompts(
     system_parts = _inject_pinned_ref_files(system_parts, already_seen)
     
     user_parts = [
-        f"INSTRUCTION:\n{message}",
-        f"TARGET PARAGRAPH:\n{target_para}"
+        f"PARAGRAPH_BEFORE:\n{paragraph_before}",
     ]
+    if target_paragraph:
+        user_parts.append(f"TARGET:\n{target_paragraph}")
+        
+    user_parts.append(f"PARAGRAPH_AFTER:\n{paragraph_after}")
+    user_parts.append(f"INSTRUCTION:\n{query}")
     
     return "\n\n".join(system_parts), "\n\n".join(user_parts)
 
@@ -294,39 +337,36 @@ async def simple_assist(payload: SimpleAssistRequest):
                 loop = asyncio.get_running_loop()
                 plan, planner_system, planner_user, planner_raw = await loop.run_in_executor(
                     None,
-                    lambda: run_planner(payload.message, payload.selected_text, payload.available_files)
+                    lambda: run_planner(
+                        payload.content,
+                        payload.message,
+                        payload.selected_text,
+                        payload.cursor_paragraph_text,
+                        payload.available_files
+                    )
                 )
 
                 context_needed = plan.get("context_needed", [])
+                operation = plan.get("operation", "modify")
+                anchor_phrase = plan.get("anchor_phrase")
+                query = plan.get("query", payload.message)
+                if not isinstance(query, str) or not query.strip():
+                    query = payload.message
+
                 yield {"data": json.dumps({
                     "status": "context_resolved",
+                    "operation": operation,
                     "context_needed": context_needed
                 })}
 
                 yield {"data": json.dumps({"status": "generating"})}
 
-                paragraphs = [p for p in payload.content.split('\n\n') if p.strip()]
-                
-                # Determine placement mechanically
-                if payload.selected_text:
-                    replace = True
-                    # Find which paragraph contains the selected text
-                    target_idx = next(
-                        (i for i, p in enumerate(paragraphs) if payload.selected_text[:50] in p),
-                        len(paragraphs) - 1
-                    )
-                else:
-                    replace = False
-                    target_idx = payload.cursor_paragraph_index if payload.cursor_paragraph_index is not None else len(paragraphs) - 1
-                
-                resolved_idx = max(0, min(target_idx, len(paragraphs) - 1))
-
-                query = plan.get("query", payload.message)
-                if not isinstance(query, str) or not query.strip():
-                    query = payload.message
+                paragraph_before, target_paragraph, paragraph_after, resolved_idx = extract_anchor_context(
+                    payload.content, payload.selected_text, anchor_phrase
+                )
 
                 system_prompt, user_prompt = build_generator_prompts(
-                    query, context_needed, payload.content, resolved_idx, payload.available_files
+                    paragraph_before, target_paragraph, paragraph_after, query, context_needed, payload.available_files
                 )
 
                 max_toks = _pick_writer_max_tokens() or config.AGENT_CONFIG.get("writer", {}).get("max_tokens", 500)
@@ -349,7 +389,12 @@ async def simple_assist(payload: SimpleAssistRequest):
                         lines = lines[:-1]
                     clean_raw = "\n".join(lines).strip()
 
-                output_text = clean_raw
+                writer_output = clean_raw
+
+                if payload.selected_text:
+                    output_text = target_paragraph.replace(payload.selected_text, writer_output)
+                else:
+                    output_text = target_paragraph + "\n\n" + writer_output
 
                 await loop.run_in_executor(
                     None,
@@ -361,10 +406,10 @@ async def simple_assist(payload: SimpleAssistRequest):
                         response=raw,
                         instruction=payload.message,
                         selected_text=payload.selected_text,
-                        text_before=payload.text_before,
-                        text_after=payload.text_after,
+                        text_before=paragraph_before,
+                        text_after=paragraph_after,
                         ref_files=payload.ref_files,
-                        edit_mode=edit_mode,
+                        edit_mode=operation,
                         planner_system_prompt=planner_system,
                         planner_user_prompt=planner_user,
                         planner_output=planner_raw,
@@ -374,11 +419,12 @@ async def simple_assist(payload: SimpleAssistRequest):
 
                 yield {"data": json.dumps({
                     "status": "applied",
+                    "operation": operation,
                     "output": output_text,
                     "placement": {
-                        "anchor_text": "",
+                        "anchor_text": target_paragraph,
                         "paragraph_index": resolved_idx,
-                        "replace": replace
+                        "replace": True
                     }
                 })}
 
@@ -448,8 +494,8 @@ async def simple_assist(payload: SimpleAssistRequest):
                         response=f"Error: {str(e)}",
                         instruction=payload.message,
                         selected_text=payload.selected_text,
-                        text_before=payload.text_before,
-                        text_after=payload.text_after,
+                        text_before=locals().get('paragraph_before', None),
+                        text_after=locals().get('paragraph_after', None),
                         ref_files=payload.ref_files,
                         edit_mode=edit_mode if mode == "edit" else None,
                         planner_system_prompt=planner_system,
