@@ -419,19 +419,19 @@ function FileRow({
 
   return (
     <div
-      className={`group flex items-center gap-1 px-2.5 py-1 rounded-[6px] text-xs transition-colors duration-150 ${isActive
+      onClick={() => onSelect(file.path)}
+      className={`group flex items-center gap-1 px-2.5 py-2 rounded-[6px] text-xs transition-colors duration-150 cursor-pointer ${isActive
         ? 'bg-[var(--border-sidebar)]/40 text-[var(--text)]'
         : 'text-[var(--text-secondary)] hover:bg-[var(--border-sidebar)]/30 hover:text-[var(--text)]'
         }`}
     >
-      <button
-        onClick={() => onSelect(file.path)}
-        className="flex items-center gap-1.5 flex-1 min-w-0 text-left cursor-pointer"
+      <div
+        className="flex items-center gap-1.5 flex-1 min-w-0 text-left"
         title={file.path}
       >
         <FileIcon className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-[var(--text)]' : 'text-[var(--text-secondary)]/60'}`} />
         <span className="truncate font-sans font-medium">{file.name}</span>
-      </button>
+      </div>
       {onDelete && (
         <button
           onClick={(e) => {
