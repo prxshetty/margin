@@ -730,3 +730,9 @@ body {
 .dark .is-scrolling {
   scrollbar-color: rgba(176, 137, 92, 0.35) transparent !important;
 }
+
+/* Shorten the scrollbar track for the floating editor card to fit elegantly inside */
+.editor-card::-webkit-scrollbar-track {
+  margin-top: 32px;
+  margin-bottom: 32px;
+}

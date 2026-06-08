@@ -274,7 +274,7 @@ export default function SimpleEditor() {
       </div>
 
       {/* Floating Manuscript Editor Card */}
-      <div ref={editorContainerRef} className="flex-1 bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[24px] shadow-[0_2px_8px_rgba(0,0,0,0.03),0_16px_48px_rgba(0,0,0,0.06)] p-8 overflow-y-auto min-w-0 select-text animate-scale-in relative">
+      <div ref={editorContainerRef} className="editor-card flex-1 bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[24px] shadow-[0_2px_8px_rgba(0,0,0,0.03),0_16px_48px_rgba(0,0,0,0.06)] p-8 overflow-y-auto min-w-0 select-text animate-scale-in relative">
         {/* Floating Sidebar Restore Controls inside the Editor Card */}
         {!filesPanelOpen && (
           <button

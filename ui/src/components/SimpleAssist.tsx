@@ -303,6 +303,19 @@ export function SimpleAssist() {
   const [instructionText, setInstructionText] = useState('')
   const [historyLogs, setHistoryLogs] = useState<SimpleLogEntry[]>([])
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({})
+  const [copiedId, setCopiedId] = useState<string | null>(null)
+
+  const handleCopyPrompt = async (log: SimpleLogEntry) => {
+    const textToCopy = log.instruction || log.user_prompt || cleanUserPrompt(log)
+    try {
+      await navigator.clipboard.writeText(textToCopy)
+      setCopiedId(log.id)
+      setTimeout(() => setCopiedId(null), 2000)
+    } catch (err) {
+      console.error('Failed to copy prompt text:', err)
+    }
+  }
+
   const [activeInstruction, setActiveInstruction] = useState('')
   const [activeRefFiles, setActiveRefFiles] = useState<FileEntry[]>([])
   const [errorText, setErrorText] = useState('')
@@ -1078,8 +1091,24 @@ export function SimpleAssist() {
               return (
                 <div key={log.id} className="flex flex-col gap-3">
                   {/* User Speech Capsule Bubble */}
-                  <div className="self-end max-w-[85%] bg-[var(--bg-bubble)] border border-[var(--border)] rounded-[16px] rounded-tr-[4px] px-3.5 py-2.5 font-sans text-xs text-[var(--text)] shadow-none leading-relaxed select-text flex flex-wrap items-center gap-1 animate-scale-in">
+                  <div className="self-end max-w-[85%] bg-[var(--bg-bubble)] border border-[var(--border)] rounded-[16px] rounded-tr-[4px] px-3.5 py-2.5 font-sans text-xs text-[var(--text)] shadow-none leading-relaxed select-text flex flex-wrap items-center gap-1 animate-scale-in relative group pr-8">
                     <span>{renderUserPrompt(cleanUserPrompt(log))}</span>
+                    <button
+                      onClick={() => handleCopyPrompt(log)}
+                      className="absolute bottom-1.5 right-1.5 p-1 rounded-md text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--bg-hover)] transition-all cursor-pointer opacity-0 group-hover:opacity-100 duration-200"
+                      title="Copy prompt"
+                    >
+                      {copiedId === log.id ? (
+                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-green-600 dark:text-green-400">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      ) : (
+                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                          <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
+                          <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+                        </svg>
+                      )}
+                    </button>
                   </div>
 
                   {/* AI Assistant Plain Text Response */}
