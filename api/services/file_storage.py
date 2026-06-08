@@ -1,10 +1,10 @@
 import os
 import json
 import re
-import yaml
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 from datetime import datetime
+from style_loader import read_styles_md
 
 class FileStorageService:
     def __init__(self, base_dir: str = "."):
@@ -77,22 +77,172 @@ class FileStorageService:
             print(f"Failed to save settings: {e}")
         return merged
 
-    def _read_frontmatter_description(self, full_path: Path) -> str:
+    MANIFEST_MAP = {
+        "characters/": "characters/CHARACTERS.md",
+        "chapters/": "chapters/CHAPTERS.md",
+        "styles/": "styles/STYLES.md",
+    }
+
+    def _load_manifest(self, manifest_rel_path: str) -> Dict[str, str]:
+        manifest_path = self.inputs_dir / manifest_rel_path
+        if not manifest_path.exists():
+            return {}
         try:
-            content = full_path.read_text(encoding="utf-8")
-            m = re.match(r"^---\s*\n(.*?)\n---", content, re.DOTALL)
-            if m:
-                fm = yaml.safe_load(m.group(1))
-                return fm.get("description", "") if isinstance(fm, dict) else ""
+            content = manifest_path.read_text(encoding="utf-8")
         except Exception:
-            pass
-        return ""
+            return {}
+        mapping = {}
+        for line in content.splitlines():
+            m = re.match(r"^\s*-\s+(\S+)\s*[—–-]\s*(.+)", line)
+            if m:
+                mapping[m.group(1)] = m.group(2).strip()
+        return mapping
+
+    def _get_style_descriptions(self) -> Dict[str, str]:
+        style_map = read_styles_md(path=self.inputs_dir / "styles" / "STYLES.md")
+        return {f"{k}.md": v for k, v in style_map.items()}
+
+    def _add_to_manifest(self, folder: str, name: str, content: str) -> None:
+        folder_key = folder if folder.endswith("/") else f"{folder}/"
+        manifest_rel_path = self.MANIFEST_MAP.get(folder_key)
+        if not manifest_rel_path:
+            return
+        
+        manifest_path = self.inputs_dir / manifest_rel_path
+        # Create parent directory if it doesn't exist
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Determine initial template content if manifest doesn't exist
+        if not manifest_path.exists():
+            if folder_key == "characters/":
+                manifest_content = "# Available Characters\n\n"
+            elif folder_key == "chapters/":
+                manifest_content = "# Available Chapters\n\n"
+            elif folder_key == "styles/":
+                manifest_content = "# Available Styles\n\nUse these style tags when annotating scene_events.\n\n"
+            else:
+                manifest_content = ""
+        else:
+            try:
+                manifest_content = manifest_path.read_text(encoding="utf-8")
+            except Exception:
+                manifest_content = ""
+        
+        stem = Path(name).stem
+        
+        if folder_key == "styles/":
+            pattern = rf"^\s*-\s+\*\*{re.escape(stem)}\*\*(.*)"
+            new_line = f"- **{stem}** — "
+        else:
+            pattern = rf"^\s*-\s+{re.escape(name)}(.*)"
+            new_line = f"- {name} — "
+            
+        lines = manifest_content.splitlines()
+        found_idx = -1
+        for idx, line in enumerate(lines):
+            if re.match(pattern, line):
+                found_idx = idx
+                break
+                
+        if found_idx != -1:
+            lines[found_idx] = new_line
+        else:
+            # clean trailing empty lines first
+            while lines and not lines[-1].strip():
+                lines.pop()
+            lines.append(new_line)
+            
+        manifest_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    def _remove_from_manifest(self, folder: str, name: str) -> None:
+        folder_key = folder if folder.endswith("/") else f"{folder}/"
+        manifest_rel_path = self.MANIFEST_MAP.get(folder_key)
+        if not manifest_rel_path:
+            return
+        
+        manifest_path = self.inputs_dir / manifest_rel_path
+        if not manifest_path.exists():
+            return
+            
+        try:
+            manifest_content = manifest_path.read_text(encoding="utf-8")
+        except Exception:
+            return
+            
+        stem = Path(name).stem
+        if folder_key == "styles/":
+            pattern = rf"^\s*-\s+\*\*{re.escape(stem)}\*\*(.*)"
+        else:
+            pattern = rf"^\s*-\s+{re.escape(name)}(.*)"
+            
+        lines = manifest_content.splitlines()
+        new_lines = [line for line in lines if not re.match(pattern, line)]
+        
+        manifest_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+
+    def _rename_in_manifest(self, folder: str, old_name: str, new_name: str) -> None:
+        folder_key = folder if folder.endswith("/") else f"{folder}/"
+        manifest_rel_path = self.MANIFEST_MAP.get(folder_key)
+        if not manifest_rel_path:
+            return
+        
+        manifest_path = self.inputs_dir / manifest_rel_path
+        if not manifest_path.exists():
+            # If manifest doesn't exist, just add the new file to a new manifest
+            self._add_to_manifest(folder, new_name, "")
+            return
+            
+        try:
+            manifest_content = manifest_path.read_text(encoding="utf-8")
+        except Exception:
+            return
+            
+        old_stem = Path(old_name).stem
+        new_stem = Path(new_name).stem
+        
+        lines = manifest_content.splitlines()
+        found = False
+        for idx, line in enumerate(lines):
+            if folder_key == "styles/":
+                m = re.match(rf"^(\s*-\s+\*\*){re.escape(old_stem)}(\*\*)(.*)", line)
+                if m:
+                    prefix = m.group(1)
+                    suffix = m.group(3)
+                    lines[idx] = f"{prefix}{new_stem}**{suffix}"
+                    found = True
+                    break
+            else:
+                m = re.match(rf"^(\s*-\s+){re.escape(old_name)}(.*)", line)
+                if m:
+                    prefix = m.group(1)
+                    suffix = m.group(2)
+                    lines[idx] = f"{prefix}{new_name}{suffix}"
+                    found = True
+                    break
+                    
+        if found:
+            manifest_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        else:
+            # Self-healing fallback: add the new file name if the old was not found
+            self._add_to_manifest(folder, new_name, "")
 
     def list_input_files(self) -> List[Dict[str, str]]:
+        manifests = {
+            "characters/": self._load_manifest("characters/CHARACTERS.md"),
+            "chapters/": self._load_manifest("chapters/CHAPTERS.md"),
+        }
+        style_desc = self._get_style_descriptions()
         files = []
         for f in self.inputs_dir.rglob("*.md"):
             rel_path = str(f.relative_to(self.inputs_dir))
-            desc = self._read_frontmatter_description(f)
+            desc = ""
+            if rel_path.startswith("styles/"):
+                desc = style_desc.get(f.name, "")
+            else:
+                for prefix, manifest in manifests.items():
+                    if rel_path.startswith(prefix):
+                        desc = manifest.get(f.name, "")
+                        break
             files.append({"name": f.name, "path": rel_path, "description": desc})
         files.sort(key=lambda f: f["path"])
         return files
@@ -125,6 +275,13 @@ class FileStorageService:
 
         target_path.write_text(content or "", encoding="utf-8")
         rel_path = f"{folder}/{name}"
+
+        # Update manifest
+        try:
+            self._add_to_manifest(folder, name, content or "")
+        except Exception as e:
+            print(f"Failed to sync manifest for created file {folder}/{name}: {e}")
+
         return {"name": name, "path": rel_path, "content": content or ""}
 
     def delete_input_file(self, path: str) -> bool:
@@ -137,6 +294,18 @@ class FileStorageService:
         if full_path.suffix.lower() != ".md":
             raise ValueError("Only markdown files can be deleted via this endpoint")
         full_path.unlink()
+
+        # Update manifest
+        rel_path = str(full_path.relative_to(inputs_root))
+        parts = rel_path.split("/")
+        if len(parts) >= 2:
+            folder = parts[0]
+            name = parts[-1]
+            try:
+                self._remove_from_manifest(folder, name)
+            except Exception as e:
+                print(f"Failed to sync manifest for deleted file {path}: {e}")
+
         return True
 
     def rename_input_file(self, path: str, new_name: str) -> Dict[str, str]:
@@ -164,6 +333,18 @@ class FileStorageService:
             raise FileExistsError(f"File already exists: {new_path.relative_to(inputs_root)}")
         old_path.rename(new_path)
         new_rel = str(new_path.relative_to(inputs_root))
+
+        # Update manifest
+        rel_old = str(old_path.relative_to(inputs_root))
+        old_parts = rel_old.split("/")
+        if len(old_parts) >= 2:
+            folder = old_parts[0]
+            old_name = old_parts[-1]
+            try:
+                self._rename_in_manifest(folder, old_name, new_name)
+            except Exception as e:
+                print(f"Failed to sync manifest for renamed file {path} to {new_name}: {e}")
+
         return {"name": new_path.name, "path": new_rel}
 
     def get_simple_ai_logs(self) -> list:

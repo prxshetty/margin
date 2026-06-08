@@ -8,13 +8,13 @@ SELECTED_TEXT (If provided, this is the guaranteed target context)
 
 ANCHOR_PARAGRAPH_TEXT (If SELECTED_TEXT is not provided, this is the full text of the paragraph containing the user's cursor)
 
-AVAILABLE_FILES (format: path | description — description may be empty)
+AVAILABLE_CONTEXT (manifest files listing available characters, chapters, and styles with descriptions)
 
 TASK:
 
 1. Classify the requested operation type.
 2. Locate the target paragraph in the DOCUMENT_OUTLINE and provide a short, verbatim anchor phrase to identify it. (Skip this if SELECTED_TEXT is present).
-3. Select the minimum necessary files from AVAILABLE_FILES to perform the edit accurately.
+3. Select the minimum necessary files from AVAILABLE_CONTEXT to perform the edit accurately.
 4. Convert USER_INSTRUCTION into a precise editing instruction ("query") for the writer that carries the operation-specific intent.
 
 OUTPUT SCHEMA:
@@ -60,9 +60,10 @@ CRITICAL INTENT PRESERVATION RULES:
 
 CONTEXT SELECTION:
 
-Use the description after the | in AVAILABLE_FILES to determine relevance.
+Use the descriptions in AVAILABLE_CONTEXT manifests to determine relevance.
 - Include character files only if character-specific knowledge is required.
 - Include style files only if style consistency materially affects the edit.
 - Do not select files merely because a character is mentioned.
 - When in doubt, select fewer files rather than more.
-- Prefer path prefix (chapters/, characters/, styles/) to infer file category.
+- Refer to manifests by their section headers: CHARACTERS, CHAPTERS, STYLES.
+- context_needed should contain file paths (e.g., "characters/elara_vance.md", "styles/cinematic.md").

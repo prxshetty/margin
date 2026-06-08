@@ -197,11 +197,8 @@ def run_planner(
     message: str,
     selected_text: Optional[str] = None,
     cursor_paragraph_text: Optional[str] = None,
-    available_files: List[Dict[str, str]] = None,
 ) -> tuple[dict, str, str, str]:
     system = _load_simple_prompt("simple-planner.md")
-    
-    available = available_files if available_files is not None else []
     
     # Build document outline
     paragraphs = [p for p in content.split('\n\n') if p.strip()]
@@ -219,12 +216,24 @@ def run_planner(
     elif cursor_paragraph_text:
         user_prompt_lines.append(f"ANCHOR_PARAGRAPH_TEXT:\n{cursor_paragraph_text}\n")
     
-    file_lines = []
-    for f in available:
-        desc = f.get("description", "").strip()
-        line = f["path"] + (f" | {desc}" if desc else "")
-        file_lines.append(line)
-    user_prompt_lines.append("AVAILABLE_FILES:\n" + "\n".join(file_lines))
+    manifest_sections = []
+    for manifest_rel, label in [("characters/CHARACTERS.md", "CHARACTERS"), ("chapters/CHAPTERS.md", "CHAPTERS")]:
+        try:
+            raw = storage.read_input_file(manifest_rel)
+            if raw.strip():
+                manifest_sections.append(f"--- {label} ---\n{raw.strip()}")
+        except Exception:
+            pass
+    try:
+        from style_loader import read_styles_md
+        styles_map = read_styles_md(path=storage.inputs_dir / "styles" / "STYLES.md")
+        if styles_map:
+            styles_lines = [f"- **{k}** — {v}" for k, v in styles_map.items()]
+            manifest_sections.append("--- STYLES ---\n" + "\n".join(styles_lines))
+    except Exception:
+        pass
+    if manifest_sections:
+        user_prompt_lines.append("AVAILABLE_CONTEXT:\n" + "\n\n".join(manifest_sections))
     
     user = "\n".join(user_prompt_lines)
     system = _build_simple_system_prompt(system)
@@ -342,7 +351,6 @@ async def simple_assist(payload: SimpleAssistRequest):
                         payload.message,
                         payload.selected_text,
                         payload.cursor_paragraph_text,
-                        payload.available_files
                     )
                 )
 
@@ -391,10 +399,18 @@ async def simple_assist(payload: SimpleAssistRequest):
 
                 writer_output = clean_raw
 
-                if payload.selected_text:
-                    output_text = target_paragraph.replace(payload.selected_text, writer_output)
+                # Deriving replace from operation
+                replace = operation in ("modify", "rewrite", "augment")
+
+                if replace and payload.selected_text:
+                    # Replace only within the confirmed target paragraph
+                    if payload.selected_text in target_paragraph:
+                        output_text = target_paragraph.replace(payload.selected_text, writer_output, 1)
+                    else:
+                        # Selection not found in target — fall back to full paragraph replacement
+                        output_text = writer_output
                 else:
-                    output_text = target_paragraph + "\n\n" + writer_output
+                    output_text = writer_output
 
                 await loop.run_in_executor(
                     None,
@@ -424,7 +440,8 @@ async def simple_assist(payload: SimpleAssistRequest):
                     "placement": {
                         "anchor_text": target_paragraph,
                         "paragraph_index": resolved_idx,
-                        "replace": True
+                        "replace": replace,
+                        "operation": operation
                     }
                 })}
 
