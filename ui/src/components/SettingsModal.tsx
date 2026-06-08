@@ -87,8 +87,8 @@ const textStyles: { id: TextStyle; name: string; description: string; sample: st
 export function SettingsModal({ onClose }: SettingsModalProps) {
   const { settings, updateSettings } = useSettingsStore()
   const [activeTab, setActiveTab] = useState<'general' | 'appearance' | 'context' | 'endpoints'>('general')
-  const [availableFiles, setAvailableFiles] = useState<{name: string; path: string}[]>([])
-  const [availableStyles, setAvailableStyles] = useState<{name: string; description: string}[]>([])
+  const [availableFiles, setAvailableFiles] = useState<{ name: string; path: string }[]>([])
+  const [availableStyles, setAvailableStyles] = useState<{ name: string; description: string }[]>([])
 
   useEffect(() => {
     fetch(`${API_BASE}/api/workspace/inputs/files`)
@@ -141,11 +141,10 @@ function TabButton({ active, onClick, label }: { active: boolean, onClick: () =>
   return (
     <button
       onClick={onClick}
-      className={`text-left px-3 py-2 rounded-[6px] text-[13px] transition-colors cursor-pointer ${
-        active 
-          ? 'bg-[var(--bg-hover)] text-[var(--text-heading)] font-medium' 
-          : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]/50'
-      }`}
+      className={`text-left px-3 py-2 rounded-[6px] text-[13px] transition-colors cursor-pointer ${active
+        ? 'bg-[var(--bg-hover)] text-[var(--text-heading)] font-medium'
+        : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]/50'
+        }`}
     >
       {label}
     </button>
@@ -163,7 +162,7 @@ function GeneralSettings({ settings, updateSettings }: { settings: AppSettings, 
             { value: 'edit', label: 'Edit Document' },
             { value: 'chat', label: 'Conversational Chat' }
           ].map(modeOpt => (
-            <button 
+            <button
               key={modeOpt.value}
               onClick={() => updateSettings({ default_mode: modeOpt.value })}
               className={`px-3 py-1.5 rounded-[4px] text-[12px] border transition-colors cursor-pointer ${settings.default_mode === modeOpt.value ? 'bg-[var(--accent-brown)] text-[var(--text-inverse)] border-[var(--accent-brown)] font-medium' : 'bg-[var(--bg)] text-[var(--text-secondary)] border-[var(--border-subtle)] hover:border-[var(--text-secondary)] hover:text-[var(--text-heading)]'}`}
@@ -177,8 +176,8 @@ function GeneralSettings({ settings, updateSettings }: { settings: AppSettings, 
       <section>
         <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Default Verbosity</h3>
         <p className="text-[12px] text-[var(--text-secondary)] mb-3">Control the target length of AI responses and edits.</p>
-        <select 
-          value={settings.default_verbosity || 'balanced'} 
+        <select
+          value={settings.default_verbosity || 'balanced'}
           onChange={(e) => updateSettings({ default_verbosity: e.target.value })}
           className="border border-[var(--border-subtle)] rounded-[6px] px-3 py-2 text-[13px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)] transition-colors w-[200px]"
         >
@@ -199,6 +198,26 @@ function AppearanceSettings({ settings, updateSettings }: { settings: AppSetting
   return (
     <div className="flex flex-col gap-6">
       <section>
+        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Mode</h3>
+        <p className="text-[12px] text-[var(--text-secondary)] mb-3">Use a fixed mode or follow your system appearance.</p>
+        <div className="inline-flex rounded-[7px] border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-1">
+          {themeModes.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              onClick={() => updateSettings({ theme: id })}
+              className={`flex items-center gap-1.5 rounded-[5px] px-3 py-1.5 text-[12px] transition-colors cursor-pointer ${selectedMode === id
+                ? 'bg-[var(--accent-brown)] text-[var(--text-inverse)] font-medium'
+                : 'text-[var(--text-secondary)] hover:text-[var(--text-heading)]'
+                }`}
+            >
+              <Icon size={14} />
+              {label}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section>
         <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Theme</h3>
         <p className="text-[12px] text-[var(--text-secondary)] mb-3">Choose a palette and how it follows your device.</p>
         <div className="grid grid-cols-2 gap-3">
@@ -208,11 +227,10 @@ function AppearanceSettings({ settings, updateSettings }: { settings: AppSetting
               <button
                 key={themeFamily.id}
                 onClick={() => updateSettings({ theme_family: themeFamily.id })}
-                className={`relative text-left rounded-[8px] border p-2.5 transition-colors cursor-pointer ${
-                  active
-                    ? 'border-[var(--accent-brown)] bg-[var(--bg-hover)]'
-                    : 'border-[var(--border-subtle)] bg-[var(--bg)] hover:border-[var(--text-secondary)]'
-                }`}
+                className={`relative text-left rounded-[8px] border p-2.5 transition-colors cursor-pointer ${active
+                  ? 'border-[var(--accent-brown)] bg-[var(--bg-hover)]'
+                  : 'border-[var(--border-subtle)] bg-[var(--bg)] hover:border-[var(--text-secondary)]'
+                  }`}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -239,27 +257,6 @@ function AppearanceSettings({ settings, updateSettings }: { settings: AppSetting
       </section>
 
       <section>
-        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Mode</h3>
-        <p className="text-[12px] text-[var(--text-secondary)] mb-3">Use a fixed mode or follow your system appearance.</p>
-        <div className="inline-flex rounded-[7px] border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-1">
-          {themeModes.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              onClick={() => updateSettings({ theme: id })}
-              className={`flex items-center gap-1.5 rounded-[5px] px-3 py-1.5 text-[12px] transition-colors cursor-pointer ${
-                selectedMode === id
-                  ? 'bg-[var(--accent-brown)] text-[var(--text-inverse)] font-medium'
-                  : 'text-[var(--text-secondary)] hover:text-[var(--text-heading)]'
-              }`}
-            >
-              <Icon size={14} />
-              {label}
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <section>
         <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Text Style</h3>
         <p className="text-[12px] text-[var(--text-secondary)] mb-3">Tune the writing surface without changing the whole app chrome.</p>
         <div className="grid grid-cols-2 gap-3">
@@ -269,11 +266,10 @@ function AppearanceSettings({ settings, updateSettings }: { settings: AppSetting
               <button
                 key={id}
                 onClick={() => updateSettings({ text_style: id })}
-                className={`text-left rounded-[8px] border p-2.5 transition-colors cursor-pointer ${
-                  active
-                    ? 'border-[var(--accent-brown)] bg-[var(--bg-hover)]'
-                    : 'border-[var(--border-subtle)] bg-[var(--bg)] hover:border-[var(--text-secondary)]'
-                }`}
+                className={`text-left rounded-[8px] border p-2.5 transition-colors cursor-pointer ${active
+                  ? 'border-[var(--accent-brown)] bg-[var(--bg-hover)]'
+                  : 'border-[var(--border-subtle)] bg-[var(--bg)] hover:border-[var(--text-secondary)]'
+                  }`}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className={`min-w-0 theme-font-preview-${id}`}>
@@ -296,16 +292,16 @@ function AppearanceSettings({ settings, updateSettings }: { settings: AppSetting
   )
 }
 
-function ContextSettings({ 
-  settings, 
-  updateSettings, 
-  availableFiles, 
-  availableStyles 
-}: { 
-  settings: AppSettings, 
-  updateSettings: (u: Partial<AppSettings>) => void, 
-  availableFiles: {name: string; path: string}[],
-  availableStyles: {name: string; description: string}[]
+function ContextSettings({
+  settings,
+  updateSettings,
+  availableFiles,
+  availableStyles
+}: {
+  settings: AppSettings,
+  updateSettings: (u: Partial<AppSettings>) => void,
+  availableFiles: { name: string; path: string }[],
+  availableStyles: { name: string; description: string }[]
 }) {
   return (
     <div className="flex flex-col gap-8">
@@ -313,7 +309,7 @@ function ContextSettings({
         <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Tone Preset</h3>
         <p className="text-[12px] text-[var(--text-secondary)] mb-3">Quickly load specific behavioral instructions.</p>
         <div className="flex flex-wrap gap-2">
-          <button 
+          <button
             onClick={() => updateSettings({ tone_preset: '' })}
             className={`px-3 py-1.5 rounded-[4px] text-[12px] border transition-colors cursor-pointer capitalize ${(!settings.tone_preset || settings.tone_preset.toLowerCase() === 'none') ? 'bg-[var(--accent-brown)] text-[var(--text-inverse)] border-[var(--accent-brown)] font-medium' : 'bg-[var(--bg)] text-[var(--text-secondary)] border-[var(--border-subtle)] hover:border-[var(--text-secondary)] hover:text-[var(--text-heading)]'}`}
             title="Disable style guidelines injection"
@@ -321,7 +317,7 @@ function ContextSettings({
             None
           </button>
           {availableStyles.map(style => (
-            <button 
+            <button
               key={style.name}
               onClick={() => updateSettings({ tone_preset: style.name })}
               className={`px-3 py-1.5 rounded-[4px] text-[12px] border transition-colors cursor-pointer capitalize ${settings.tone_preset === style.name ? 'bg-[var(--accent-brown)] text-[var(--text-inverse)] border-[var(--accent-brown)] font-medium' : 'bg-[var(--bg)] text-[var(--text-secondary)] border-[var(--border-subtle)] hover:border-[var(--text-secondary)] hover:text-[var(--text-heading)]'}`}
@@ -336,7 +332,7 @@ function ContextSettings({
       <section>
         <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Additional Context</h3>
         <p className="text-[12px] text-[var(--text-secondary)] mb-3">Instructions prepended to every AI interaction.</p>
-        <textarea 
+        <textarea
           value={settings.additional_context || ''}
           onChange={(e) => updateSettings({ additional_context: e.target.value })}
           className="w-full h-[120px] border border-[var(--border-subtle)] rounded-[6px] p-3 text-[13px] text-[var(--text)] bg-[var(--bg-input)] outline-none focus:border-[var(--text-secondary)] transition-colors resize-none font-sans leading-relaxed"
@@ -355,12 +351,12 @@ function ContextSettings({
               const isPinned = (settings.pinned_ref_files || []).includes(file.path)
               return (
                 <label key={file.path} className="flex items-center gap-2 p-2 hover:bg-[var(--bg-hover)] rounded-[4px] cursor-pointer">
-                  <input 
-                    type="checkbox" 
+                  <input
+                    type="checkbox"
                     checked={isPinned}
                     className="accent-[var(--accent-brown)]"
                     onChange={(e) => {
-                      const newPinned = e.target.checked 
+                      const newPinned = e.target.checked
                         ? [...(settings.pinned_ref_files || []), file.path]
                         : (settings.pinned_ref_files || []).filter(p => p !== file.path)
                       updateSettings({ pinned_ref_files: newPinned })
@@ -383,7 +379,7 @@ function EndpointsSettings({ settings, updateSettings }: { settings: AppSettings
   const [newUrl, setNewUrl] = useState('http://localhost:1234')
   const [newKey, setNewKey] = useState('')
   const [newModel, setNewModel] = useState('')
-  const [testResult, setTestResult] = useState<{status: 'idle'|'testing'|'success'|'error', msg?: string}>({status: 'idle'})
+  const [testResult, setTestResult] = useState<{ status: 'idle' | 'testing' | 'success' | 'error', msg?: string }>({ status: 'idle' })
 
   const handleAdd = () => {
     if (!newId || !newUrl) return
@@ -397,7 +393,7 @@ function EndpointsSettings({ settings, updateSettings }: { settings: AppSettings
   }
 
   const handleTest = async (url: string, key: string) => {
-    setTestResult({status: 'testing'})
+    setTestResult({ status: 'testing' })
     try {
       const res = await fetch(`${API_BASE}/api/settings/test-endpoint`, {
         method: 'POST',
@@ -406,11 +402,11 @@ function EndpointsSettings({ settings, updateSettings }: { settings: AppSettings
       })
       if (!res.ok) throw new Error('Connection failed')
       const data = await res.json()
-      setTestResult({status: 'success', msg: `Found ${data.models?.data?.length || 0} models.`})
+      setTestResult({ status: 'success', msg: `Found ${data.models?.data?.length || 0} models.` })
     } catch (e) {
-      setTestResult({status: 'error', msg: (e as Error).message})
+      setTestResult({ status: 'error', msg: (e as Error).message })
     }
-    setTimeout(() => setTestResult({status: 'idle'}), 4000)
+    setTimeout(() => setTestResult({ status: 'idle' }), 4000)
   }
 
   return (
@@ -418,25 +414,25 @@ function EndpointsSettings({ settings, updateSettings }: { settings: AppSettings
       <section>
         <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Active Endpoint</h3>
         <p className="text-[12px] text-[var(--text-secondary)] mb-3">Select the LLM routing endpoint. If none, falls back to .env defaults.</p>
-        
+
         <div className="flex flex-col gap-2">
           <label className="flex items-center gap-3 p-3 border border-[var(--border-subtle)] rounded-[6px] cursor-pointer hover:bg-[var(--bg-hover)] transition-colors">
-            <input 
-              type="radio" 
-              name="active_endpoint" 
+            <input
+              type="radio"
+              name="active_endpoint"
               checked={settings.active_endpoint === null}
               onChange={() => updateSettings({ active_endpoint: null })}
               className="accent-[var(--accent-brown)]"
             />
             <span className="text-[13px] font-medium text-[var(--text-heading)]">.env Default (Local)</span>
           </label>
-          
+
           {Object.entries(settings.endpoints || {}).map(([id, ep]) => (
             <div key={id} className={`flex items-center justify-between p-3 border rounded-[6px] transition-colors ${settings.active_endpoint === id ? 'border-[var(--text-secondary)] bg-[var(--bg-hover)]' : 'border-[var(--border-subtle)] hover:bg-[var(--bg-hover)]'}`}>
               <label className="flex items-center gap-3 cursor-pointer flex-1">
-                <input 
-                  type="radio" 
-                  name="active_endpoint" 
+                <input
+                  type="radio"
+                  name="active_endpoint"
                   checked={settings.active_endpoint === id}
                   onChange={() => updateSettings({ active_endpoint: id })}
                   className="accent-[var(--accent-brown)]"
@@ -450,12 +446,12 @@ function EndpointsSettings({ settings, updateSettings }: { settings: AppSettings
                 <button onClick={() => handleTest(ep.url, ep.api_key)} className="p-1.5 text-[var(--text-secondary)] hover:text-[var(--text-heading)] bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[4px] cursor-pointer" title="Test Connection">
                   <Play size={14} />
                 </button>
-                <button 
+                <button
                   onClick={() => {
                     const newEps = { ...settings.endpoints }
                     delete newEps[id]
                     updateSettings({ endpoints: newEps, active_endpoint: settings.active_endpoint === id ? null : settings.active_endpoint })
-                  }} 
+                  }}
                   className="p-1.5 text-[var(--text-secondary)] hover:text-red-500 bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[4px] cursor-pointer" title="Delete"
                 >
                   <Trash2 size={14} />
@@ -474,17 +470,17 @@ function EndpointsSettings({ settings, updateSettings }: { settings: AppSettings
           <input placeholder="API Key (Optional)" type="password" value={newKey} onChange={e => setNewKey(e.target.value)} className="border border-[var(--border-subtle)] rounded-[4px] px-3 py-2 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]" />
           <input placeholder="Model Name (Optional)" value={newModel} onChange={e => setNewModel(e.target.value)} className="border border-[var(--border-subtle)] rounded-[4px] px-3 py-2 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]" />
         </div>
-        
+
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <button onClick={() => handleTest(newUrl, newKey)} disabled={!newUrl || testResult.status === 'testing'} className="px-3 py-1.5 text-[12px] bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[4px] hover:border-[var(--text-secondary)] transition-colors disabled:opacity-50 cursor-pointer text-[var(--text)]">
               {testResult.status === 'testing' ? 'Testing...' : 'Test Connection'}
             </button>
-            {testResult.status === 'success' && <span className="text-[11px] text-[var(--text-accent)] flex items-center gap-1"><CheckCircle size={12}/> {testResult.msg}</span>}
-            {testResult.status === 'error' && <span className="text-[11px] text-red-500 flex items-center gap-1"><X size={12}/> {testResult.msg}</span>}
+            {testResult.status === 'success' && <span className="text-[11px] text-[var(--text-accent)] flex items-center gap-1"><CheckCircle size={12} /> {testResult.msg}</span>}
+            {testResult.status === 'error' && <span className="text-[11px] text-red-500 flex items-center gap-1"><X size={12} /> {testResult.msg}</span>}
           </div>
           <button onClick={handleAdd} disabled={!newId || !newUrl} className="px-3 py-1.5 text-[12px] bg-[var(--accent-brown)] text-[var(--text-inverse)] rounded-[4px] hover:bg-[var(--accent-brown-hover)] transition-colors disabled:opacity-50 cursor-pointer flex items-center gap-1">
-            <Plus size={14}/> Save Endpoint
+            <Plus size={14} /> Save Endpoint
           </button>
         </div>
       </section>
