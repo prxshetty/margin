@@ -75,7 +75,7 @@ export function SimpleAssistSelectionPopup() {
     >
       <button
         onClick={handleAdd}
-        className="text-[12.5px] font-medium font-sans text-[var(--accent-brown)] hover:text-[var(--accent-brown-hover)] transition-colors cursor-pointer px-1.5 py-0.5 rounded-[4px] hover:bg-[var(--bg-hover)] leading-none"
+        className="text-[12.5px] font-medium font-sans text-[var(--accent-brown)] hover:text-[var(--accent-brown-hover)] transition-colors duration-150 cursor-pointer px-1.5 py-0.5 rounded-[4px] hover:bg-[var(--bg-hover)] leading-none"
       >
         + Add to Assist
       </button>

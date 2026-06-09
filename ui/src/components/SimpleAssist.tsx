@@ -831,7 +831,7 @@ export function SimpleAssist() {
   const hasHistory = filteredLogs.length > 0 || isWorking || !!errorText
 
   const renderInputCard = () => (
-    <div className="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] focus-within:border-[var(--text-secondary)] shadow-[0_2px_8px_rgba(0,0,0,0.04)] transition-[border-color,box-shadow] duration-200 rounded-[14px] p-3 flex flex-col relative animate-scale-in">
+    <div className="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] focus-within:border-[var(--text-muted)] shadow-[0_2px_8px_rgba(0,0,0,0.04)] transition-[border-color,box-shadow] duration-200 rounded-[14px] p-3 flex flex-col relative animate-scale-in">
       <div className="flex items-start gap-1.5 w-full">
         <div
           ref={inputRef}
@@ -957,7 +957,7 @@ export function SimpleAssist() {
           {showHistoryDropdown && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setShowHistoryDropdown(false)} />
-              <div className="absolute right-0 top-full mt-1.5 z-50 bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-[10px] overflow-hidden shadow-[0_4px_16px_rgba(0,0,0,0.06)] w-[260px] py-1 animate-scale-in">
+              <div className="absolute right-0 top-full mt-1.5 z-50 bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-[10px] overflow-hidden shadow-[0_4px_16px_rgba(0,0,0,0.06)] w-[220px] py-1 animate-scale-in">
                 {sessions.length === 0 ? (
                   <div className="px-3 py-2 text-center text-[11px] text-[var(--text-muted)] font-sans">
                     No logs
