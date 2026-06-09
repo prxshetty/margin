@@ -8,11 +8,14 @@ export interface AppSettings {
   default_verbosity: string
   show_thinking_by_default: boolean
   pinned_ref_files: string[]
+  ignored_ref_files?: string[]
   endpoints: Record<string, { url: string; api_key: string; model: string }>
   active_endpoint: string | null
   theme?: 'light' | 'dark' | 'system'
   theme_family?: 'sand' | 'notion' | 'sage' | 'blue' | 'rose'
   text_style?: 'system' | 'editorial' | 'manuscript' | 'technical' | 'warm'
+  editor_stats?: 'words' | 'characters' | 'both' | 'none'
+  show_outline?: boolean
 }
 
 interface SettingsState {

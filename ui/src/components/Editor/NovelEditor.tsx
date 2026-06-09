@@ -71,7 +71,7 @@ export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: bool
       if (content !== lastContentRef.current) {
         lastContentRef.current = content
         isProgrammaticUpdateRef.current = true
-        editor.commands.setContent(content || '', { contentType: 'markdown' } as any)
+        editor.commands.setContent(content || '')
         // ProseMirror dispatches synchronously so we reset immediately.
         isProgrammaticUpdateRef.current = false
       }

@@ -51,11 +51,14 @@ class FileStorageService:
             "default_verbosity": "balanced",
             "show_thinking_by_default": False,
             "pinned_ref_files": [],
+            "ignored_ref_files": [],
             "endpoints": {},
             "active_endpoint": None,
             "theme": "light",
             "theme_family": "sand",
-            "text_style": "system"
+            "text_style": "system",
+            "editor_stats": "both",
+            "show_outline": True
         }
         if self.settings_path.exists():
             try:

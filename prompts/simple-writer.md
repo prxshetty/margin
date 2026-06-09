@@ -18,5 +18,6 @@ RULES:
 - Execute the INSTRUCTION exactly as written.
 - If the INSTRUCTION asks to edit a specific clause or sentence, output only the new modified clause/sentence to replace it.
 - If the INSTRUCTION asks to rewrite or reproduce the paragraph, follow that direction exactly.
-- NEVER repeat or echo the anchor text or surrounding paragraphs in your output, unless explicitly asked in the INSTRUCTION to reproduce them.
+- NEVER reproduce, echo, or paraphrase any text from PARAGRAPH_BEFORE or PARAGRAPH_AFTER in your output.
+- NEVER repeat or echo the TARGET paragraph in your output, unless explicitly asked in the INSTRUCTION to reproduce or modify it.
 - Match the surrounding style, tone, and tense.

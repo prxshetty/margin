@@ -45,7 +45,7 @@ def _build_simple_system_prompt(base_text: str = "", include_tone: bool = False)
         
     if include_tone:
         tone = s.get("tone_preset")
-        if tone and tone.lower() != "none" and tone.strip() != "":
+        if tone and tone.lower() not in ("none", "auto") and tone.strip() != "":
             import style_loader
             try:
                 style_data = style_loader.load_style(tone)
@@ -67,8 +67,11 @@ def _inject_pinned_ref_files(system_parts: list, already_seen: set) -> list:
     if not pinned:
         return system_parts
     available = {f["path"]: f["name"] for f in storage.list_input_files()}
+    ignored = set(s.get("ignored_ref_files") or [])
     for pp in pinned:
         if pp in already_seen:
+            continue
+        if pp in ignored:
             continue
         if pp not in available:
             continue
@@ -140,6 +143,7 @@ def _log_simple_assist(
     planner_user_prompt: Optional[str] = None,
     planner_output: Optional[str] = None,
     success: bool = True,
+    cursor_paragraph_index: Optional[int] = None,
 ) -> None:
     log_entry = {
         "id": f"simple_{uuid.uuid4().hex}",
@@ -164,24 +168,35 @@ def _log_simple_assist(
         log_entry["planner_user_prompt"] = planner_user_prompt
     if planner_output is not None:
         log_entry["planner_output"] = planner_output
+    if cursor_paragraph_index is not None:
+        log_entry["cursor_paragraph_index"] = cursor_paragraph_index
     storage.save_simple_ai_log(log_entry)
 
 
-def extract_anchor_context(content: str, selected_text: str | None, anchor_phrase: str | None) -> tuple[str, str, str, int]:
+def extract_anchor_context(
+    content: str,
+    selected_text: str | None,
+    cursor_paragraph_text: str | None = None,
+) -> tuple[str, str, str, int, bool]:
     """
-    Returns paragraph_before, target_paragraph, paragraph_after, and the target_idx.
+    Returns paragraph_before, target_paragraph, paragraph_after, target_idx, replace.
+    replace=True  → caller should overwrite the target paragraph.
+    replace=False → caller should insert new content after the target paragraph.
     """
     paragraphs = [p for p in content.split('\n\n') if p.strip()]
     target_idx = len(paragraphs) - 1 # default to end
+    replace = False
 
     if selected_text:
+        replace = True
         for i, p in enumerate(paragraphs):
             if selected_text[:50] in p:
                 target_idx = i
                 break
-    elif anchor_phrase:
+    elif cursor_paragraph_text:
+        cursor_text = cursor_paragraph_text.strip()
         for i, p in enumerate(paragraphs):
-            if anchor_phrase in p:
+            if cursor_text[:60] in p:
                 target_idx = i
                 break
 
@@ -189,7 +204,7 @@ def extract_anchor_context(content: str, selected_text: str | None, anchor_phras
     paragraph_before = paragraphs[target_idx - 1] if target_idx > 0 else ""
     paragraph_after = paragraphs[target_idx + 1] if target_idx < len(paragraphs) - 1 else ""
 
-    return paragraph_before, target_paragraph, paragraph_after, target_idx
+    return paragraph_before, target_paragraph, paragraph_after, target_idx, replace
 
 
 def run_planner(
@@ -224,14 +239,17 @@ def run_planner(
                 manifest_sections.append(f"--- {label} ---\n{raw.strip()}")
         except Exception:
             pass
-    try:
-        from style_loader import read_styles_md
-        styles_map = read_styles_md(path=storage.inputs_dir / "styles" / "STYLES.md")
-        if styles_map:
-            styles_lines = [f"- **{k}** — {v}" for k, v in styles_map.items()]
-            manifest_sections.append("--- STYLES ---\n" + "\n".join(styles_lines))
-    except Exception:
-        pass
+    s = storage.get_settings()
+    tone = (s.get("tone_preset") or "").strip().lower()
+    if tone == "auto":
+        try:
+            from style_loader import read_styles_md
+            styles_map = read_styles_md(path=storage.inputs_dir / "styles" / "STYLES.md")
+            if styles_map:
+                styles_lines = [f"- **{k}** — {v}" for k, v in styles_map.items()]
+                manifest_sections.append("--- STYLES ---\n" + "\n".join(styles_lines))
+        except Exception:
+            pass
     if manifest_sections:
         user_prompt_lines.append("AVAILABLE_CONTEXT:\n" + "\n\n".join(manifest_sections))
     
@@ -252,7 +270,7 @@ def run_planner(
             start, end = raw.find("{"), raw.rfind("}") + 1
             return json.loads(raw[start:end]), system, user, raw
         except Exception:
-            return {"operation": "modify", "anchor_phrase": None, "context_needed": [], "query": message}, system, user, raw
+            return {"context_needed": [], "query": message}, system, user, raw
 
 
 
@@ -270,8 +288,11 @@ def build_generator_prompts(
     available = available_files if available_files is not None else []
     available_paths = [f['path'] for f in available]
     
+    s = storage.get_settings()
+    ignored_paths = set(s.get("ignored_ref_files") or [])
+    
     for filepath in context_needed:
-        if filepath.startswith("chapters/") or "chapter" in filepath.lower():
+        if filepath in ignored_paths:
             continue
         actual_path = filepath
         if actual_path not in available_paths:
@@ -286,6 +307,9 @@ def build_generator_prompts(
                         actual_path = p
                         break
         
+        if actual_path in ignored_paths:
+            continue
+            
         try:
             file_content = storage.read_input_file(actual_path)
             parts = actual_path.split("/")
@@ -355,22 +379,19 @@ async def simple_assist(payload: SimpleAssistRequest):
                 )
 
                 context_needed = plan.get("context_needed", [])
-                operation = plan.get("operation", "modify")
-                anchor_phrase = plan.get("anchor_phrase")
                 query = plan.get("query", payload.message)
                 if not isinstance(query, str) or not query.strip():
                     query = payload.message
 
                 yield {"data": json.dumps({
                     "status": "context_resolved",
-                    "operation": operation,
                     "context_needed": context_needed
                 })}
 
                 yield {"data": json.dumps({"status": "generating"})}
 
-                paragraph_before, target_paragraph, paragraph_after, resolved_idx = extract_anchor_context(
-                    payload.content, payload.selected_text, anchor_phrase
+                paragraph_before, target_paragraph, paragraph_after, resolved_idx, replace = extract_anchor_context(
+                    payload.content, payload.selected_text, payload.cursor_paragraph_text
                 )
 
                 system_prompt, user_prompt = build_generator_prompts(
@@ -399,16 +420,19 @@ async def simple_assist(payload: SimpleAssistRequest):
 
                 writer_output = clean_raw
 
-                # Deriving replace from operation
-                replace = operation in ("modify", "rewrite", "augment")
-
                 if replace and payload.selected_text:
-                    # Replace only within the confirmed target paragraph
-                    if payload.selected_text in target_paragraph:
-                        output_text = target_paragraph.replace(payload.selected_text, writer_output, 1)
-                    else:
-                        # Selection not found in target — fall back to full paragraph replacement
+                    # If the writer output is already the full modified paragraph,
+                    # we should not splice it again to avoid duplication.
+                    ratio = difflib.SequenceMatcher(None, target_paragraph, writer_output).ratio()
+                    if ratio > 0.5:
                         output_text = writer_output
+                    else:
+                        # Replace only within the confirmed target paragraph
+                        if payload.selected_text in target_paragraph:
+                            output_text = target_paragraph.replace(payload.selected_text, writer_output, 1)
+                        else:
+                            # Selection not found in target — fall back to full paragraph replacement
+                            output_text = writer_output
                 else:
                     output_text = writer_output
 
@@ -425,24 +449,19 @@ async def simple_assist(payload: SimpleAssistRequest):
                         text_before=paragraph_before,
                         text_after=paragraph_after,
                         ref_files=payload.ref_files,
-                        edit_mode=operation,
+                        edit_mode="replace" if replace else "insert",
                         planner_system_prompt=planner_system,
                         planner_user_prompt=planner_user,
                         planner_output=planner_raw,
                         success=True,
+                        cursor_paragraph_index=resolved_idx,
                     )
                 )
 
                 yield {"data": json.dumps({
                     "status": "applied",
-                    "operation": operation,
                     "output": output_text,
-                    "placement": {
-                        "anchor_text": target_paragraph,
-                        "paragraph_index": resolved_idx,
-                        "replace": replace,
-                        "operation": operation
-                    }
+                    "cursor_paragraph_index": resolved_idx
                 })}
 
             else:  # chat

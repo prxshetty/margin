@@ -442,6 +442,39 @@ function ContextSettings({
           )}
         </div>
       </section>
+
+      <section>
+        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Ignored Reference Files</h3>
+        <p className="text-[12px] text-[var(--text-secondary)] mb-3">
+          These files will be actively blocked from the AI Writer's context during editing, even if the Planner requests them. (Does not apply to Chat mode).
+        </p>
+        <div className="border border-[var(--border-subtle)] rounded-[6px] max-h-[200px] overflow-y-auto p-2">
+          {availableFiles.length === 0 ? (
+            <p className="text-[12px] text-[var(--text-secondary)] p-2 text-center">No files in workspace.</p>
+          ) : (
+            availableFiles.map(file => {
+              const isIgnored = (settings.ignored_ref_files || []).includes(file.path)
+              return (
+                <label key={file.path} className="flex items-center gap-2 p-2 hover:bg-[var(--bg-hover)] rounded-[4px] cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isIgnored}
+                    className="accent-[var(--accent-brown)]"
+                    onChange={(e) => {
+                      const newIgnored = e.target.checked
+                        ? [...(settings.ignored_ref_files || []), file.path]
+                        : (settings.ignored_ref_files || []).filter(p => p !== file.path)
+                      updateSettings({ ignored_ref_files: newIgnored })
+                    }}
+                  />
+                  <span className="text-[13px] text-[var(--text-heading)]">{file.name}</span>
+                  <span className="text-[11px] text-[var(--text-secondary)] ml-auto">{file.path}</span>
+                </label>
+              )
+            })
+          )}
+        </div>
+      </section>
     </div>
   )
 }
