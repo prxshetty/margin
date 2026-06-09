@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import type { Editor } from '@tiptap/react'
 import { AtSign, Code2, MousePointer2, RefreshCw, Settings, Trash2 } from 'lucide-react'
 import { useEditorStore } from '../stores/editorStore'
 import { useSettingsStore } from '../stores/settingsStore'
@@ -247,44 +246,6 @@ function getInputData(el: HTMLElement): {
   return { text: clone.textContent?.trim() ?? '', refPaths, selection }
 }
 
-function resolvePlacementPosition(
-  editor: Editor,
-  placement: { anchor_text?: string; paragraph_index: number; replace: boolean } | undefined,
-  fallbackPos: number
-): { from: number; to?: number } {
-  if (!placement) return { from: fallbackPos }
-
-  const doc = editor.state.doc
-
-  const paragraphs: { from: number; to: number, text: string }[] = []
-  doc.forEach((node, offset) => {
-    if (node.type.name === 'paragraph' || node.type.name === 'heading') {
-      paragraphs.push({ from: offset, to: offset + node.nodeSize, text: node.textContent })
-    }
-  })
-
-  // Primary: anchor text
-  if (placement.anchor_text) {
-    for (const para of paragraphs) {
-      if (para.text.includes(placement.anchor_text)) {
-        return placement.replace
-          ? { from: para.from, to: para.to }
-          : { from: para.to }
-      }
-    }
-  }
-
-  // Fallback: paragraph index
-  const targetIdx = placement.paragraph_index !== -1 ? placement.paragraph_index : paragraphs.length - 1
-  const target = paragraphs[targetIdx]
-  if (target) {
-    return placement.replace
-      ? { from: target.from, to: target.to }
-      : { from: target.to }
-  }
-
-  return { from: fallbackPos }
-}
 
 export function SimpleAssist() {
   const {
@@ -543,7 +504,7 @@ export function SimpleAssist() {
           if (node.type.name === 'paragraph' || node.type.name === 'heading') {
             const from = offset
             const to = offset + node.nodeSize
-            if (anchorPosition >= from && anchorPosition <= to) {
+            if (anchorPosition >= from && anchorPosition < to) {
               cursorParagraphText = node.textContent
             }
           }
@@ -594,24 +555,15 @@ export function SimpleAssist() {
 
               const liveEditor = useEditorStore.getState().editor || activeEditor
               if (liveEditor && liveEditor.view && liveEditor.state && !liveEditor.isDestroyed) {
-                if (data.placement) {
-                  const resolved = resolvePlacementPosition(liveEditor, data.placement, anchorPosition)
-                  if (resolved.to !== undefined) {
-                    liveEditor.chain()
-                      .deleteRange({ from: resolved.from, to: resolved.to })
-                      .insertContentAt(resolved.from, '\n\n' + output)
-                      .run()
-                  } else {
-                    liveEditor.commands.insertContentAt(resolved.from, '\n\n' + output)
-                  }
-                } else if (data.edit_mode === 'replace' && selectionInfo) {
-                  const from = selectionInfo.from
-                  const to = selectionInfo.to
-                  if (from !== to) {
-                    liveEditor.chain().deleteRange({ from, to }).insertContentAt(from, output).run()
-                  }
+                if (localHasSelection && selectionInfo) {
+                  liveEditor.chain()
+                    .deleteRange({ from: selectionInfo.from, to: selectionInfo.to })
+                    .insertContentAt(selectionInfo.from, output)
+                    .run()
                 } else {
-                  liveEditor.commands.insertContentAt(anchorPosition, output)
+                  liveEditor.chain()
+                    .insertContentAt(anchorPosition, output)
+                    .run()
                 }
 
                 const storage = liveEditor.storage as unknown as MarkdownStorage
@@ -879,7 +831,7 @@ export function SimpleAssist() {
   const hasHistory = filteredLogs.length > 0 || isWorking || !!errorText
 
   const renderInputCard = () => (
-    <div className="bg-[var(--assist-command-bg)] border border-[var(--assist-command-border)] focus-within:border-[var(--assist-focus-ring)] shadow-[var(--assist-command-shadow)] transition-[border-color,box-shadow] duration-200 rounded-[14px] p-3 flex flex-col relative animate-scale-in">
+    <div className="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] focus-within:border-[var(--text-secondary)] shadow-[0_2px_8px_rgba(0,0,0,0.04)] transition-[border-color,box-shadow] duration-200 rounded-[14px] p-3 flex flex-col relative animate-scale-in">
       <div className="flex items-start gap-1.5 w-full">
         <div
           ref={inputRef}
@@ -933,10 +885,10 @@ export function SimpleAssist() {
       <div className="flex items-center justify-between select-none">
         {/* Mode Toggle */}
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-0.5 bg-[var(--assist-mode-bg)] rounded-full p-0.5 border border-[var(--assist-command-border)]">
+          <div className="flex items-center gap-0.5 bg-[var(--bg-hover)] rounded-full p-0.5 border border-[var(--border-subtle)] shadow-inner">
             <button
               onClick={() => setMode('edit')}
-              className={`flex items-center justify-center w-7 h-7 rounded-full transition-colors cursor-pointer ${mode === 'edit' ? 'bg-[var(--assist-mode-active)] text-[var(--text-inverse)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-heading)]'
+              className={`flex items-center justify-center w-6 h-6 rounded-full transition-colors cursor-pointer ${mode === 'edit' ? 'bg-[var(--accent-brown)] text-[var(--text-inverse)] shadow-sm' : 'text-[var(--text-secondary)] hover:text-[var(--text-heading)]'
                 }`}
               title="Edit mode"
             >
@@ -944,7 +896,7 @@ export function SimpleAssist() {
             </button>
             <button
               onClick={() => setMode('chat')}
-              className={`flex items-center justify-center w-7 h-7 rounded-full transition-colors cursor-pointer ${mode === 'chat' ? 'bg-[var(--assist-mode-active)] text-[var(--text-inverse)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-heading)]'
+              className={`flex items-center justify-center w-6 h-6 rounded-full transition-colors cursor-pointer ${mode === 'chat' ? 'bg-[var(--accent-brown)] text-[var(--text-inverse)] shadow-sm' : 'text-[var(--text-secondary)] hover:text-[var(--text-heading)]'
                 }`}
               title="Chat mode"
             >
@@ -958,14 +910,14 @@ export function SimpleAssist() {
           onClick={mode === 'chat' ? handleChat : handleEdit}
           disabled={!instructionText || isWorking}
           className="
-            flex items-center justify-center transition-[background-color,transform,opacity] duration-150 cursor-pointer select-none border rounded-full w-7 h-7 active:scale-[0.9] bg-[var(--assist-mode-active)] hover:bg-[var(--accent-brown-hover)] text-[var(--text-inverse)] disabled:bg-[var(--bg-disabled)] disabled:text-[var(--text-disabled)] disabled:border-transparent border-transparent
+            flex items-center justify-center transition-[background-color,transform,opacity] duration-150 cursor-pointer select-none border rounded-full w-6 h-6 active:scale-[0.9] bg-[var(--accent-brown)] hover:bg-[var(--accent-brown-hover)] text-[var(--text-inverse)] disabled:bg-[var(--bg-disabled)] disabled:text-[var(--text-disabled)] disabled:border-transparent border-transparent
           "
           title={mode === 'chat' ? 'Send Message' : hasSelection ? 'Replace Selection' : 'Insert Content'}
         >
           {isWorking ? (
-            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+            <RefreshCw className="w-3 h-3 animate-spin" />
           ) : (
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <line x1="12" y1="19" x2="12" y2="5" />
               <polyline points="5 12 12 5 19 12" />
             </svg>
@@ -976,9 +928,9 @@ export function SimpleAssist() {
   )
 
   return (
-    <div ref={containerRef} className="flex flex-col gap-4 w-full h-full select-none animate-fade-in">
+    <div ref={containerRef} className="flex flex-col w-full h-full select-none animate-fade-in">
       {/* Header: actions on right */}
-      <div className="flex items-center justify-end gap-1.5 pb-3.5 border-b border-[var(--border-sidebar)] select-none shrink-0 w-full animate-fade-in">
+      <div className="flex items-center justify-end gap-1.5 pb-1.5 border-b border-[var(--border-sidebar)] select-none shrink-0 w-full animate-fade-in">
         <button
           onClick={() => {
             const newId = Date.now().toString(36)
@@ -1007,7 +959,7 @@ export function SimpleAssist() {
               <div className="fixed inset-0 z-40" onClick={() => setShowHistoryDropdown(false)} />
               <div className="absolute right-0 top-full mt-1.5 z-50 bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-[10px] overflow-hidden shadow-[0_4px_16px_rgba(0,0,0,0.06)] w-[260px] py-1 animate-scale-in">
                 {sessions.length === 0 ? (
-                  <div className="px-3 py-4 text-center text-[11px] text-[var(--text-muted)] font-sans">
+                  <div className="px-3 py-2 text-center text-[11px] text-[var(--text-muted)] font-sans">
                     No logs
                   </div>
                 ) : (
@@ -1112,7 +1064,7 @@ export function SimpleAssist() {
                   </div>
 
                   {/* AI Assistant Plain Text Response */}
-                  <div className="flex flex-col gap-1.5 self-start w-full select-text max-w-[90%] py-1 animate-scale-in">
+                  <div className="flex flex-col gap-1.5 self-start w-full select-text max-w-full py-1 animate-scale-in">
                     <div className="flex items-center gap-2.5 select-none text-[var(--text-muted)]">
                       <button
                         onClick={() => setExpandedIds(prev => ({ ...prev, [log.id]: !prev[log.id] }))}

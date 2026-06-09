@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { X, Plus, Trash2, CheckCircle, Play, Sun, Moon, Monitor, Check } from 'lucide-react'
+import { X, Plus, Trash2, CheckCircle, Play, RefreshCw } from 'lucide-react'
 import { useSettingsStore } from '../stores/settingsStore'
 import type { AppSettings } from '../stores/settingsStore'
 import { API_BASE } from '../lib/api'
@@ -45,10 +45,10 @@ const themeFamilies: { id: ThemeFamily; name: string; description: string; swatc
   }
 ]
 
-const themeModes: { id: ThemeMode; label: string; icon: typeof Sun }[] = [
-  { id: 'light', label: 'Light', icon: Sun },
-  { id: 'dark', label: 'Dark', icon: Moon },
-  { id: 'system', label: 'System', icon: Monitor }
+const themeModes: { id: ThemeMode; label: string }[] = [
+  { id: 'light', label: 'Light' },
+  { id: 'dark', label: 'Dark' },
+  { id: 'system', label: 'System' }
 ]
 
 const textStyles: { id: TextStyle; name: string; description: string; sample: string }[] = [
@@ -86,9 +86,19 @@ const textStyles: { id: TextStyle; name: string; description: string; sample: st
 
 export function SettingsModal({ onClose }: SettingsModalProps) {
   const { settings, updateSettings } = useSettingsStore()
-  const [activeTab, setActiveTab] = useState<'general' | 'appearance' | 'context' | 'endpoints'>('general')
+  const [activeTab, setActiveTab] = useState<'general' | 'appearance' | 'editor' | 'context' | 'endpoints'>('general')
   const [availableFiles, setAvailableFiles] = useState<{ name: string; path: string }[]>([])
   const [availableStyles, setAvailableStyles] = useState<{ name: string; description: string }[]>([])
+
+  const refreshStyles = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/workspace/styles`)
+      const data = await res.json()
+      setAvailableStyles(data)
+    } catch (err) {
+      console.error(err)
+    }
+  }
 
   useEffect(() => {
     fetch(`${API_BASE}/api/workspace/inputs/files`)
@@ -96,10 +106,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
       .then(data => setAvailableFiles(data))
       .catch(err => console.error(err))
 
-    fetch(`${API_BASE}/api/workspace/styles`)
-      .then(res => res.json())
-      .then(data => setAvailableStyles(data))
-      .catch(err => console.error(err))
+    refreshStyles()
   }, [])
 
   if (!settings) return null
@@ -120,6 +127,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
           <div className="w-[180px] border-r border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-4 flex flex-col gap-1">
             <TabButton active={activeTab === 'general'} onClick={() => setActiveTab('general')} label="General" />
             <TabButton active={activeTab === 'appearance'} onClick={() => setActiveTab('appearance')} label="Appearance" />
+            <TabButton active={activeTab === 'editor'} onClick={() => setActiveTab('editor')} label="Editor" />
             <TabButton active={activeTab === 'context'} onClick={() => setActiveTab('context')} label="Context" />
             <TabButton active={activeTab === 'endpoints'} onClick={() => setActiveTab('endpoints')} label="Endpoints" />
           </div>
@@ -128,7 +136,8 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
           <div className="flex-1 p-8 overflow-y-auto bg-[var(--bg)] text-[var(--text)]">
             {activeTab === 'general' && <GeneralSettings settings={settings} updateSettings={updateSettings} />}
             {activeTab === 'appearance' && <AppearanceSettings settings={settings} updateSettings={updateSettings} />}
-            {activeTab === 'context' && <ContextSettings settings={settings} updateSettings={updateSettings} availableFiles={availableFiles} availableStyles={availableStyles} />}
+            {activeTab === 'editor' && <EditorSettings settings={settings} updateSettings={updateSettings} />}
+            {activeTab === 'context' && <ContextSettings settings={settings} updateSettings={updateSettings} availableFiles={availableFiles} availableStyles={availableStyles} refreshStyles={refreshStyles} />}
             {activeTab === 'endpoints' && <EndpointsSettings settings={settings} updateSettings={updateSettings} />}
           </div>
         </div>
@@ -193,15 +202,14 @@ function GeneralSettings({ settings, updateSettings }: { settings: AppSettings, 
 function AppearanceSettings({ settings, updateSettings }: { settings: AppSettings, updateSettings: (u: Partial<AppSettings>) => void }) {
   const selectedFamily = settings.theme_family || 'sand'
   const selectedMode = settings.theme || 'light'
-  const selectedTextStyle = settings.text_style || 'system'
 
   return (
     <div className="flex flex-col gap-6">
       <section>
         <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Mode</h3>
-        <p className="text-[12px] text-[var(--text-secondary)] mb-3">Use a fixed mode or follow your system appearance.</p>
+        <p className="text-[12px] text-[var(--text-secondary)] mb-3">Choose the interface color mode.</p>
         <div className="inline-flex rounded-[7px] border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-1">
-          {themeModes.map(({ id, label, icon: Icon }) => (
+          {themeModes.map(({ id, label }) => (
             <button
               key={id}
               onClick={() => updateSettings({ theme: id })}
@@ -210,7 +218,6 @@ function AppearanceSettings({ settings, updateSettings }: { settings: AppSetting
                 : 'text-[var(--text-secondary)] hover:text-[var(--text-heading)]'
                 }`}
             >
-              <Icon size={14} />
               {label}
             </button>
           ))}
@@ -219,7 +226,7 @@ function AppearanceSettings({ settings, updateSettings }: { settings: AppSetting
 
       <section>
         <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Theme</h3>
-        <p className="text-[12px] text-[var(--text-secondary)] mb-3">Choose a palette and how it follows your device.</p>
+        <p className="text-[12px] text-[var(--text-secondary)] mb-3">Select a color palette for your workspace.</p>
         <div className="grid grid-cols-2 gap-3">
           {themeFamilies.map((themeFamily) => {
             const active = selectedFamily === themeFamily.id
@@ -227,21 +234,20 @@ function AppearanceSettings({ settings, updateSettings }: { settings: AppSetting
               <button
                 key={themeFamily.id}
                 onClick={() => updateSettings({ theme_family: themeFamily.id })}
-                className={`relative text-left rounded-[8px] border p-2.5 transition-colors cursor-pointer ${active
+                className={`relative text-left rounded-[8px] border p-2.5 transition-colors cursor-pointer flex flex-col justify-between h-full ${active
                   ? 'border-[var(--accent-brown)] bg-[var(--bg-hover)]'
                   : 'border-[var(--border-subtle)] bg-[var(--bg)] hover:border-[var(--text-secondary)]'
                   }`}
               >
-                <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start justify-between gap-3 w-full">
                   <div>
                     <div className="flex items-center gap-1.5">
                       <span className="text-[13px] font-medium text-[var(--text-heading)]">{themeFamily.name}</span>
-                      {active && <Check size={13} className="text-[var(--accent-brown)] shrink-0" />}
                     </div>
-                    <div className="mt-0.5 text-[11px] leading-relaxed text-[var(--text-secondary)]">{themeFamily.description}</div>
+                    <div className="mt-0.5 text-[11px] leading-relaxed text-[var(--text-secondary)] min-h-[32px]">{themeFamily.description}</div>
                   </div>
                 </div>
-                <div className="mt-2.5 flex gap-1.5">
+                <div className="mt-2.5 flex gap-1.5 w-full">
                   {themeFamily.swatches.map((swatch) => (
                     <span
                       key={swatch}
@@ -255,10 +261,48 @@ function AppearanceSettings({ settings, updateSettings }: { settings: AppSetting
           })}
         </div>
       </section>
+    </div>
+  )
+}
+
+function EditorSettings({ settings, updateSettings }: { settings: AppSettings, updateSettings: (u: Partial<AppSettings>) => void }) {
+  const selectedTextStyle = settings.text_style || 'system'
+  const selectedStats = settings.editor_stats || 'both'
+
+  return (
+    <div className="flex flex-col gap-6">
+      <section>
+        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Document Outline</h3>
+        <p className="text-[12px] text-[var(--text-secondary)] mb-3">Show an interactive structure outline / ruler on the left side of the editor.</p>
+        <label className="flex items-center gap-2 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={settings.show_outline !== false}
+            onChange={(e) => updateSettings({ show_outline: e.target.checked })}
+            className="accent-[var(--accent-brown)]"
+          />
+          <span className="text-[13px] text-[var(--text-secondary)] font-medium">Show Outline Ruler</span>
+        </label>
+      </section>
+
+      <section>
+        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Editor Statistics</h3>
+        <p className="text-[12px] text-[var(--text-secondary)] mb-3">Display word and/or character counts in the editor.</p>
+        <select
+          value={selectedStats}
+          onChange={(e) => updateSettings({ editor_stats: e.target.value as any })}
+          className="border border-[var(--border-subtle)] rounded-[6px] px-3 py-2 text-[13px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)] transition-colors w-[200px]"
+        >
+          <option value="both">Words & Characters</option>
+          <option value="words">Words Only</option>
+          <option value="characters">Characters Only</option>
+          <option value="none">None</option>
+        </select>
+      </section>
 
       <section>
         <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Text Style</h3>
-        <p className="text-[12px] text-[var(--text-secondary)] mb-3">Tune the writing surface without changing the whole app chrome.</p>
+        <p className="text-[12px] text-[var(--text-secondary)] mb-3">Change the typography and spacing of the writing surface.</p>
         <div className="grid grid-cols-2 gap-3">
           {textStyles.map(({ id, name, description }) => {
             const active = selectedTextStyle === id
@@ -266,18 +310,17 @@ function AppearanceSettings({ settings, updateSettings }: { settings: AppSetting
               <button
                 key={id}
                 onClick={() => updateSettings({ text_style: id })}
-                className={`text-left rounded-[8px] border p-2.5 transition-colors cursor-pointer ${active
+                className={`text-left rounded-[8px] border p-2.5 transition-colors cursor-pointer flex flex-col justify-between h-full ${active
                   ? 'border-[var(--accent-brown)] bg-[var(--bg-hover)]'
                   : 'border-[var(--border-subtle)] bg-[var(--bg)] hover:border-[var(--text-secondary)]'
                   }`}
               >
-                <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start justify-between gap-3 w-full">
                   <div className={`min-w-0 theme-font-preview-${id}`}>
                     <div className="flex items-center gap-1.5">
                       <span className="text-[13px] font-medium text-[var(--text-heading)]">{name}</span>
-                      {active && <Check size={13} className="text-[var(--accent-brown)] shrink-0" />}
                     </div>
-                    <div className="mt-0.5 text-[11px] leading-relaxed text-[var(--text-secondary)]">{description}</div>
+                    <div className="mt-0.5 text-[11px] leading-relaxed text-[var(--text-secondary)] min-h-[32px]">{description}</div>
                   </div>
                   <span className={`text-[15px] font-medium text-[var(--text-heading)] opacity-60 mt-0.5 shrink-0 theme-font-preview-${id}`}>
                     Aa
@@ -296,18 +339,40 @@ function ContextSettings({
   settings,
   updateSettings,
   availableFiles,
-  availableStyles
+  availableStyles,
+  refreshStyles
 }: {
   settings: AppSettings,
   updateSettings: (u: Partial<AppSettings>) => void,
   availableFiles: { name: string; path: string }[],
-  availableStyles: { name: string; description: string }[]
+  availableStyles: { name: string; description: string }[],
+  refreshStyles: () => Promise<void>
 }) {
+  const [isRefreshing, setIsRefreshing] = useState(false)
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true)
+    await refreshStyles()
+    setTimeout(() => setIsRefreshing(false), 500)
+  }
+
   return (
     <div className="flex flex-col gap-8">
       <section>
-        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Tone Preset</h3>
-        <p className="text-[12px] text-[var(--text-secondary)] mb-3">Quickly load specific behavioral instructions.</p>
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="text-[13px] font-medium text-[var(--text-heading)]">Tone Preset</h3>
+          <button
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="text-[var(--text-secondary)] hover:text-[var(--text-heading)] transition-colors cursor-pointer disabled:opacity-50"
+            title="Refresh style guidelines"
+          >
+            <RefreshCw size={14} className={isRefreshing ? 'animate-spin' : ''} />
+          </button>
+        </div>
+        <p className="text-[12px] text-[var(--text-secondary)] mb-3">
+          Tone used by the writer agent by default. 'Auto' lets the planner choose based on your request. 'None' disables style injection.
+        </p>
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() => updateSettings({ tone_preset: '' })}
@@ -315,6 +380,13 @@ function ContextSettings({
             title="Disable style guidelines injection"
           >
             None
+          </button>
+          <button
+            onClick={() => updateSettings({ tone_preset: 'auto' })}
+            className={`px-3 py-1.5 rounded-[4px] text-[12px] border transition-colors cursor-pointer capitalize ${(settings.tone_preset?.toLowerCase() === 'auto') ? 'bg-[var(--accent-brown)] text-[var(--text-inverse)] border-[var(--accent-brown)] font-medium' : 'bg-[var(--bg)] text-[var(--text-secondary)] border-[var(--border-subtle)] hover:border-[var(--text-secondary)] hover:text-[var(--text-heading)]'}`}
+            title="Let the AI Planner dynamically select the best style"
+          >
+            Auto
           </button>
           {availableStyles.map(style => (
             <button
