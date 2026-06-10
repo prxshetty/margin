@@ -16,6 +16,7 @@ export interface AppSettings {
   text_style?: 'system' | 'editorial' | 'manuscript' | 'technical' | 'warm'
   editor_stats?: 'words' | 'characters' | 'both' | 'none'
   show_outline?: boolean
+  planner_include_outline?: boolean
 }
 
 interface SettingsState {

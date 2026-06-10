@@ -286,6 +286,7 @@ export function SimpleAssist() {
   const [sessionLoadCount, setSessionLoadCount] = useState(3)
   const [mode, setMode] = useState<'chat' | 'edit'>('edit')
   const hasSelection = !!pendingEditSelection
+  const activeModel = useEditorStore((s) => s.activeModel)
 
   const { settings, fetchSettings, setShowSettings } = useSettingsStore()
 
@@ -486,9 +487,15 @@ export function SimpleAssist() {
       const mentionContext = buildMentionContext(currentRefFiles)
       const fullContent = [content, mentionContext].filter(Boolean).join('\n\n')
 
+      const cleanMessage = currentInstruction
+        .replace(/\s*@selection\([^)]*\)\s*/g, ' ')
+        .replace(/\s*@[\w.-]+(?:\.[\w]+)?\s*/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+
       const body: Record<string, unknown> = {
         content: fullContent,
-        message: currentInstruction,
+        message: cleanMessage,
         mode: 'edit',
         session_id: currentSessionId,
         ref_files: currentRefFiles.map(f => ({ name: f.name, path: f.path })),
@@ -646,9 +653,15 @@ export function SimpleAssist() {
       const mentionContext = buildMentionContext(currentRefFiles)
       const fullContent = [content, mentionContext].filter(Boolean).join('\n\n')
 
+      const cleanMessage = currentInstruction
+        .replace(/\s*@selection\([^)]*\)\s*/g, ' ')
+        .replace(/\s*@[\w.-]+(?:\.[\w]+)?\s*/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+
       const body: Record<string, unknown> = {
         content: fullContent,
-        message: currentInstruction,
+        message: cleanMessage,
         mode: 'chat',
         session_id: currentSessionId,
         ref_files: currentRefFiles.map(f => ({ name: f.name, path: f.path })),
@@ -689,6 +702,9 @@ export function SimpleAssist() {
               setIsPlanning(false)
               setIsGenerating(true)
             } else if (data.status === 'chat') {
+              if (data.model_used) {
+                useEditorStore.getState().setActiveModel(data.model_used)
+              }
               // Done generating
             } else if (data.status === 'error') {
               throw new Error(data.detail || 'Chat failed')

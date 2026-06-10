@@ -4,6 +4,7 @@ from pydantic import BaseModel
 import requests
 
 from api.services.file_storage import storage
+import config
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -30,7 +31,11 @@ def update_settings(req: SettingsUpdateRequest):
 @router.post("/test-endpoint")
 def test_endpoint(req: TestEndpointRequest):
     try:
-        base_url = req.url.rstrip("/")
+        if req.url == "default" or req.url == "":
+            base_url = config.LMSTUDIO["base_url"].rstrip("/")
+        else:
+            base_url = req.url.rstrip("/")
+            
         if not base_url.endswith("/v1"):
             base_url += "/v1"
         url = f"{base_url}/models"

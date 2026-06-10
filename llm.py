@@ -130,6 +130,9 @@ class LLMClient:
         """Get full completion (blocking internally)."""
         url = f"{self.base_url}/chat/completions"
         headers = {"Content-Type": "application/json"}
+        if getattr(self, "api_key", None):
+            headers["Authorization"] = f"Bearer {self.api_key}"
+            
         payload = {
             "model": self.model,
             "messages": [
@@ -144,6 +147,9 @@ class LLMClient:
         response = requests.post(url, headers=headers, json=payload, timeout=300)
         response.raise_for_status()
         data = response.json()
+        
+        self.last_model_used = data.get("model", self.model)
+        
         content = data["choices"][0]["message"]["content"]
         return self._clean_reasoning(content)
 

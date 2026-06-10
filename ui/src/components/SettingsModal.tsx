@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { X, Plus, Trash2, CheckCircle, Play, RefreshCw } from 'lucide-react'
 import { useSettingsStore } from '../stores/settingsStore'
+import { useEditorStore } from '../stores/editorStore'
 import type { AppSettings } from '../stores/settingsStore'
 import { API_BASE } from '../lib/api'
 
@@ -402,6 +403,22 @@ function ContextSettings({
       </section>
 
       <section>
+        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Include Document Structure</h3>
+        <p className="text-[12px] text-[var(--text-secondary)] mb-3">
+          Provide a structural outline (paragraph previews) of the active document to the AI planner. Helps the AI maintain broader story awareness, but consumes more memory. Keep off when using a smaller local AI for faster, more focused responses.
+        </p>
+        <label className="flex items-center gap-2 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={!!settings.planner_include_outline}
+            onChange={(e) => updateSettings({ planner_include_outline: e.target.checked })}
+            className="accent-[var(--accent-brown)]"
+          />
+          <span className="text-[13px] text-[var(--text-secondary)] font-medium">Send Document Outline to AI</span>
+        </label>
+      </section>
+
+      <section>
         <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Additional Context</h3>
         <p className="text-[12px] text-[var(--text-secondary)] mb-3">Instructions prepended to every AI interaction.</p>
         <textarea
@@ -413,63 +430,70 @@ function ContextSettings({
       </section>
 
       <section>
-        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Pinned Reference Files</h3>
-        <p className="text-[12px] text-[var(--text-secondary)] mb-3">These workspace files will be silently injected into every request context.</p>
-        <div className="border border-[var(--border-subtle)] rounded-[6px] max-h-[200px] overflow-y-auto p-2">
+        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Reference Files</h3>
+        <p className="text-[12px] text-[var(--text-secondary)] mb-3">
+          All workspace files are available for the planner to reference. <strong>Pin</strong> a file to always include it in every request. <strong>Cross it out</strong> to prevent the AI from reading it — useful when smaller models struggle with conflicting reference material.
+        </p>
+        <div className="border border-[var(--border-subtle)] rounded-[6px] max-h-[300px] overflow-y-auto p-2">
           {availableFiles.length === 0 ? (
             <p className="text-[12px] text-[var(--text-secondary)] p-2 text-center">No files in workspace.</p>
           ) : (
             availableFiles.map(file => {
               const isPinned = (settings.pinned_ref_files || []).includes(file.path)
-              return (
-                <label key={file.path} className="flex items-center gap-2 p-2 hover:bg-[var(--bg-hover)] rounded-[4px] cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={isPinned}
-                    className="accent-[var(--accent-brown)]"
-                    onChange={(e) => {
-                      const newPinned = e.target.checked
-                        ? [...(settings.pinned_ref_files || []), file.path]
-                        : (settings.pinned_ref_files || []).filter(p => p !== file.path)
-                      updateSettings({ pinned_ref_files: newPinned })
-                    }}
-                  />
-                  <span className="text-[13px] text-[var(--text-heading)]">{file.name}</span>
-                  <span className="text-[11px] text-[var(--text-secondary)] ml-auto">{file.path}</span>
-                </label>
-              )
-            })
-          )}
-        </div>
-      </section>
-
-      <section>
-        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Ignored Reference Files</h3>
-        <p className="text-[12px] text-[var(--text-secondary)] mb-3">
-          These files will be actively blocked from the AI Writer's context during editing, even if the Planner requests them. (Does not apply to Chat mode).
-        </p>
-        <div className="border border-[var(--border-subtle)] rounded-[6px] max-h-[200px] overflow-y-auto p-2">
-          {availableFiles.length === 0 ? (
-            <p className="text-[12px] text-[var(--text-secondary)] p-2 text-center">No files in workspace.</p>
-          ) : (
-            availableFiles.map(file => {
               const isIgnored = (settings.ignored_ref_files || []).includes(file.path)
+
+              const cycleState = () => {
+                if (!isPinned && !isIgnored) {
+                  updateSettings({
+                    pinned_ref_files: [...(settings.pinned_ref_files || []), file.path],
+                    ignored_ref_files: (settings.ignored_ref_files || []).filter(p => p !== file.path),
+                  })
+                } else if (isPinned) {
+                  updateSettings({
+                    pinned_ref_files: (settings.pinned_ref_files || []).filter(p => p !== file.path),
+                    ignored_ref_files: [...(settings.ignored_ref_files || []), file.path],
+                  })
+                } else {
+                  updateSettings({
+                    ignored_ref_files: (settings.ignored_ref_files || []).filter(p => p !== file.path),
+                  })
+                }
+              }
+
+              const stateColor = isPinned
+                ? 'text-[var(--accent-brown)]'
+                : isIgnored
+                  ? 'text-red-400'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+
+              const stateTitle = isPinned
+                ? 'Always included in context (click to block)'
+                : isIgnored
+                  ? 'Blocked from AI (click to restore default)'
+                  : 'Available to planner (click to pin)'
+
               return (
-                <label key={file.path} className="flex items-center gap-2 p-2 hover:bg-[var(--bg-hover)] rounded-[4px] cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={isIgnored}
-                    className="accent-[var(--accent-brown)]"
-                    onChange={(e) => {
-                      const newIgnored = e.target.checked
-                        ? [...(settings.ignored_ref_files || []), file.path]
-                        : (settings.ignored_ref_files || []).filter(p => p !== file.path)
-                      updateSettings({ ignored_ref_files: newIgnored })
-                    }}
-                  />
-                  <span className="text-[13px] text-[var(--text-heading)]">{file.name}</span>
-                  <span className="text-[11px] text-[var(--text-secondary)] ml-auto">{file.path}</span>
-                </label>
+                <div key={file.path} className="flex items-center gap-2 p-2 hover:bg-[var(--bg-hover)] rounded-[4px] group">
+                  <span className="text-[13px] text-[var(--text-heading)] min-w-0 truncate flex-1">{file.name}</span>
+                  <span className="text-[11px] text-[var(--text-muted)] hidden group-hover:inline truncate max-w-[200px]">{file.path}</span>
+                  <button
+                    onClick={cycleState}
+                    className={`p-1 rounded-[4px] transition-all cursor-pointer shrink-0 ${stateColor}`}
+                    title={stateTitle}
+                  >
+                    {isPinned ? (
+                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="m3 21 4.63-4.631m.005-.005-2.78-2.78c-.954-.954.006-2.996 1.31-3.078 1.178-.075 3.905.352 4.811-.555l2.49-2.49c.618-.618.226-2 .186-2.762-.058-1.016 1.558-2.271 2.415-1.414l4.647 4.648c.86.858-.4 2.469-1.413 2.415-.762-.04-2.145-.432-2.763.185l-2.49 2.49c-.906.907-.48 3.633-.554 4.811-.082 1.305-2.125 2.265-3.08 1.31l-2.78-2.78Z" />
+                      </svg>
+                    ) : (
+                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+                        <circle cx="12" cy="12" r="3" />
+                        {isIgnored && <line x1="4" y1="4" x2="20" y2="20" />}
+                      </svg>
+                    )}
+                  </button>
+                </div>
               )
             })
           )}
@@ -508,6 +532,12 @@ function EndpointsSettings({ settings, updateSettings }: { settings: AppSettings
       if (!res.ok) throw new Error('Connection failed')
       const data = await res.json()
       setTestResult({ status: 'success', msg: `Found ${data.models?.data?.length || 0} models.` })
+      
+      if (data.models?.data?.length > 0) {
+        const firstModel = data.models.data[0].id
+        setNewModel(firstModel)
+        useEditorStore.getState().setActiveModel(firstModel)
+      }
     } catch (e) {
       setTestResult({ status: 'error', msg: (e as Error).message })
     }
@@ -529,7 +559,12 @@ function EndpointsSettings({ settings, updateSettings }: { settings: AppSettings
               onChange={() => updateSettings({ active_endpoint: null })}
               className="accent-[var(--accent-brown)]"
             />
-            <span className="text-[13px] font-medium text-[var(--text-heading)]">.env Default (Local)</span>
+            <span className="text-[13px] font-medium text-[var(--text-heading)] flex-1">.env Default (Local)</span>
+            <div className="flex items-center gap-2" onClick={(e) => e.preventDefault()}>
+              <button onClick={() => handleTest("default", "")} className="p-1.5 text-[var(--text-secondary)] hover:text-[var(--text-heading)] bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[4px] cursor-pointer" title="Test Connection">
+                <Play size={14} />
+              </button>
+            </div>
           </label>
 
           {Object.entries(settings.endpoints || {}).map(([id, ep]) => (
