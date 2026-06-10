@@ -46,6 +46,10 @@ interface EditorState {
   setCurrentFilePath: (path: string | null) => void
   updateFileContent: (path: string, content: string) => void
   markFileClean: (path: string) => void
+  aiPendingEdit: { previousContent: string; selectionRange?: { from: number; to: number } | null; highlightFrom?: number } | null
+  setAiPendingEdit: (edit: { previousContent: string; selectionRange?: { from: number; to: number } | null; highlightFrom?: number } | null) => void
+  activeModel: string | null
+  setActiveModel: (model: string | null) => void
 }
 
 export const useEditorStore = create<EditorState>((set) => ({

@@ -551,19 +551,39 @@ export function SimpleAssist() {
               setIsPlanning(false)
               setIsGenerating(true)
             } else if (data.status === 'applied') {
+              if (data.model_used) {
+                useEditorStore.getState().setActiveModel(data.model_used)
+              }
               const output = data.output
 
               const liveEditor = useEditorStore.getState().editor || activeEditor
               if (liveEditor && liveEditor.view && liveEditor.state && !liveEditor.isDestroyed) {
+                const previousContent = useEditorStore.getState().content
+                const setAiPendingEdit = useEditorStore.getState().setAiPendingEdit
+                const startPos = localHasSelection && selectionInfo ? selectionInfo.from : anchorPosition
+                const beforeSize = liveEditor.state.doc.content.size
+                const selectionSize = localHasSelection && selectionInfo ? (selectionInfo.to - selectionInfo.from) : 0
+
+                setAiPendingEdit({
+                  previousContent,
+                  selectionRange: localHasSelection && selectionInfo ? { from: selectionInfo.from, to: selectionInfo.to } : null,
+                  highlightFrom: startPos
+                })
+
+                let chain = liveEditor.chain()
                 if (localHasSelection && selectionInfo) {
-                  liveEditor.chain()
-                    .deleteRange({ from: selectionInfo.from, to: selectionInfo.to })
-                    .insertContentAt(selectionInfo.from, output)
-                    .run()
-                } else {
-                  liveEditor.chain()
-                    .insertContentAt(anchorPosition, output)
-                    .run()
+                  chain = chain.deleteRange({ from: selectionInfo.from, to: selectionInfo.to })
+                }
+                chain = chain.insertContentAt(startPos, output)
+                chain.run()
+
+                const afterSize = liveEditor.state.doc.content.size
+                const delta = afterSize - (beforeSize - selectionSize)
+                const endPos = startPos + delta
+
+                if (endPos > startPos) {
+                  liveEditor.commands.setAiHighlight(startPos, endPos)
+                  liveEditor.commands.setTextSelection(endPos)
                 }
 
                 const storage = liveEditor.storage as unknown as MarkdownStorage
