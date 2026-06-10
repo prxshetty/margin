@@ -353,7 +353,7 @@ export function FileSidebar({
 function SectionHeader({ label, onAdd }: { label: string; onAdd: () => void }) {
   return (
     <div className="group flex items-center justify-between mb-1.5 px-2 select-none">
-      <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-[var(--text-secondary)]/70">{label}</p>
+      <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-[var(--text-secondary)]/70 truncate min-w-0">{label}</p>
       <button
         onClick={onAdd}
         title={`New ${label.replace('/', '')} file`}

@@ -191,6 +191,7 @@ function GeneralSettings({ settings, updateSettings }: { settings: AppSettings, 
           onChange={(e) => updateSettings({ default_verbosity: e.target.value })}
           className="border border-[var(--border-subtle)] rounded-[6px] px-3 py-2 text-[13px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)] transition-colors w-[200px]"
         >
+          <option value="none">No Limit</option>
           <option value="concise">Concise (250 tokens)</option>
           <option value="balanced">Balanced (500 tokens)</option>
           <option value="expansive">Expansive (1000 tokens)</option>

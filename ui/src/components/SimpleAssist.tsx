@@ -157,13 +157,10 @@ function appendSelectionChipText(chip: HTMLElement, length: number) {
   chip.appendChild(removeButton)
 }
 
-function EditModeIcon() {
+function PlanModeIcon() {
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M5 19.25h5.25" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" />
-      <path d="M6.25 15.5 15.9 5.85a2.2 2.2 0 0 1 3.1 0l.15.15a2.2 2.2 0 0 1 0 3.1L9.5 18.75 5 19l.25-4.5Z" stroke="currentColor" strokeWidth="1.85" strokeLinejoin="round" />
-      <path d="m14.5 7.25 2.25 2.25" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" />
-      <path d="M6.75 4.75h.01M9.75 3h.01M4 8h.01" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path fill="currentColor" d="M2 2h4a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1Zm4.655 8.595a.75.75 0 0 1 0 1.06L4.03 14.28a.75.75 0 0 1-1.06 0l-1.5-1.5a.749.749 0 0 1 .326-1.275a.749.749 0 0 1 .734.215l.97.97l2.095-2.095a.75.75 0 0 1 1.06 0ZM9.75 2.5h5.5a.75.75 0 0 1 0 1.5h-5.5a.75.75 0 0 1 0-1.5Zm0 5h5.5a.75.75 0 0 1 0 1.5h-5.5a.75.75 0 0 1 0-1.5Zm0 5h5.5a.75.75 0 0 1 0 1.5h-5.5a.75.75 0 0 1 0-1.5Zm-7.25-9v3h3v-3Z" />
     </svg>
   )
 }
@@ -867,7 +864,7 @@ export function SimpleAssist() {
   const hasHistory = filteredLogs.length > 0 || isWorking || !!errorText
 
   const renderInputCard = () => (
-    <div className="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] focus-within:border-[var(--text-muted)] shadow-[0_2px_8px_rgba(0,0,0,0.04)] transition-[border-color,box-shadow] duration-200 rounded-[14px] p-3 flex flex-col relative animate-scale-in">
+    <div className="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] focus-within:border-[var(--text-muted)] shadow-[0_2px_8px_rgba(0,0,0,0.04)] transition-[border-color,box-shadow] duration-200 rounded-[14px] pt-3 px-3 pb-2 flex flex-col relative animate-scale-in">
       <div className="flex items-start gap-1.5 w-full">
         <div
           ref={inputRef}
@@ -920,25 +917,18 @@ export function SimpleAssist() {
       {/* Input Action Bar */}
       <div className="flex items-center justify-between select-none">
         {/* Mode Toggle */}
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-0.5 bg-[var(--bg-hover)] rounded-full p-0.5 border border-[var(--border-subtle)] shadow-inner">
-            <button
-              onClick={() => setMode('edit')}
-              className={`flex items-center justify-center w-6 h-6 rounded-full transition-colors cursor-pointer ${mode === 'edit' ? 'bg-[var(--accent-brown)] text-[var(--text-inverse)] shadow-sm' : 'text-[var(--text-secondary)] hover:text-[var(--text-heading)]'
-                }`}
-              title="Edit mode"
-            >
-              <EditModeIcon />
-            </button>
-            <button
-              onClick={() => setMode('chat')}
-              className={`flex items-center justify-center w-6 h-6 rounded-full transition-colors cursor-pointer ${mode === 'chat' ? 'bg-[var(--accent-brown)] text-[var(--text-inverse)] shadow-sm' : 'text-[var(--text-secondary)] hover:text-[var(--text-heading)]'
-                }`}
-              title="Chat mode"
-            >
-              <ChatModeIcon />
-            </button>
-          </div>
+        <div className="flex items-center">
+          <button
+            onClick={() => setMode(mode === 'edit' ? 'chat' : 'edit')}
+            className={`flex items-center justify-center w-6 h-6 rounded-full transition-all duration-200 cursor-pointer -ml-1.5 ${
+              mode === 'edit'
+                ? 'text-[var(--accent-brown)]'
+                : 'text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--bg-hover)]'
+            }`}
+            title={mode === 'edit' ? 'Switch to Chat mode' : 'Switch to Plan mode'}
+          >
+            <PlanModeIcon />
+          </button>
         </div>
 
         {/* Action Button: Solid circular button with up arrow */}
@@ -946,7 +936,7 @@ export function SimpleAssist() {
           onClick={mode === 'chat' ? handleChat : handleEdit}
           disabled={!instructionText || isWorking}
           className="
-            flex items-center justify-center transition-[background-color,transform,opacity] duration-150 cursor-pointer select-none border rounded-full w-6 h-6 active:scale-[0.9] bg-[var(--accent-brown)] hover:bg-[var(--accent-brown-hover)] text-[var(--text-inverse)] disabled:bg-[var(--bg-disabled)] disabled:text-[var(--text-disabled)] disabled:border-transparent border-transparent
+            flex items-center justify-center transition-[background-color,transform,opacity] duration-150 cursor-pointer select-none border rounded-full w-6 h-6 shrink-0 -mr-1.5 active:scale-[0.9] bg-[var(--accent-brown)] hover:bg-[var(--accent-brown-hover)] text-[var(--text-inverse)] disabled:bg-[var(--bg-disabled)] disabled:text-[var(--text-disabled)] disabled:border-transparent border-transparent
           "
           title={mode === 'chat' ? 'Send Message' : hasSelection ? 'Replace Selection' : 'Insert Content'}
         >
@@ -1055,7 +1045,7 @@ export function SimpleAssist() {
       {/* History area (scrollable) */}
       {hasHistory && (
         <>
-          <div className="flex-1 overflow-y-auto flex flex-col gap-4 pr-1 min-h-0 select-text">
+          <div className="flex-1 overflow-y-auto flex flex-col gap-4 pr-1 pt-2 min-h-0 select-text">
             {filteredLogs.map((log) => {
               const isExpanded = !!expandedIds[log.id]
 

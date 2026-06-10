@@ -113,4 +113,8 @@ export const useEditorStore = create<EditorState>((set) => ({
         f.path === path ? { ...f, originalContent: f.content } : f
       ),
     })),
+  aiPendingEdit: null,
+  setAiPendingEdit: (aiPendingEdit) => set({ aiPendingEdit }),
+  activeModel: null,
+  setActiveModel: (activeModel) => set({ activeModel }),
 }))

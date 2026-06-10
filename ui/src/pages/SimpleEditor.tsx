@@ -7,6 +7,7 @@ import { useSettingsStore } from '../stores/settingsStore'
 import { SettingsModal } from '../components/SettingsModal'
 import { API_BASE } from '../lib/api'
 
+
 interface FileSystemFileHandle {
   createWritable: () => Promise<FileSystemWritableFileStream>
 }
@@ -301,12 +302,12 @@ export default function SimpleEditor() {
           }}
           className="w-2 cursor-col-resize flex-shrink-0 relative group transition-all"
         >
-          <div className="absolute top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 w-[4px] h-8 rounded-full bg-[var(--border)] group-hover:bg-[var(--text-muted)] transition-all duration-200" />
+          <div className="absolute top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 w-[4px] h-8 rounded-full bg-[var(--border)] opacity-0 group-hover:opacity-100 group-hover:bg-[var(--text-muted)] transition-all duration-200" />
         </div>
       </div>
 
       {/* Floating Manuscript Editor Card */}
-      <div className="editor-card flex-1 bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[24px] shadow-[0_2px_8px_rgba(0,0,0,0.03),0_16px_48px_rgba(0,0,0,0.06)] flex overflow-hidden min-w-0 select-text animate-scale-in relative">
+      <div className="editor-card flex-1 bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[14px] shadow-[0_2px_8px_rgba(0,0,0,0.03),0_16px_48px_rgba(0,0,0,0.06)] flex overflow-hidden min-w-0 select-text animate-scale-in relative">
         {/* Floating Sidebar Restore Controls inside the Editor Card */}
         <div className="absolute top-4 left-4 z-10 flex items-center gap-1.5">
           {!filesPanelOpen && (
@@ -354,7 +355,7 @@ export default function SimpleEditor() {
         </div>
 
         {/* Right: Scrolling Editor area */}
-        <div ref={editorContainerRef} className="flex-1 p-8 overflow-y-auto min-w-0 relative">
+        <div ref={editorContainerRef} className="editor-scroll-container flex-1 p-8 overflow-y-auto min-w-0 relative">
           <NovelEditor showInlinePopup={true} />
         </div>
 
@@ -366,6 +367,7 @@ export default function SimpleEditor() {
             {settings.editor_stats === 'both' && `${wordCount} words · ${charCount} chars`}
           </div>
         )}
+
       </div>
 
       {/* Right Sidebar (SimpleAssist) with Slide/Fade Transition */}
@@ -389,7 +391,7 @@ export default function SimpleEditor() {
           }}
           className="w-2 cursor-col-resize flex-shrink-0 relative group transition-all"
         >
-          <div className="absolute top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 w-[4px] h-8 rounded-full bg-[var(--border)] group-hover:bg-[var(--text-muted)] transition-all duration-200" />
+          <div className="absolute top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 w-[4px] h-8 rounded-full bg-[var(--border)] opacity-0 group-hover:opacity-100 group-hover:bg-[var(--text-muted)] transition-all duration-200" />
         </div>
         <div style={{ width: panelWidth }} className="h-full bg-transparent overflow-y-auto min-w-0">
           <SimpleAssist />
