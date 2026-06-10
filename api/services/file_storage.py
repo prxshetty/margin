@@ -58,7 +58,10 @@ class FileStorageService:
             "theme_family": "sand",
             "text_style": "system",
             "editor_stats": "both",
-            "show_outline": True
+            "show_outline": True,
+            "planner_include_outline": False,
+            "folder_strategies": {"styles": "guideline", "characters": "context_block", "chapters": "context_block"},
+            "default_folder_strategy": "context_block"
         }
         if self.settings_path.exists():
             try:
@@ -80,11 +83,9 @@ class FileStorageService:
             print(f"Failed to save settings: {e}")
         return merged
 
-    MANIFEST_MAP = {
-        "characters/": "characters/CHARACTERS.md",
-        "chapters/": "chapters/CHAPTERS.md",
-        "styles/": "styles/STYLES.md",
-    }
+    def _get_manifest_rel_path(self, folder: str) -> str:
+        folder_clean = folder.strip("/")
+        return f"{folder_clean}/{folder_clean.upper()}.md"
 
     def _load_manifest(self, manifest_rel_path: str) -> Dict[str, str]:
         manifest_path = self.inputs_dir / manifest_rel_path
@@ -106,10 +107,8 @@ class FileStorageService:
         return {f"{k}.md": v for k, v in style_map.items()}
 
     def _add_to_manifest(self, folder: str, name: str, content: str) -> None:
-        folder_key = folder if folder.endswith("/") else f"{folder}/"
-        manifest_rel_path = self.MANIFEST_MAP.get(folder_key)
-        if not manifest_rel_path:
-            return
+        folder_clean = folder.strip("/")
+        manifest_rel_path = self._get_manifest_rel_path(folder_clean)
         
         manifest_path = self.inputs_dir / manifest_rel_path
         # Create parent directory if it doesn't exist
@@ -117,14 +116,10 @@ class FileStorageService:
         
         # Determine initial template content if manifest doesn't exist
         if not manifest_path.exists():
-            if folder_key == "characters/":
-                manifest_content = "# Available Characters\n\n"
-            elif folder_key == "chapters/":
-                manifest_content = "# Available Chapters\n\n"
-            elif folder_key == "styles/":
+            if folder_clean == "styles":
                 manifest_content = "# Available Styles\n\nUse these style tags when annotating scene_events.\n\n"
             else:
-                manifest_content = ""
+                manifest_content = f"# Available {folder_clean.capitalize()}\n\n"
         else:
             try:
                 manifest_content = manifest_path.read_text(encoding="utf-8")
@@ -133,7 +128,7 @@ class FileStorageService:
         
         stem = Path(name).stem
         
-        if folder_key == "styles/":
+        if folder_clean == "styles":
             pattern = rf"^\s*-\s+\*\*{re.escape(stem)}\*\*(.*)"
             new_line = f"- **{stem}** — "
         else:
@@ -158,10 +153,8 @@ class FileStorageService:
         manifest_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     def _remove_from_manifest(self, folder: str, name: str) -> None:
-        folder_key = folder if folder.endswith("/") else f"{folder}/"
-        manifest_rel_path = self.MANIFEST_MAP.get(folder_key)
-        if not manifest_rel_path:
-            return
+        folder_clean = folder.strip("/")
+        manifest_rel_path = self._get_manifest_rel_path(folder_clean)
         
         manifest_path = self.inputs_dir / manifest_rel_path
         if not manifest_path.exists():
@@ -173,7 +166,7 @@ class FileStorageService:
             return
             
         stem = Path(name).stem
-        if folder_key == "styles/":
+        if folder_clean == "styles":
             pattern = rf"^\s*-\s+\*\*{re.escape(stem)}\*\*(.*)"
         else:
             pattern = rf"^\s*-\s+{re.escape(name)}(.*)"
@@ -184,10 +177,8 @@ class FileStorageService:
         manifest_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
 
     def _rename_in_manifest(self, folder: str, old_name: str, new_name: str) -> None:
-        folder_key = folder if folder.endswith("/") else f"{folder}/"
-        manifest_rel_path = self.MANIFEST_MAP.get(folder_key)
-        if not manifest_rel_path:
-            return
+        folder_clean = folder.strip("/")
+        manifest_rel_path = self._get_manifest_rel_path(folder_clean)
         
         manifest_path = self.inputs_dir / manifest_rel_path
         if not manifest_path.exists():
@@ -206,7 +197,7 @@ class FileStorageService:
         lines = manifest_content.splitlines()
         found = False
         for idx, line in enumerate(lines):
-            if folder_key == "styles/":
+            if folder_clean == "styles":
                 m = re.match(rf"^(\s*-\s+\*\*){re.escape(old_stem)}(\*\*)(.*)", line)
                 if m:
                     prefix = m.group(1)
@@ -230,10 +221,11 @@ class FileStorageService:
             self._add_to_manifest(folder, new_name, "")
 
     def list_input_files(self) -> List[Dict[str, str]]:
-        manifests = {
-            "characters/": self._load_manifest("characters/CHARACTERS.md"),
-            "chapters/": self._load_manifest("chapters/CHAPTERS.md"),
-        }
+        manifests = {}
+        for f in self.inputs_dir.glob("*/*.md"):
+            folder_name = f.parent.name
+            if f.name == f"{folder_name.upper()}.md":
+                manifests[f"{folder_name}/"] = self._load_manifest(f"{folder_name}/{f.name}")
         style_desc = self._get_style_descriptions()
         files = []
         for f in self.inputs_dir.rglob("*.md"):
@@ -256,11 +248,7 @@ class FileStorageService:
             raise FileNotFoundError(f"File not found: {path}")
         return full_path.read_text(encoding="utf-8")
 
-    _ALLOWED_INPUT_SUBDIRS = {"chapters", "characters", "styles"}
-
     def create_input_file(self, folder: str, name: str, content: str = "") -> Dict[str, str]:
-        if folder not in self._ALLOWED_INPUT_SUBDIRS:
-            raise ValueError(f"Invalid folder '{folder}'. Must be one of: {sorted(self._ALLOWED_INPUT_SUBDIRS)}")
 
         name = (name or "").strip()
         if not name:

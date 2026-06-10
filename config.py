@@ -32,15 +32,3 @@ THINKING_PREAMBLE = (
     "Then provide your final answer after the closing tag.\n"
     "This format is REQUIRED for every response, including JSON outputs.\n\n"
 )
-
-def _resolve_max_tokens(key: str, default: int) -> int | None:
-    """Resolve per-agent max_tokens — None when limits are disabled."""
-    if DISABLE_TOKEN_LIMITS:
-        return None
-    return int(os.getenv(f"TOKENS_{key.upper()}", default))
-
-AGENT_CONFIG = {
-    "writer": {"max_tokens": _resolve_max_tokens("writer", 500), "temperature": float(os.getenv("TEMPERATURE_WRITER", 0.85))},
-}
-
-TOKEN_LIMITS = {key: cfg["max_tokens"] for key, cfg in AGENT_CONFIG.items()}

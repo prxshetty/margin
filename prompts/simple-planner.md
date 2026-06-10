@@ -9,35 +9,17 @@ SELECTED_TEXT (If provided, this is the guaranteed target context)
 ANCHOR_PARAGRAPH_TEXT (If SELECTED_TEXT is not provided, this is the full text of the paragraph containing the user's cursor)
 
 AVAILABLE_CONTEXT (manifest files listing available characters, chapters, and styles with descriptions)
-
 TASK:
 
-1. Select the minimum necessary files from AVAILABLE_CONTEXT to perform the edit accurately.
-2. Convert USER_INSTRUCTION into a precise editing instruction ("query") for the writer that carries the user's intent.
+1. Select the minimum necessary files from AVAILABLE_CONTEXT to perform the edit accurately based on the USER_INSTRUCTION.
 
 OUTPUT SCHEMA:
 
 Output ONLY valid JSON matching this schema:
 
 {
-  "context_needed": ["filename.md"],
-  "query": "Precise editing instruction"
+  "context_needed": ["filename.md"]
 }
-
-QUERY DECOMPOSITION RULES:
-
-Write a clear, literal, single-task instruction for the writer based on the USER_INSTRUCTION.
-- For modifications: "Reproduce the TARGET paragraph in full, verbatim, up to the clause '[verbatim target clause]'. Replace that clause with: [new clause description]."
-- For rewriting: "Rewrite this paragraph entirely in [style/POV/tone]."
-- For expanding: "Reproduce this paragraph in full, then expand it with [specific additions]."
-- For adding new paragraphs: "Write [N] new paragraph(s) that [specific intent], flowing from [anchor context]."
-
-CRITICAL INTENT PRESERVATION RULES:
-
-- Preserve the original meaning of the USER_INSTRUCTION.
-- Do not introduce new characters, events, motivations, emotions, relationships, or plot developments unless explicitly requested.
-- Do not reinterpret the request into a different scene action.
-- Stay as close as possible to the literal intent of the USER_INSTRUCTION.
 
 CONTEXT SELECTION:
 

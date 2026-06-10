@@ -14,6 +14,7 @@ from sse_starlette.sse import EventSourceResponse
 from api.services.file_storage import storage
 import llm
 import config
+from api.services import context_injector
 
 router = APIRouter(prefix="/api/assist", tags=["assist"])
 
@@ -35,27 +36,13 @@ def _resolve_simple_assist_client() -> llm.LLMClient:
     return llm.LLMClient()
 
 
-def _build_simple_system_prompt(base_text: str = "", include_tone: bool = False) -> str:
-    """Prepend additional_context to a system prompt if it's non-empty, and optionally inject style guidelines."""
+def _build_simple_system_prompt(base_text: str = "") -> str:
+    """Prepend additional_context to a system prompt if it's non-empty."""
     s = storage.get_settings()
     ctx = (s.get("additional_context") or "").strip()
     system_prompt = base_text
     if ctx:
         system_prompt = f"\n\n--- USER CONTEXT ---\n{ctx}\n--- END USER CONTEXT ---\n\n{system_prompt}"
-        
-    if include_tone:
-        tone = s.get("tone_preset")
-        if tone and tone.lower() not in ("none", "auto") and tone.strip() != "":
-            import style_loader
-            try:
-                style_data = style_loader.load_style(tone)
-                if style_data:
-                    agent_sections = style_data.get("agent_sections") or {}
-                    writer_guidelines = agent_sections.get("writer")
-                    if writer_guidelines:
-                        system_prompt = f"{system_prompt}\n\n--- STYLE GUIDELINES ({tone.upper()}) ---\n{writer_guidelines}"
-            except Exception as e:
-                print(f"Error loading style guidelines for {tone}: {e}")
                 
     return system_prompt
 
@@ -90,8 +77,9 @@ def _pick_writer_max_tokens() -> int | None:
     if config.DISABLE_TOKEN_LIMITS:
         return None
     s = storage.get_settings()
-    mapping = {"concise": 250, "balanced": 500, "expansive": 1000}
-    return mapping.get(s.get("default_verbosity", "balanced"), 500)
+    mapping = {"concise": 250, "balanced": 500, "expansive": 1000, "none": None}
+    val = mapping.get(s.get("default_verbosity", "balanced"), 500)
+    return val
 
 
 def _load_simple_prompt(filename: str) -> str:
@@ -144,6 +132,7 @@ def _log_simple_assist(
     planner_output: Optional[str] = None,
     success: bool = True,
     cursor_paragraph_index: Optional[int] = None,
+    model_used: Optional[str] = None,
 ) -> None:
     log_entry = {
         "id": f"simple_{uuid.uuid4().hex}",
@@ -170,6 +159,8 @@ def _log_simple_assist(
         log_entry["planner_output"] = planner_output
     if cursor_paragraph_index is not None:
         log_entry["cursor_paragraph_index"] = cursor_paragraph_index
+    if model_used is not None:
+        log_entry["model_used"] = model_used
     storage.save_simple_ai_log(log_entry)
 
 
@@ -215,16 +206,17 @@ def run_planner(
 ) -> tuple[dict, str, str, str]:
     system = _load_simple_prompt("simple-planner.md")
     
-    # Build document outline
-    paragraphs = [p for p in content.split('\n\n') if p.strip()]
-    outline_lines = []
-    for i, p in enumerate(paragraphs):
-        preview = p[:60].replace('\n', ' ')
-        outline_lines.append(f"[{i}] {preview}...")
-    outline_text = "\n".join(outline_lines)
-    
     user_prompt_lines = [f"USER_INSTRUCTION:\n{message}\n"]
-    user_prompt_lines.append(f"DOCUMENT_OUTLINE:\n{outline_text}\n")
+
+    # Build document outline if enabled
+    if storage.get_settings().get("planner_include_outline", False):
+        paragraphs = [p for p in content.split('\n\n') if p.strip()]
+        outline_lines = []
+        for i, p in enumerate(paragraphs):
+            preview = p[:60].replace('\n', ' ')
+            outline_lines.append(f"[{i}] {preview}...")
+        outline_text = "\n".join(outline_lines)
+        user_prompt_lines.append(f"DOCUMENT_OUTLINE:\n{outline_text}\n")
     
     if selected_text:
         user_prompt_lines.append(f"SELECTED_TEXT:\n{selected_text}\n")
@@ -232,24 +224,15 @@ def run_planner(
         user_prompt_lines.append(f"ANCHOR_PARAGRAPH_TEXT:\n{cursor_paragraph_text}\n")
     
     manifest_sections = []
-    for manifest_rel, label in [("characters/CHARACTERS.md", "CHARACTERS"), ("chapters/CHAPTERS.md", "CHAPTERS")]:
-        try:
-            raw = storage.read_input_file(manifest_rel)
-            if raw.strip():
-                manifest_sections.append(f"--- {label} ---\n{raw.strip()}")
-        except Exception:
-            pass
-    s = storage.get_settings()
-    tone = (s.get("tone_preset") or "").strip().lower()
-    if tone == "auto":
-        try:
-            from style_loader import read_styles_md
-            styles_map = read_styles_md(path=storage.inputs_dir / "styles" / "STYLES.md")
-            if styles_map:
-                styles_lines = [f"- **{k}** — {v}" for k, v in styles_map.items()]
-                manifest_sections.append("--- STYLES ---\n" + "\n".join(styles_lines))
-        except Exception:
-            pass
+    try:
+        for f in storage.inputs_dir.glob("*/*.md"):
+            folder_name = f.parent.name
+            if f.name == f"{folder_name.upper()}.md":
+                raw = f.read_text(encoding="utf-8")
+                if raw.strip():
+                    manifest_sections.append(f"--- {folder_name.upper()} ---\n{raw.strip()}")
+    except Exception as e:
+        print(f"Error scanning manifests: {e}")
     if manifest_sections:
         user_prompt_lines.append("AVAILABLE_CONTEXT:\n" + "\n\n".join(manifest_sections))
     
@@ -260,7 +243,7 @@ def run_planner(
         system_prompt=system,
         user_prompt=user,
         temperature=0.1,
-        max_tokens=400
+        max_tokens=None
     )
     
     try:
@@ -270,7 +253,7 @@ def run_planner(
             start, end = raw.find("{"), raw.rfind("}") + 1
             return json.loads(raw[start:end]), system, user, raw
         except Exception:
-            return {"context_needed": [], "query": message}, system, user, raw
+            return {"context_needed": []}, system, user, raw
 
 
 
@@ -283,7 +266,7 @@ def build_generator_prompts(
     available_files: List[Dict[str, str]] = None,
 ) -> tuple[str, str]:
     
-    system_parts = [_build_simple_system_prompt(_load_simple_prompt("simple-writer.md"), include_tone=True)]
+    system_parts = [_build_simple_system_prompt(_load_simple_prompt("simple-writer.md"))]
     
     available = available_files if available_files is not None else []
     available_paths = [f['path'] for f in available]
@@ -310,27 +293,7 @@ def build_generator_prompts(
         if actual_path in ignored_paths:
             continue
             
-        try:
-            file_content = storage.read_input_file(actual_path)
-            parts = actual_path.split("/")
-            folder_name = parts[0] if len(parts) > 1 else ""
-            file_name = parts[-1]
-            
-            if folder_name.lower().endswith("s"):
-                folder_str = folder_name[:-1].upper()
-            else:
-                folder_str = folder_name.upper()
-                
-            label = file_name.replace("_", " ").replace(".md", "").upper()
-            
-            if folder_str:
-                header = f"--- {folder_str} CONTEXT: {label} ---"
-            else:
-                header = f"--- CONTEXT: {label} ---"
-                
-            system_parts.append(f"{header}\n{file_content}")
-        except Exception:
-            pass
+        context_injector.inject(filepath, actual_path, system_parts, available_paths, s)
     already_seen = set(context_needed)
     system_parts = _inject_pinned_ref_files(system_parts, already_seen)
     
@@ -379,9 +342,7 @@ async def simple_assist(payload: SimpleAssistRequest):
                 )
 
                 context_needed = plan.get("context_needed", [])
-                query = plan.get("query", payload.message)
-                if not isinstance(query, str) or not query.strip():
-                    query = payload.message
+                query = payload.message
 
                 yield {"data": json.dumps({
                     "status": "context_resolved",
@@ -398,16 +359,18 @@ async def simple_assist(payload: SimpleAssistRequest):
                     paragraph_before, target_paragraph, paragraph_after, query, context_needed, payload.available_files
                 )
 
-                max_toks = _pick_writer_max_tokens() or config.AGENT_CONFIG.get("writer", {}).get("max_tokens", 500)
+                max_toks = _pick_writer_max_tokens()
+                client = _resolve_simple_assist_client()
                 raw = await loop.run_in_executor(
                     None,
-                    lambda: _resolve_simple_assist_client().generate_to_completion(
+                    lambda: client.generate_to_completion(
                         system_prompt=system_prompt,
                         user_prompt=user_prompt,
                         temperature=0.7,
                         max_tokens=max_toks
                     )
                 )
+                actual_model = getattr(client, "last_model_used", client.model)
 
                 clean_raw = raw.strip()
                 if clean_raw.startswith("```"):
@@ -455,13 +418,15 @@ async def simple_assist(payload: SimpleAssistRequest):
                         planner_output=planner_raw,
                         success=True,
                         cursor_paragraph_index=resolved_idx,
+                        model_used=actual_model,
                     )
                 )
 
                 yield {"data": json.dumps({
                     "status": "applied",
                     "output": output_text,
-                    "cursor_paragraph_index": resolved_idx
+                    "cursor_paragraph_index": resolved_idx,
+                    "model_used": actual_model
                 })}
 
             else:  # chat
@@ -494,9 +459,10 @@ async def simple_assist(payload: SimpleAssistRequest):
                         system_prompt=full_system,
                         user_prompt=user_prompt,
                         temperature=0.7,
-                        max_tokens=_pick_writer_max_tokens() or config.AGENT_CONFIG.get("writer", {}).get("max_tokens", 500),
+                        max_tokens=_pick_writer_max_tokens(),
                     )
                 )
+                actual_model = getattr(client, "last_model_used", client.model)
                 
                 await loop.run_in_executor(
                     None,
@@ -510,12 +476,14 @@ async def simple_assist(payload: SimpleAssistRequest):
                         ref_files=payload.ref_files,
                         selected_text=payload.selected_text,
                         success=True,
+                        model_used=actual_model,
                     )
                 )
 
                 yield {"data": json.dumps({
                     "status": "chat",
-                    "output": result
+                    "output": result,
+                    "model_used": actual_model
                 })}
         except Exception as e:
             try:

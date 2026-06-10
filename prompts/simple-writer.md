@@ -16,6 +16,7 @@ RULES:
 - Output ONLY prose.
 - No explanations, preambles, or markdown formatting (unless specifically requested in the instruction).
 - Execute the INSTRUCTION exactly as written.
+- If TARGET is present, the INSTRUCTION is directed at it. Execute it against the TARGET.
 - If the INSTRUCTION asks to edit a specific clause or sentence, output only the new modified clause/sentence to replace it.
 - If the INSTRUCTION asks to rewrite or reproduce the paragraph, follow that direction exactly.
 - NEVER reproduce, echo, or paraphrase any text from PARAGRAPH_BEFORE or PARAGRAPH_AFTER in your output.
