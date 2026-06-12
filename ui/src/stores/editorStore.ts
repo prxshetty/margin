@@ -98,7 +98,19 @@ export const useEditorStore = create<EditorState>((set) => ({
         f.path === path ? { ...f, content, originalContent: content } : f
       ),
     })),
-  clearFiles: () => set({ openedFiles: [], workspaceDir: null, currentFilePath: null }),
+  clearFiles: () =>
+    set({
+      openedFiles: [],
+      workspaceDir: null,
+      currentFilePath: null,
+      content: '',
+      selectedText: '',
+      selectionRange: null,
+      anchorPosition: 0,
+      aiAssistPreload: null,
+      pendingEditSelection: null,
+      aiPendingEdit: null,
+    }),
   currentFilePath: null,
   setCurrentFilePath: (currentFilePath) => set({ currentFilePath }),
   updateFileContent: (path, content) =>
