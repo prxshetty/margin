@@ -15,6 +15,10 @@ class FileStorageService:
         self.load_settings()
 
     def load_settings(self):
+        # Default back to sample-workspace first
+        self.workspace_dir = self.base_dir / "sample-workspace"
+        self.outputs_dir = self.workspace_dir / "outputs"
+        
         if self.settings_path.exists():
             try:
                 with open(self.settings_path, "r", encoding="utf-8") as f:
@@ -74,6 +78,7 @@ class FileStorageService:
         try:
             with open(self.settings_path, "w", encoding="utf-8") as f:
                 json.dump(merged, f, indent=2)
+            self.load_settings()
         except Exception as e:
             print(f"Failed to save settings: {e}")
         return merged

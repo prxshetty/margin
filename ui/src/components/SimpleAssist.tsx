@@ -165,16 +165,6 @@ function PlanModeIcon() {
   )
 }
 
-function ChatModeIcon() {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M6.75 16.75 3.5 20.25V7.75A4.25 4.25 0 0 1 7.75 3.5h8.5a4.25 4.25 0 0 1 4.25 4.25v4.75a4.25 4.25 0 0 1-4.25 4.25h-9.5Z" stroke="currentColor" strokeWidth="1.85" strokeLinejoin="round" />
-      <path d="M8 9.25h8M8 12.25h4.75" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" />
-      <path d="M17.75 5.75c.45.3.78.7 1 1.2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" opacity=".65" />
-    </svg>
-  )
-}
-
 function getTextBeforeCaret(el: HTMLElement): string {
   const sel = window.getSelection()
   if (!sel || !sel.rangeCount) return ''
@@ -283,8 +273,6 @@ export function SimpleAssist() {
   const [sessionLoadCount, setSessionLoadCount] = useState(3)
   const [mode, setMode] = useState<'chat' | 'edit'>('edit')
   const hasSelection = !!pendingEditSelection
-  const activeModel = useEditorStore((s) => s.activeModel)
-
   const { settings, fetchSettings, setShowSettings } = useSettingsStore()
 
 
@@ -920,11 +908,10 @@ export function SimpleAssist() {
         <div className="flex items-center">
           <button
             onClick={() => setMode(mode === 'edit' ? 'chat' : 'edit')}
-            className={`flex items-center justify-center w-6 h-6 rounded-full transition-all duration-200 cursor-pointer -ml-1.5 ${
-              mode === 'edit'
-                ? 'text-[var(--accent-brown)]'
-                : 'text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--bg-hover)]'
-            }`}
+            className={`flex items-center justify-center w-6 h-6 rounded-full transition-all duration-200 cursor-pointer -ml-1.5 ${mode === 'edit'
+              ? 'text-[var(--accent-brown)]'
+              : 'text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--bg-hover)]'
+              }`}
             title={mode === 'edit' ? 'Switch to Chat mode' : 'Switch to Plan mode'}
           >
             <PlanModeIcon />
