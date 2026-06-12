@@ -102,7 +102,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   }
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/workspace/inputs/files`)
+    fetch(`${API_BASE}/api/workspace/files`)
       .then(res => res.json())
       .then(data => setAvailableFiles(data))
       .catch(err => console.error(err))
@@ -162,8 +162,80 @@ function TabButton({ active, onClick, label }: { active: boolean, onClick: () =>
 }
 
 function GeneralSettings({ settings, updateSettings }: { settings: AppSettings, updateSettings: (u: Partial<AppSettings>) => void }) {
+  const [workspacePath, setWorkspacePath] = useState(settings.linked_workspace_dir || '')
+  const [isPicking, setIsPicking] = useState(false)
+
+  const handleLink = () => {
+    updateSettings({ linked_workspace_dir: workspacePath.trim() || null })
+  }
+
+  const handleBrowse = async () => {
+    setIsPicking(true)
+    try {
+      const res = await fetch(`${API_BASE}/api/workspace/pick-folder`)
+      if (res.ok) {
+        const data = await res.json()
+        if (data.path) {
+          setWorkspacePath(data.path)
+          updateSettings({ linked_workspace_dir: data.path })
+        }
+      }
+    } catch (err) {
+      console.error('Failed to pick folder', err)
+    } finally {
+      setIsPicking(false)
+    }
+  }
+
+  const handleClear = () => {
+    setWorkspacePath('')
+    updateSettings({ linked_workspace_dir: null })
+  }
+
   return (
     <div className="flex flex-col gap-8">
+      <section>
+        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Workspace Directory</h3>
+        <p className="text-[12px] text-[var(--text-secondary)] mb-3">Link an absolute directory path on your system containing your novel project.</p>
+        <div className="flex flex-col gap-2 max-w-xl">
+          <div className="flex gap-2 w-full">
+            <input
+              type="text"
+              placeholder="e.g. /Users/username/my-novel"
+              value={workspacePath}
+              onChange={(e) => setWorkspacePath(e.target.value)}
+              className="flex-1 border border-[var(--border-subtle)] rounded-[6px] px-3 py-1.5 text-[13px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)] transition-colors min-w-0"
+            />
+            <button
+              onClick={handleBrowse}
+              disabled={isPicking}
+              className="shrink-0 px-3 py-1.5 rounded-[6px] text-[12px] border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[var(--text-heading)] hover:bg-[var(--bg-hover)] transition-colors font-medium cursor-pointer disabled:opacity-50"
+            >
+              {isPicking ? 'Browsing...' : 'Browse...'}
+            </button>
+            <button
+              onClick={handleLink}
+              className="shrink-0 px-3 py-1.5 rounded-[6px] text-[12px] bg-[var(--accent-brown)] text-[var(--text-inverse)] hover:bg-[var(--accent-brown)]/90 transition-colors font-medium cursor-pointer"
+            >
+              Link Path
+            </button>
+          </div>
+          {settings.linked_workspace_dir && (
+            <button
+              onClick={handleClear}
+              className="self-start text-[11px] text-[var(--text-secondary)] hover:text-red-500 transition-colors cursor-pointer"
+            >
+              Reset to default fallback workspace
+            </button>
+          )}
+        </div>
+        <p className="text-[11px] text-[var(--text-muted)] mt-1.5">
+          {settings.linked_workspace_dir 
+            ? `Active Workspace: ${settings.linked_workspace_dir}` 
+            : 'Using default sample workspace in the repository.'}
+        </p>
+      </section>
+
       <section>
         <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Default Mode</h3>
         <p className="text-[12px] text-[var(--text-secondary)] mb-3">Choose the default interface mode for new sessions.</p>

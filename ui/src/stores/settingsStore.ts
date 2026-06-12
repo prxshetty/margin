@@ -17,6 +17,7 @@ export interface AppSettings {
   editor_stats?: 'words' | 'characters' | 'both' | 'none'
   show_outline?: boolean
   planner_include_outline?: boolean
+  linked_workspace_dir?: string | null
 }
 
 interface SettingsState {

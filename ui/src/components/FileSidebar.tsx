@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { FolderOpen, FileText, Loader, Check, Plus, Trash2, Pencil } from 'lucide-react'
+import { FolderPlus, FileText, Loader, Check, Plus, Trash2, Pencil } from 'lucide-react'
 import { useEditorStore, type FileEntry } from '../stores/editorStore'
+import { useSettingsStore } from '../stores/settingsStore'
 import { API_BASE } from '../lib/api'
 
 function FileIcon({ className = '' }: { className?: string }) {
@@ -14,14 +15,12 @@ function FileIcon({ className = '' }: { className?: string }) {
 
 export function FileSidebar({
   onSaveCurrentFile,
-  onOpenFolder,
   filesPanelOpen,
   setFilesPanelOpen,
   aiPanelOpen,
   setAiPanelOpen,
 }: {
   onSaveCurrentFile?: () => Promise<void>
-  onOpenFolder?: () => void
   filesPanelOpen?: boolean
   setFilesPanelOpen?: (open: boolean) => void
   aiPanelOpen?: boolean
@@ -30,8 +29,10 @@ export function FileSidebar({
   const {
     workspaceDir, setWorkspaceDir,
     openedFiles, addFile,
-    setContent,
+    setContent, clearFiles,
   } = useEditorStore()
+
+  const { settings } = useSettingsStore()
 
   const [loading, setLoading] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -60,28 +61,26 @@ export function FileSidebar({
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [showLayoutDropdown])
 
-  // Auto-fetch from backend only on first mount if no files are already in store
+  // Auto-fetch from backend whenever linked workspace directory changes
   useEffect(() => {
-    if (initialLoadDone.current) return
-    if (openedFiles.length > 0 || workspaceDir) {
-      setLoading(false)
-      initialLoadDone.current = true
-      return
-    }
-    initialLoadDone.current = true
+    let active = true
     setLoading(true)
+    clearFiles()
+    initialLoadDone.current = true
 
     const fetchWorkspaceFiles = async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/workspace/inputs/files`)
+        const res = await fetch(`${API_BASE}/api/workspace/files`)
         if (!res.ok) throw new Error()
         const files = await res.json()
-        setWorkspaceDir('inputs')
+        if (!active) return
+        setWorkspaceDir(settings?.linked_workspace_dir ? 'custom' : 'sample')
         for (const file of files) {
           try {
-            const fileRes = await fetch(`${API_BASE}/api/workspace/inputs/files/${encodeURIComponent(file.path)}`)
+            const fileRes = await fetch(`${API_BASE}/api/workspace/files/${encodeURIComponent(file.path)}`)
             if (!fileRes.ok) continue
             const data = await fileRes.json()
+            if (!active) return
             addFile({ name: file.name, path: file.path, content: data.content, originalContent: data.content })
           } catch {
             // skip
@@ -97,11 +96,13 @@ export function FileSidebar({
         const res = await fetch(`${API_BASE}/api/assist/prompts`)
         if (!res.ok) throw new Error()
         const prompts = await res.json()
+        if (!active) return
         for (const p of prompts) {
           try {
             const promptRes = await fetch(`${API_BASE}/api/assist/prompts/${encodeURIComponent(p.path)}`)
             if (!promptRes.ok) continue
             const data = await promptRes.json()
+            if (!active) return
             addFile({
               name: p.name,
               path: `prompts/${p.path}`,
@@ -118,8 +119,14 @@ export function FileSidebar({
     }
 
     Promise.all([fetchWorkspaceFiles(), fetchPrompts()])
-      .finally(() => setLoading(false))
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [settings?.linked_workspace_dir, clearFiles, addFile, setWorkspaceDir])
 
   const handleFileClick = useCallback(async (path: string) => {
     if (onSaveCurrentFile) {
@@ -138,14 +145,14 @@ export function FileSidebar({
   }, [openedFiles, setContent, setCurrentFilePath, updateFileContent, onSaveCurrentFile])
 
   const handleCreateFile = useCallback(async (folder: string) => {
-    const defaultName = folder === 'chapters' ? 'new-chapter.md' : folder === 'characters' ? 'new-character.md' : 'new-style.md'
+    const defaultName = folder === 'chapters' ? 'new-chapter.md' : folder === 'characters' ? 'new-character.md' : folder === 'styles' ? 'new-style.md' : `new-${folder.slice(0, -1) || 'file'}.md`
     const raw = window.prompt(`New ${folder.slice(0, -1)} file name (will be saved to ${folder}/):`, defaultName)
     if (!raw) return
     const trimmed = raw.trim()
     if (!trimmed) return
 
     try {
-      const res = await fetch(`${API_BASE}/api/workspace/inputs/files`, {
+      const res = await fetch(`${API_BASE}/api/workspace/files`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ folder, name: trimmed, content: '' })
@@ -164,13 +171,38 @@ export function FileSidebar({
     }
   }, [addFile, setContent, setCurrentFilePath])
 
+  const handleCreateFolder = useCallback(async () => {
+    const raw = window.prompt("New folder name (e.g. 'world_building'):")
+    if (!raw) return
+    const folder = raw.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '')
+    if (!folder) return
+
+    const defaultManifestName = `${folder.toUpperCase()}.md`
+    try {
+      const res = await fetch(`${API_BASE}/api/workspace/files`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folder, name: defaultManifestName, content: `# Available ${raw.trim()}\n\n` })
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        window.alert(`Failed to create folder: ${err.detail || res.statusText}`)
+        return
+      }
+      const data = await res.json()
+      addFile({ name: data.name, path: data.path, content: data.content, originalContent: data.content })
+    } catch (err) {
+      window.alert(`Failed to create folder: ${err instanceof Error ? err.message : 'Unknown error'}`)
+    }
+  }, [addFile])
+
   const handleDeleteFile = useCallback(async (path: string) => {
     const isActive = currentFilePath === path
     const confirmed = window.confirm(`Delete "${path}"? This cannot be undone.`)
     if (!confirmed) return
 
     try {
-      const res = await fetch(`${API_BASE}/api/workspace/inputs/files/${encodeURIComponent(path)}`, {
+      const res = await fetch(`${API_BASE}/api/workspace/files/${encodeURIComponent(path)}`, {
         method: 'DELETE'
       })
       if (!res.ok) {
@@ -196,7 +228,7 @@ export function FileSidebar({
     if (!newName || newName === oldName) return
 
     try {
-      const res = await fetch(`${API_BASE}/api/workspace/inputs/files/${encodeURIComponent(path)}`, {
+      const res = await fetch(`${API_BASE}/api/workspace/files/${encodeURIComponent(path)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: newName })
@@ -222,22 +254,29 @@ export function FileSidebar({
   }, [removeFile, addFile, setCurrentFilePath])
 
   const rootFiles = openedFiles.filter((f) => !f.path.includes('/'))
-  const charFiles = openedFiles.filter((f) => f.path.startsWith('characters/'))
-  const styleFiles = openedFiles.filter((f) => f.path.startsWith('styles/'))
-  const chapterFiles = openedFiles.filter((f) => f.path.startsWith('chapters/'))
   const promptFiles = openedFiles.filter((f) => f.path.startsWith('prompts/'))
+
+  const defaultFolders = ['chapters', 'characters', 'styles']
+  const extraFolders = Array.from(
+    new Set(
+      openedFiles
+        .map((f) => f.path.split('/')[0])
+        .filter((dir) => dir && !defaultFolders.includes(dir) && dir !== 'prompts' && !dir.includes('.'))
+    )
+  ).sort()
+  const allFolders = [...defaultFolders, ...extraFolders]
 
   return (
     <div ref={containerRef} className="flex flex-col gap-3 w-full h-full overflow-y-auto select-none">
       {/* Low-profile action row inside FileSidebar */}
       <div className="flex items-center gap-1.5 pb-2.5 border-b border-[var(--border-sidebar)] shrink-0 select-none animate-fade-in">
-        {onOpenFolder && (
+        {workspaceDir && (
           <button
-            onClick={onOpenFolder}
+            onClick={handleCreateFolder}
             className="flex items-center justify-center w-7 h-7 text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 bg-[var(--bg-icon)]/20 rounded-[6px] transition-all cursor-pointer active:scale-[0.95]"
-            title="Open Folder"
+            title="New Folder"
           >
-            <FolderOpen className="w-3.5 h-3.5" strokeWidth={1.75} />
+            <FolderPlus className="w-3.5 h-3.5" strokeWidth={1.75} />
           </button>
         )}
         <div className="flex-1" />
@@ -309,26 +348,17 @@ export function FileSidebar({
             </div>
           )}
 
-          <div className="flex flex-col gap-0.5 animate-fade-in">
-            <SectionHeader label="chapters/" onAdd={() => handleCreateFile('chapters')} />
-            {chapterFiles.map((file) => (
-              <FileRow key={file.path} file={file} onSelect={handleFileClick} onDelete={handleDeleteFile} onRename={handleRenameFile} />
-            ))}
-          </div>
-
-          <div className="flex flex-col gap-0.5 animate-fade-in">
-            <SectionHeader label="characters/" onAdd={() => handleCreateFile('characters')} />
-            {charFiles.map((file) => (
-              <FileRow key={file.path} file={file} onSelect={handleFileClick} onDelete={handleDeleteFile} onRename={handleRenameFile} />
-            ))}
-          </div>
-
-          <div className="flex flex-col gap-0.5 animate-fade-in">
-            <SectionHeader label="styles/" onAdd={() => handleCreateFile('styles')} />
-            {styleFiles.map((file) => (
-              <FileRow key={file.path} file={file} onSelect={handleFileClick} onDelete={handleDeleteFile} onRename={handleRenameFile} />
-            ))}
-          </div>
+          {allFolders.map((folder) => {
+            const folderFiles = openedFiles.filter((f) => f.path.startsWith(`${folder}/`))
+            return (
+              <div key={folder} className="flex flex-col gap-0.5 animate-fade-in">
+                <SectionHeader label={`${folder}/`} onAdd={() => handleCreateFile(folder)} />
+                {folderFiles.map((file) => (
+                  <FileRow key={file.path} file={file} onSelect={handleFileClick} onDelete={handleDeleteFile} onRename={handleRenameFile} />
+                ))}
+              </div>
+            )
+          })}
 
           {promptFiles.length > 0 && (
             <div className="flex flex-col gap-0.5 animate-fade-in">

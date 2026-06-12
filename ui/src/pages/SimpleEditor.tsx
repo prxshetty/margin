@@ -8,15 +8,6 @@ import { SettingsModal } from '../components/SettingsModal'
 import { API_BASE } from '../lib/api'
 
 
-interface FileSystemFileHandle {
-  createWritable: () => Promise<FileSystemWritableFileStream>
-}
-
-interface FileSystemWritableFileStream extends WritableStream {
-  write: (data: Blob) => Promise<void>
-  close: () => Promise<void>
-}
-
 const PANEL_MIN_WIDTH = 260
 const PANEL_MAX_WIDTH = 600
 const PANEL_DEFAULT_WIDTH = 320
@@ -32,8 +23,7 @@ function getStoredWidth(key: string, fallback: number): number {
   return fallback
 }
 export default function SimpleEditor() {
-  const setContent = useEditorStore(state => state.setContent)
-  const { addFile, clearFiles, setWorkspaceDir, setCurrentFilePath, markFileClean, currentFilePath, content, editor } = useEditorStore()
+  const { markFileClean, currentFilePath, content, editor } = useEditorStore()
   const { showSettings, setShowSettings, settings } = useSettingsStore()
   const showOutline = settings?.show_outline !== false
 
@@ -102,7 +92,6 @@ export default function SimpleEditor() {
   const filesDraggingRef = useRef(false)
   const [isResizing, setIsResizing] = useState(false)
 
-  const dirHandleRef = useRef<FileSystemDirectoryHandle | null>(null)
   const editorContainerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -125,69 +114,6 @@ export default function SimpleEditor() {
     }
   }, [])
 
-  const handleOpenFolder = async () => {
-    if (!('showDirectoryPicker' in window)) return
-    try {
-      const dirHandle = await (window as Window & typeof globalThis & { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }).showDirectoryPicker()
-      dirHandleRef.current = dirHandle
-      clearFiles()
-      setWorkspaceDir(dirHandle.name)
-      const entries: { name: string; path: string }[] = []
-      await scanDir(dirHandle, '', entries)
-      entries.sort((a, b) => a.path.localeCompare(b.path))
-      for (const entry of entries) {
-        const content = await readFile(dirHandle, entry.path)
-        addFile({ name: entry.name, path: entry.path, content, originalContent: content })
-      }
-      if (entries.length > 0) {
-        const first = await readFile(dirHandle, entries[0].path)
-        setContent(first)
-        setCurrentFilePath(entries[0].path)
-      }
-    } catch {
-      // user cancelled or error
-    }
-  }
-
-  async function scanDir(
-    handle: FileSystemDirectoryHandle,
-    basePath: string,
-    results: { name: string; path: string }[]
-  ) {
-    for await (const entry of handle.values()) {
-      const fullPath = basePath ? `${basePath}/${entry.name}` : entry.name
-      if (entry.kind === 'directory') {
-        await scanDir(await handle.getDirectoryHandle(entry.name), fullPath, results)
-      } else if (
-        entry.name.endsWith('.md') ||
-        entry.name.endsWith('.markdown') ||
-        entry.name.endsWith('.txt')
-      ) {
-        // Normalize path so it matches FileSidebar's hardcoded prefixes
-        let normalizedPath = fullPath;
-        const knownFolders = ['chapters/', 'characters/', 'styles/', 'prompts/'];
-        for (const folder of knownFolders) {
-          const idx = normalizedPath.indexOf(folder);
-          if (idx !== -1) {
-            normalizedPath = normalizedPath.substring(idx);
-            break;
-          }
-        }
-        results.push({ name: entry.name, path: normalizedPath })
-      }
-    }
-  }
-
-  async function readFile(handle: FileSystemDirectoryHandle, filePath: string): Promise<string> {
-    const parts = filePath.split('/')
-    let h: FileSystemDirectoryHandle | FileSystemFileHandle = handle
-    for (let i = 0; i < parts.length - 1; i++) {
-      h = await (h as FileSystemDirectoryHandle).getDirectoryHandle(parts[i])
-    }
-    const f = await (h as FileSystemDirectoryHandle).getFileHandle(parts[parts.length - 1])
-    return await (await f.getFile()).text()
-  }
-
   const handleSave = useCallback(async () => {
     if (!currentFilePath) return
 
@@ -209,21 +135,19 @@ export default function SimpleEditor() {
       return
     }
 
-    if (!dirHandleRef.current || !currentFilePath) return
+    if (!currentFilePath) return
     try {
       const fileContent = useEditorStore.getState().content
-      const parts = currentFilePath.split('/')
-      let h = dirHandleRef.current!
-      for (let i = 0; i < parts.length - 1; i++) {
-        h = await h.getDirectoryHandle(parts[i])
+      const res = await fetch(`${API_BASE}/api/workspace/files/${encodeURIComponent(currentFilePath)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: fileContent })
+      })
+      if (res.ok) {
+        markFileClean(currentFilePath)
       }
-      const fileHandle = await h.getFileHandle(parts[parts.length - 1])
-      const writable = await fileHandle.createWritable()
-      await writable.write(new Blob([fileContent], { type: 'text/markdown' }))
-      await writable.close()
-      markFileClean(currentFilePath)
-    } catch {
-      // save failed
+    } catch (err) {
+      console.error("Failed to save file:", err)
     }
   }, [currentFilePath, markFileClean])
 
@@ -285,7 +209,6 @@ export default function SimpleEditor() {
         <div style={{ width: filesPanelWidth }} className="h-full bg-transparent overflow-y-auto min-w-0">
           <FileSidebar
             onSaveCurrentFile={handleSave}
-            onOpenFolder={handleOpenFolder}
             filesPanelOpen={filesPanelOpen}
             setFilesPanelOpen={setFilesPanelOpen}
             aiPanelOpen={panelOpen}

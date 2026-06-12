@@ -31,14 +31,14 @@ def get_styles_dir() -> Path:
         try:
             with open(settings_path, "r", encoding="utf-8") as f:
                 settings = json.load(f)
-                custom_inputs = settings.get("linked_inputs_dir")
-                if custom_inputs:
-                    p = Path(custom_inputs)
+                custom_workspace = settings.get("linked_workspace_dir")
+                if custom_workspace:
+                    p = Path(custom_workspace)
                     if p.exists() and p.is_dir():
                         return p / "styles"
         except Exception:
             pass
-    return base_dir / "inputs" / "styles"
+    return base_dir / "sample-workspace" / "styles"
 
 
 def get_styles_md_path() -> Path:

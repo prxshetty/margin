@@ -225,7 +225,7 @@ def run_planner(
     
     manifest_sections = []
     try:
-        for f in storage.inputs_dir.glob("*/*.md"):
+        for f in storage.workspace_dir.glob("*/*.md"):
             folder_name = f.parent.name
             if f.name == f"{folder_name.upper()}.md":
                 raw = f.read_text(encoding="utf-8")
