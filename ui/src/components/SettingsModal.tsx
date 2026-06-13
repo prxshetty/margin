@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { X, Plus, Trash2, CheckCircle, Play, RefreshCw } from 'lucide-react'
+import { X, Plus, Trash2, CheckCircle, Play, RefreshCw, Edit } from 'lucide-react'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useEditorStore } from '../stores/editorStore'
 import type { AppSettings } from '../stores/settingsStore'
@@ -582,12 +582,13 @@ function EndpointsSettings({ settings, updateSettings }: { settings: AppSettings
   const [newKey, setNewKey] = useState('')
   const [newModel, setNewModel] = useState('')
   const [newContext, setNewContext] = useState('8192')
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [testResult, setTestResult] = useState<{ status: 'idle' | 'testing' | 'success' | 'error', msg?: string }>({ status: 'idle' })
 
   const handleAdd = () => {
     if (!newId || !newUrl) return
     const id = newId.trim().toLowerCase().replace(/\s+/g, '_')
-    const updatedEndpoints = {
+    let updatedEndpoints = {
       ...settings.endpoints,
       [id]: {
         url: newUrl,
@@ -596,7 +597,23 @@ function EndpointsSettings({ settings, updateSettings }: { settings: AppSettings
         context_window: parseInt(newContext) || undefined
       }
     }
-    updateSettings({ endpoints: updatedEndpoints })
+    if (editingId && editingId !== id) {
+      delete updatedEndpoints[editingId]
+    }
+    updateSettings({
+      endpoints: updatedEndpoints,
+      active_endpoint: settings.active_endpoint === editingId ? id : settings.active_endpoint
+    })
+    setEditingId(null)
+    setNewId('')
+    setNewUrl('http://localhost:1234')
+    setNewKey('')
+    setNewModel('')
+    setNewContext('8192')
+  }
+
+  const handleCancelEdit = () => {
+    setEditingId(null)
     setNewId('')
     setNewUrl('http://localhost:1234')
     setNewKey('')
@@ -671,9 +688,23 @@ function EndpointsSettings({ settings, updateSettings }: { settings: AppSettings
                 </button>
                 <button
                   onClick={() => {
+                    setEditingId(id)
+                    setNewId(id)
+                    setNewUrl(ep.url)
+                    setNewKey(ep.api_key || '')
+                    setNewModel(ep.model || '')
+                    setNewContext(ep.context_window ? String(ep.context_window) : '8192')
+                  }}
+                  className="p-1.5 text-[var(--text-secondary)] hover:text-[var(--text-heading)] bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[4px] cursor-pointer" title="Edit Endpoint"
+                >
+                  <Edit size={14} />
+                </button>
+                <button
+                  onClick={() => {
                     const newEps = { ...settings.endpoints }
                     delete newEps[id]
                     updateSettings({ endpoints: newEps, active_endpoint: settings.active_endpoint === id ? null : settings.active_endpoint })
+                    if (editingId === id) handleCancelEdit()
                   }}
                   className="p-1.5 text-[var(--text-secondary)] hover:text-red-500 bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[4px] cursor-pointer" title="Delete"
                 >
@@ -686,7 +717,9 @@ function EndpointsSettings({ settings, updateSettings }: { settings: AppSettings
       </section>
 
       <section className="bg-[var(--bg-elevated)] p-4 rounded-[8px] border border-[var(--border-subtle)]">
-        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-3">Add New Endpoint</h3>
+        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-3">
+          {editingId ? `Edit Endpoint: ${editingId.replace('_', ' ')}` : 'Add New Endpoint'}
+        </h3>
         <div className="grid grid-cols-2 gap-3 mb-3">
           <input placeholder="Name (e.g. OpenAI)" value={newId} onChange={e => setNewId(e.target.value)} className="border border-[var(--border-subtle)] rounded-[4px] px-3 py-2 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]" />
           <input placeholder="Base URL" value={newUrl} onChange={e => setNewUrl(e.target.value)} className="border border-[var(--border-subtle)] rounded-[4px] px-3 py-2 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]" />
@@ -705,9 +738,16 @@ function EndpointsSettings({ settings, updateSettings }: { settings: AppSettings
             {testResult.status === 'success' && <span className="text-[11px] text-[var(--text-accent)] flex items-center gap-1"><CheckCircle size={12} /> {testResult.msg}</span>}
             {testResult.status === 'error' && <span className="text-[11px] text-red-500 flex items-center gap-1"><X size={12} /> {testResult.msg}</span>}
           </div>
-          <button onClick={handleAdd} disabled={!newId || !newUrl} className="px-3 py-1.5 text-[12px] bg-[var(--accent-brown)] text-[var(--text-inverse)] rounded-[4px] hover:bg-[var(--accent-brown-hover)] transition-colors disabled:opacity-50 cursor-pointer flex items-center gap-1">
-            <Plus size={14} /> Save Endpoint
-          </button>
+          <div className="flex gap-2">
+            {editingId && (
+              <button onClick={handleCancelEdit} className="px-3 py-1.5 text-[12px] bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[4px] hover:border-[var(--text-secondary)] transition-colors cursor-pointer text-[var(--text)]">
+                Cancel
+              </button>
+            )}
+            <button onClick={handleAdd} disabled={!newId || !newUrl} className="px-3 py-1.5 text-[12px] bg-[var(--accent-brown)] text-[var(--text-inverse)] rounded-[4px] hover:bg-[var(--accent-brown-hover)] transition-colors disabled:opacity-50 cursor-pointer flex items-center gap-1">
+              {editingId ? 'Update Endpoint' : <><Plus size={14} /> Save Endpoint</>}
+            </button>
+          </div>
         </div>
       </section>
     </div>

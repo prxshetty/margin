@@ -1100,7 +1100,7 @@ export function SimpleAssist() {
                               if (activeSessionId === session.id) setActiveSessionId(null)
                               await fetchLogs()
                             }}
-                            className="flex items-center justify-center w-5 h-5 text-[var(--text-muted)] hover:text-[var(--danger)] hover:bg-[var(--danger-bg)] rounded-[4px] transition-all cursor-pointer active:scale-[0.9] opacity-0 group-hover:opacity-100"
+                            className="flex items-center justify-center w-5 h-5 text-[var(--text-secondary)]/60 hover:text-red-500 hover:bg-[var(--border-sidebar)]/60 rounded-[4px] transition-all cursor-pointer active:scale-[0.9] opacity-0 group-hover:opacity-100"
                             title="Delete session"
                           >
                             <Trash2 className="w-3 h-3" />
