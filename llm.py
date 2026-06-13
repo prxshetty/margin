@@ -20,6 +20,7 @@ class LLMClient:
         self.model = model or config.LMSTUDIO["model"]
         self.temperature = temperature if temperature is not None else config.LMSTUDIO["temperature"]
         self.api_key = api_key
+        self.last_usage = None
 
     def generate(
         self,
@@ -59,6 +60,11 @@ class LLMClient:
         response = requests.post(url, headers=headers, json=payload, timeout=300)
         response.raise_for_status()
         data = response.json()
+        self.last_usage = data.get("usage") or {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0
+        }
         content = data["choices"][0]["message"]["content"]
         return self._clean_reasoning(content)
 
@@ -147,6 +153,11 @@ class LLMClient:
         response = requests.post(url, headers=headers, json=payload, timeout=300)
         response.raise_for_status()
         data = response.json()
+        self.last_usage = data.get("usage") or {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0
+        }
         
         self.last_model_used = data.get("model", self.model)
         

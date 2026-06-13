@@ -9,7 +9,8 @@ export interface AppSettings {
   show_thinking_by_default: boolean
   pinned_ref_files: string[]
   ignored_ref_files?: string[]
-  endpoints: Record<string, { url: string; api_key: string; model: string }>
+  endpoints: Record<string, { url: string; api_key: string; model: string; context_window?: number }>
+  default_context_window?: number
   active_endpoint: string | null
   theme?: 'light' | 'dark' | 'system'
   theme_family?: 'sand' | 'notion' | 'sage' | 'blue' | 'rose'

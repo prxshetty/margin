@@ -133,6 +133,9 @@ def _log_simple_assist(
     success: bool = True,
     cursor_paragraph_index: Optional[int] = None,
     model_used: Optional[str] = None,
+    prompt_tokens: int = 0,
+    completion_tokens: int = 0,
+    total_tokens: int = 0,
 ) -> None:
     log_entry = {
         "id": f"simple_{uuid.uuid4().hex}",
@@ -148,6 +151,9 @@ def _log_simple_assist(
         "text_after": text_after,
         "ref_files": ref_files,
         "success": success,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
     }
     if edit_mode is not None:
         log_entry["edit_mode"] = edit_mode
@@ -203,7 +209,7 @@ def run_planner(
     message: str,
     selected_text: Optional[str] = None,
     cursor_paragraph_text: Optional[str] = None,
-) -> tuple[dict, str, str, str]:
+) -> tuple[dict, str, str, str, Optional[dict]]:
     system = _load_simple_prompt("simple-planner.md")
     
     user_prompt_lines = [f"USER_INSTRUCTION:\n{message}\n"]
@@ -239,7 +245,8 @@ def run_planner(
     user = "\n".join(user_prompt_lines)
     system = _build_simple_system_prompt(system)
     
-    raw = _resolve_simple_assist_client().generate_to_completion(
+    client = _resolve_simple_assist_client()
+    raw = client.generate_to_completion(
         system_prompt=system,
         user_prompt=user,
         temperature=0.1,
@@ -247,13 +254,13 @@ def run_planner(
     )
     
     try:
-        return json.loads(raw), system, user, raw
+        return json.loads(raw), system, user, raw, client.last_usage
     except Exception:
         try:
             start, end = raw.find("{"), raw.rfind("}") + 1
-            return json.loads(raw[start:end]), system, user, raw
+            return json.loads(raw[start:end]), system, user, raw, client.last_usage
         except Exception:
-            return {"context_needed": []}, system, user, raw
+            return {"context_needed": []}, system, user, raw, client.last_usage
 
 
 
@@ -331,7 +338,7 @@ async def simple_assist(payload: SimpleAssistRequest):
                 yield {"data": json.dumps({"status": "planning"})}
 
                 loop = asyncio.get_running_loop()
-                plan, planner_system, planner_user, planner_raw = await loop.run_in_executor(
+                plan, planner_system, planner_user, planner_raw, planner_usage = await loop.run_in_executor(
                     None,
                     lambda: run_planner(
                         payload.content,
@@ -371,6 +378,16 @@ async def simple_assist(payload: SimpleAssistRequest):
                     )
                 )
                 actual_model = getattr(client, "last_model_used", client.model)
+                writer_usage = client.last_usage or {
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0
+                }
+
+                # Combine planner and writer tokens
+                p_tokens = (planner_usage.get("prompt_tokens") if planner_usage else 0) + writer_usage.get("prompt_tokens", 0)
+                c_tokens = (planner_usage.get("completion_tokens") if planner_usage else 0) + writer_usage.get("completion_tokens", 0)
+                t_tokens = (planner_usage.get("total_tokens") if planner_usage else 0) + writer_usage.get("total_tokens", 0)
 
                 clean_raw = raw.strip()
                 if clean_raw.startswith("```"):
@@ -419,6 +436,9 @@ async def simple_assist(payload: SimpleAssistRequest):
                         success=True,
                         cursor_paragraph_index=resolved_idx,
                         model_used=actual_model,
+                        prompt_tokens=p_tokens,
+                        completion_tokens=c_tokens,
+                        total_tokens=t_tokens,
                     )
                 )
 
@@ -463,6 +483,11 @@ async def simple_assist(payload: SimpleAssistRequest):
                     )
                 )
                 actual_model = getattr(client, "last_model_used", client.model)
+                chat_usage = client.last_usage or {
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0
+                }
                 
                 await loop.run_in_executor(
                     None,
@@ -477,6 +502,9 @@ async def simple_assist(payload: SimpleAssistRequest):
                         selected_text=payload.selected_text,
                         success=True,
                         model_used=actual_model,
+                        prompt_tokens=chat_usage.get("prompt_tokens", 0),
+                        completion_tokens=chat_usage.get("completion_tokens", 0),
+                        total_tokens=chat_usage.get("total_tokens", 0),
                     )
                 )
 
@@ -506,6 +534,9 @@ async def simple_assist(payload: SimpleAssistRequest):
                         planner_user_prompt=planner_user,
                         planner_output=planner_raw,
                         success=False,
+                        prompt_tokens=0,
+                        completion_tokens=0,
+                        total_tokens=0,
                     )
                 )
             except Exception as log_ex:

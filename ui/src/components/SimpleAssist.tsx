@@ -22,6 +22,9 @@ interface SimpleLogEntry {
   planner_system_prompt?: string
   planner_user_prompt?: string
   planner_output?: string
+  prompt_tokens?: number
+  completion_tokens?: number
+  total_tokens?: number
 }
 
 
@@ -332,6 +335,50 @@ export function SimpleAssist() {
   const filteredLogs = activeSessionId
     ? historyLogs.filter(l => l.session_id === activeSessionId)
     : historyLogs
+
+  const sessionTokens = useMemo(() => {
+    let prompt = 0
+    let completion = 0
+    for (const log of filteredLogs) {
+      prompt += log.prompt_tokens || 0
+      completion += log.completion_tokens || 0
+    }
+    return {
+      prompt,
+      completion,
+      total: prompt + completion
+    }
+  }, [filteredLogs])
+
+  const activeContextWindow = useMemo(() => {
+    if (!settings) return 8192
+    if (settings.active_endpoint && settings.endpoints[settings.active_endpoint]) {
+      return settings.endpoints[settings.active_endpoint].context_window || 8192
+    }
+    return settings.default_context_window || 8192
+  }, [settings])
+
+  const latestInputTokens = useMemo(() => {
+    if (filteredLogs.length === 0) return 0
+    const lastLog = filteredLogs[filteredLogs.length - 1]
+    return lastLog.prompt_tokens || 0
+  }, [filteredLogs])
+
+  const latestOutputTokens = useMemo(() => {
+    if (filteredLogs.length === 0) return 0
+    const lastLog = filteredLogs[filteredLogs.length - 1]
+    return lastLog.completion_tokens || 0
+  }, [filteredLogs])
+
+  const percentUsed = useMemo(() => {
+    if (!activeContextWindow) return 0
+    const total = latestInputTokens + latestOutputTokens
+    return (total / activeContextWindow) * 100
+  }, [latestInputTokens, latestOutputTokens, activeContextWindow])
+
+  const percentLeft = useMemo(() => {
+    return Math.max(0, 100 - percentUsed)
+  }, [percentUsed])
 
   useEffect(() => {
     fetchLogs()
@@ -918,115 +965,172 @@ export function SimpleAssist() {
           </button>
         </div>
 
-        {/* Action Button: Solid circular button with up arrow */}
-        <button
-          onClick={mode === 'chat' ? handleChat : handleEdit}
-          disabled={!instructionText || isWorking}
-          className="
-            flex items-center justify-center transition-[background-color,transform,opacity] duration-150 cursor-pointer select-none border rounded-full w-6 h-6 shrink-0 -mr-1.5 active:scale-[0.9] bg-[var(--accent-brown)] hover:bg-[var(--accent-brown-hover)] text-[var(--text-inverse)] disabled:bg-[var(--bg-disabled)] disabled:text-[var(--text-disabled)] disabled:border-transparent border-transparent
-          "
-          title={mode === 'chat' ? 'Send Message' : hasSelection ? 'Replace Selection' : 'Insert Content'}
-        >
-          {isWorking ? (
-            <RefreshCw className="w-3 h-3 animate-spin" />
-          ) : (
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="12" y1="19" x2="12" y2="5" />
-              <polyline points="5 12 12 5 19 12" />
-            </svg>
-          )}
-        </button>
+        {/* Context Ring and Action Button Group */}
+        <div className="flex items-center gap-2 -mr-1.5">
+          {/* Circular Context Ring */}
+          <div 
+            className={`group relative flex items-center gap-1.5 ${percentUsed === 0 ? 'opacity-45' : 'opacity-100'} transition-opacity duration-200`}
+          >
+            <span className="text-[10px] font-mono text-[var(--text-secondary)]">{Math.round(percentUsed)}%</span>
+            <div className={`relative w-6 h-6 ${percentUsed >= 90 ? 'animate-pulse' : ''}`}>
+              <svg viewBox="0 0 24 24" className="w-full h-full -rotate-90">
+                <circle
+                  cx="12" cy="12" r="9" strokeWidth="2"
+                  className="fill-none stroke-[var(--border-subtle)]"
+                />
+                <circle
+                  cx="12" cy="12" r="9" strokeWidth="2"
+                  className="fill-none"
+                  style={{
+                    strokeDasharray: '56.55',
+                    strokeDashoffset: `${56.55 * (1 - Math.min(100, percentUsed) / 100)}`,
+                    stroke: percentUsed >= 90 ? '#ef4444' : percentUsed >= 70 ? '#d97706' : 'var(--accent-brown)',
+                    transition: 'stroke-dashoffset 0.4s ease, stroke 0.4s ease'
+                  }}
+                  strokeLinecap="round"
+                />
+              </svg>
+            </div>
+            
+            {/* Custom Tooltip */}
+            <div className="pointer-events-none absolute bottom-[calc(100%+8px)] right-0 opacity-0 group-hover:opacity-100 transition-opacity bg-[var(--bg-elevated)] border border-[var(--border)] shadow-[0_4px_16px_rgba(0,0,0,0.06)] rounded-[8px] p-2.5 z-50 whitespace-nowrap text-[10.5px] font-mono text-[var(--text-secondary)] leading-relaxed flex flex-col gap-0.5 animate-fade-in origin-bottom-right">
+              <div className="flex justify-between gap-4">
+                <span>Input tokens:</span>
+                <span className="text-[var(--text)]">{latestInputTokens.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span>Output tokens:</span>
+                <span className="text-[var(--text)]">{latestOutputTokens.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span>Context window:</span>
+                <span className="text-[var(--text)]">{activeContextWindow.toLocaleString()}</span>
+              </div>
+              <div className="border-t border-[var(--border)] my-1"></div>
+              <div className="flex justify-between gap-4">
+                <span className="text-[var(--text)] font-medium">{percentUsed.toFixed(1)}% used</span>
+                <span>({percentLeft.toFixed(1)}% left)</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Action Button: Solid circular button with up arrow */}
+          <button
+            onClick={mode === 'chat' ? handleChat : handleEdit}
+            disabled={!instructionText || isWorking}
+            className="
+              flex items-center justify-center transition-[background-color,transform,opacity] duration-150 cursor-pointer select-none border rounded-full w-6 h-6 shrink-0 active:scale-[0.9] bg-[var(--accent-brown)] hover:bg-[var(--accent-brown-hover)] text-[var(--text-inverse)] disabled:bg-[var(--bg-disabled)] disabled:text-[var(--text-disabled)] disabled:border-transparent border-transparent
+            "
+            title={mode === 'chat' ? 'Send Message' : hasSelection ? 'Replace Selection' : 'Insert Content'}
+          >
+            {isWorking ? (
+              <RefreshCw className="w-3 h-3 animate-spin" />
+            ) : (
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="19" x2="12" y2="5" />
+                <polyline points="5 12 12 5 19 12" />
+              </svg>
+            )}
+          </button>
+        </div>
       </div>
     </div>
   )
 
   return (
     <div ref={containerRef} className="flex flex-col w-full h-full select-none animate-fade-in">
-      {/* Header: actions on right */}
-      <div className="flex items-center justify-end gap-1.5 pb-1.5 border-b border-[var(--border-sidebar)] select-none shrink-0 w-full animate-fade-in">
-        <button
-          onClick={() => {
-            const newId = Date.now().toString(36)
-            setCurrentSessionId(newId)
-            setActiveSessionId(newId)
-          }}
-          className="flex items-center justify-center w-7 h-7 text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 bg-[var(--bg-icon)]/20 rounded-[6px] transition-all cursor-pointer active:scale-[0.95]"
-          title="New Chat"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
-            <path d="M10 3v14M3 10h14" />
-          </svg>
-        </button>
-
-        <div className="relative">
+      {/* Header: tokens on left, actions on right */}
+      <div className="flex items-center justify-between gap-1.5 pb-1.5 border-b border-[var(--border-sidebar)] select-none shrink-0 w-full animate-fade-in">
+        {/* Header Title */}
+        <div className="text-[12px] font-medium text-[var(--text-heading)] font-serif pl-1">
+          margin.ai
+        </div>
+        {/* Action Buttons Group */}
+        <div className="flex items-center gap-1.5">
           <button
-            onClick={() => setShowHistoryDropdown(!showHistoryDropdown)}
+            onClick={() => {
+              const newId = Date.now().toString(36)
+              setCurrentSessionId(newId)
+              setActiveSessionId(newId)
+            }}
             className="flex items-center justify-center w-7 h-7 text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 bg-[var(--bg-icon)]/20 rounded-[6px] transition-all cursor-pointer active:scale-[0.95]"
-            title="History"
+            title="New Chat"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="var(--text-secondary)"><g fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5"><path d="M11.25 7.75v5h3" /><path d="M4.855 7.875a8.25 8.25 0 1 1-.824 6.26m-.176-5.26v-4.75m0 4.75h4.75" /></g></svg>
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
+              <path d="M10 3v14M3 10h14" />
+            </svg>
           </button>
 
-          {showHistoryDropdown && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setShowHistoryDropdown(false)} />
-              <div className="absolute right-0 top-full mt-1.5 z-50 bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-[10px] overflow-hidden shadow-[0_4px_16px_rgba(0,0,0,0.06)] w-[220px] py-1 animate-scale-in">
-                {sessions.length === 0 ? (
-                  <div className="px-3 py-2 text-center text-[11px] text-[var(--text-muted)] font-sans">
-                    No logs
-                  </div>
-                ) : (
-                  <>
-                    {sessions.slice(0, sessionLoadCount).map(session => (
-                      <div key={session.id} className="group flex items-center gap-1 px-2 py-1 rounded-[4px] mx-1 hover:bg-[var(--bg-hover)] transition-colors">
-                        <button
-                          onClick={() => { setActiveSessionId(session.id); setShowHistoryDropdown(false) }}
-                          className={`flex-1 min-w-0 text-left text-[11px] cursor-pointer ${activeSessionId === session.id ? 'text-[var(--text-heading)]' : 'text-[var(--text-secondary)]'}`}
-                        >
-                          <span className="truncate block pr-1">{session.name}</span>
-                        </button>
-                        <button
-                          onClick={async (e) => {
-                            e.stopPropagation()
-                            try {
-                              const res = await fetch(`${API_BASE}/api/assist/simple/session/${session.id}`, { method: 'DELETE' })
-                              if (!res.ok) console.warn('DELETE session returned', res.status)
-                            } catch (e) {
-                              console.error('Failed to delete session:', e)
-                            }
-                            if (activeSessionId === session.id) setActiveSessionId(null)
-                            await fetchLogs()
-                          }}
-                          className="flex items-center justify-center w-5 h-5 text-[var(--text-muted)] hover:text-[var(--danger)] hover:bg-[var(--danger-bg)] rounded-[4px] transition-all cursor-pointer active:scale-[0.9] opacity-0 group-hover:opacity-100"
-                          title="Delete session"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      </div>
-                    ))}
-                    {sessions.length > sessionLoadCount && (
-                      <button
-                        onClick={() => setSessionLoadCount(c => c + 5)}
-                        className="w-full px-3 py-2 text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-heading)] text-center transition-colors hover:bg-[var(--bg-hover)] cursor-pointer"
-                      >
-                        Show {sessions.length - sessionLoadCount} more...
-                      </button>
-                    )}
-                  </>
-                )}
-              </div>
-            </>
-          )}
-        </div>
+          <div className="relative">
+            <button
+              onClick={() => setShowHistoryDropdown(!showHistoryDropdown)}
+              className="flex items-center justify-center w-7 h-7 text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 bg-[var(--bg-icon)]/20 rounded-[6px] transition-all cursor-pointer active:scale-[0.95]"
+              title="History"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="var(--text-secondary)"><g fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5"><path d="M11.25 7.75v5h3" /><path d="M4.855 7.875a8.25 8.25 0 1 1-.824 6.26m-.176-5.26v-4.75m0 4.75h4.75" /></g></svg>
+            </button>
 
-        {/* Settings Button */}
-        <button
-          onClick={() => setShowSettings(true)}
-          className="flex items-center justify-center w-7 h-7 text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 bg-[var(--bg-icon)]/20 rounded-[6px] transition-all cursor-pointer active:scale-[0.95]"
-          title="Settings"
-        >
-          <Settings size={14} />
-        </button>
+            {showHistoryDropdown && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowHistoryDropdown(false)} />
+                <div className="absolute right-0 top-full mt-1.5 z-50 bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-[10px] overflow-hidden shadow-[0_4px_16px_rgba(0,0,0,0.06)] w-[220px] py-1 animate-scale-in">
+                  {sessions.length === 0 ? (
+                    <div className="px-3 py-2 text-center text-[11px] text-[var(--text-muted)] font-sans">
+                      No logs
+                    </div>
+                  ) : (
+                    <>
+                      {sessions.slice(0, sessionLoadCount).map(session => (
+                        <div key={session.id} className="group flex items-center gap-1 px-2 py-1 rounded-[4px] mx-1 hover:bg-[var(--bg-hover)] transition-colors">
+                          <button
+                            onClick={() => { setActiveSessionId(session.id); setShowHistoryDropdown(false) }}
+                            className={`flex-1 min-w-0 text-left text-[11px] cursor-pointer ${activeSessionId === session.id ? 'text-[var(--text-heading)]' : 'text-[var(--text-secondary)]'}`}
+                          >
+                            <span className="truncate block pr-1">{session.name}</span>
+                          </button>
+                          <button
+                            onClick={async (e) => {
+                              e.stopPropagation()
+                              try {
+                                const res = await fetch(`${API_BASE}/api/assist/simple/session/${session.id}`, { method: 'DELETE' })
+                                if (!res.ok) console.warn('DELETE session returned', res.status)
+                              } catch (e) {
+                                console.error('Failed to delete session:', e)
+                              }
+                              if (activeSessionId === session.id) setActiveSessionId(null)
+                              await fetchLogs()
+                            }}
+                            className="flex items-center justify-center w-5 h-5 text-[var(--text-muted)] hover:text-[var(--danger)] hover:bg-[var(--danger-bg)] rounded-[4px] transition-all cursor-pointer active:scale-[0.9] opacity-0 group-hover:opacity-100"
+                            title="Delete session"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ))}
+                      {sessions.length > sessionLoadCount && (
+                        <button
+                          onClick={() => setSessionLoadCount(c => c + 5)}
+                          className="w-full px-3 py-2 text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-heading)] text-center transition-colors hover:bg-[var(--bg-hover)] cursor-pointer"
+                        >
+                          Show {sessions.length - sessionLoadCount} more...
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Settings Button */}
+          <button
+            onClick={() => setShowSettings(true)}
+            className="flex items-center justify-center w-7 h-7 text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 bg-[var(--bg-icon)]/20 rounded-[6px] transition-all cursor-pointer active:scale-[0.95]"
+            title="Settings"
+          >
+            <Settings size={14} />
+          </button>
+        </div>
       </div>
 
       {/* History area (scrollable) */}

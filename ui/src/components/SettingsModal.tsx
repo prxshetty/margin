@@ -581,17 +581,27 @@ function EndpointsSettings({ settings, updateSettings }: { settings: AppSettings
   const [newUrl, setNewUrl] = useState('http://localhost:1234')
   const [newKey, setNewKey] = useState('')
   const [newModel, setNewModel] = useState('')
+  const [newContext, setNewContext] = useState('8192')
   const [testResult, setTestResult] = useState<{ status: 'idle' | 'testing' | 'success' | 'error', msg?: string }>({ status: 'idle' })
 
   const handleAdd = () => {
     if (!newId || !newUrl) return
     const id = newId.trim().toLowerCase().replace(/\s+/g, '_')
-    const updatedEndpoints = { ...settings.endpoints, [id]: { url: newUrl, api_key: newKey, model: newModel } }
+    const updatedEndpoints = {
+      ...settings.endpoints,
+      [id]: {
+        url: newUrl,
+        api_key: newKey,
+        model: newModel,
+        context_window: parseInt(newContext) || undefined
+      }
+    }
     updateSettings({ endpoints: updatedEndpoints })
     setNewId('')
     setNewUrl('http://localhost:1234')
     setNewKey('')
     setNewModel('')
+    setNewContext('8192')
   }
 
   const handleTest = async (url: string, key: string) => {
@@ -652,7 +662,7 @@ function EndpointsSettings({ settings, updateSettings }: { settings: AppSettings
                 />
                 <div className="flex flex-col">
                   <span className="text-[13px] font-medium text-[var(--text-heading)] capitalize">{id.replace('_', ' ')}</span>
-                  <span className="text-[11px] text-[var(--text-secondary)]">{ep.url} {ep.model ? `• ${ep.model}` : ''}</span>
+                  <span className="text-[11px] text-[var(--text-secondary)]">{ep.url} {ep.model ? `• ${ep.model}` : ''} {ep.context_window ? `• ${ep.context_window.toLocaleString()} ctx` : ''}</span>
                 </div>
               </label>
               <div className="flex items-center gap-2">
@@ -681,7 +691,10 @@ function EndpointsSettings({ settings, updateSettings }: { settings: AppSettings
           <input placeholder="Name (e.g. OpenAI)" value={newId} onChange={e => setNewId(e.target.value)} className="border border-[var(--border-subtle)] rounded-[4px] px-3 py-2 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]" />
           <input placeholder="Base URL" value={newUrl} onChange={e => setNewUrl(e.target.value)} className="border border-[var(--border-subtle)] rounded-[4px] px-3 py-2 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]" />
           <input placeholder="API Key (Optional)" type="password" value={newKey} onChange={e => setNewKey(e.target.value)} className="border border-[var(--border-subtle)] rounded-[4px] px-3 py-2 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]" />
-          <input placeholder="Model Name (Optional)" value={newModel} onChange={e => setNewModel(e.target.value)} className="border border-[var(--border-subtle)] rounded-[4px] px-3 py-2 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]" />
+          <div className="flex gap-2 min-w-0">
+            <input placeholder="Model Name (Optional)" value={newModel} onChange={e => setNewModel(e.target.value)} className="flex-1 min-w-0 border border-[var(--border-subtle)] rounded-[4px] px-3 py-2 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]" />
+            <input placeholder="Ctx (e.g. 8192)" type="number" value={newContext} onChange={e => setNewContext(e.target.value)} className="w-[90px] border border-[var(--border-subtle)] rounded-[4px] px-3 py-2 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)] shrink-0" />
+          </div>
         </div>
 
         <div className="flex items-center justify-between">
