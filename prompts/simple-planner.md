@@ -9,16 +9,24 @@ SELECTED_TEXT (If provided, this is the guaranteed target context)
 ANCHOR_PARAGRAPH_TEXT (If SELECTED_TEXT is not provided, this is the full text of the paragraph containing the user's cursor)
 
 AVAILABLE_CONTEXT (manifest files listing available characters, chapters, and styles with descriptions)
+
+RECENT_EDITS (A chronological list of prior edits in this session, showing what the user asked and what context files were selected)
+
 TASK:
 
-1. Select the minimum necessary files from AVAILABLE_CONTEXT to perform the edit accurately based on the USER_INSTRUCTION.
+1. Select the minimum necessary files from AVAILABLE_CONTEXT to perform the edit accurately based on the USER_INSTRUCTION and context of RECENT_EDITS.
+2. Produce a context-aware `refined_query` that acts as a precise rewrite of the USER_INSTRUCTION. 
+   - If RECENT_EDITS is present, look at the prior instructions to understand what the user is referring to (e.g. if the user says "make it shorter", resolve what "it" refers to based on previous turns).
+   - The `refined_query` should fully describe the modification to perform on the target text block, including any character motivations or styles that should be incorporated.
+   - If there is no prior history or the instruction is already clear and self-contained, the `refined_query` can match the USER_INSTRUCTION verbatim.
 
 OUTPUT SCHEMA:
 
 Output ONLY valid JSON matching this schema:
 
 {
-  "context_needed": ["filename.md"]
+  "context_needed": ["filename"],
+  "refined_query": "Precise, context-aware rewrite of the user instruction."
 }
 
 CONTEXT SELECTION:
@@ -30,4 +38,5 @@ Use the descriptions in AVAILABLE_CONTEXT manifests to determine relevance.
 - Do not select files merely because a character is mentioned.
 - When in doubt, select fewer files rather than more.
 - Refer to manifests by their section headers: CHARACTERS, CHAPTERS, STYLES.
-- context_needed should contain file paths (e.g., "characters/elara_vance.md", "styles/cinematic.md").
+- context_needed should contain ONLY the exact filename (e.g., "elara_vance.md" or "cinematic.md" or "cinematic"), NOT full relative paths (like "characters/elara_vance.md" or "styles/cinematic.md").
+

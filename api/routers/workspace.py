@@ -92,14 +92,16 @@ def rename_input_file(path: str, req: RenameFileRequest):
 @router.get("/styles")
 def get_styles():
     try:
-        import style_loader
-        styles = style_loader.load_all_styles()
-        result = []
-        for name, data in styles.items():
-            result.append({
-                "name": name,
-                "description": data.get("description") or ""
-            })
-        return result
+        manifest = storage._load_manifest("styles/STYLES.md")
+        styles = []
+        for name, desc in manifest.items():
+            # _load_manifest maps keys both with and without .md extension.
+            # Only include the key without the .md extension to avoid duplicates.
+            if not name.lower().endswith(".md"):
+                styles.append({
+                    "name": name.lower(),
+                    "description": desc or ""
+                })
+        return styles
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
