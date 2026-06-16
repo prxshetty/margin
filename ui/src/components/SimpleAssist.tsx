@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { AtSign, Code2, MousePointer2, RefreshCw, Settings, Trash2 } from 'lucide-react'
 import { useEditorStore } from '../stores/editorStore'
 import { useSettingsStore } from '../stores/settingsStore'
@@ -19,6 +19,7 @@ interface SimpleLogEntry {
   text_after?: string
   ref_files?: Array<{ name: string, path: string }>
   success?: boolean
+  thinking_output?: string
   planner_system_prompt?: string
   planner_user_prompt?: string
   planner_output?: string
@@ -50,19 +51,22 @@ function cleanUserPrompt(log: SimpleLogEntry): string {
 
   const hasAt = text.includes('@')
   if (!hasAt) {
-    if (log.mode !== 'chat' && log.selected_text) {
-      text = `@selection(${formatCharacterCount(log.selected_text.length)}) ` + text
-    }
+    // Prepend ref files + selection before the text so chips lead the bubble
+    let prefix = ''
     if (log.ref_files && log.ref_files.length > 0) {
-      text += ' ' + log.ref_files.map(f => `@${f.name}`).join(' ')
+      prefix += log.ref_files.map(f => `@${f.name}`).join(' ') + ' '
     }
+    if (log.mode !== 'chat' && log.selected_text) {
+      prefix += `@selection(${formatCharacterCount(log.selected_text.length)}) `
+    }
+    text = prefix + text
   }
   return text
 }
 
 function renderUserPrompt(text: string) {
   const regex = /@([\w.-]+(?:\([^)]+\))?)/g
-  const parts = []
+  const parts: React.ReactNode[] = []
   let lastIndex = 0
   let match
 
@@ -74,8 +78,9 @@ function renderUserPrompt(text: string) {
     const isSelection = name.startsWith('selection(')
     const label = isSelection ? name.replace(/^selection\((.*)\)$/, '$1') : name
 
+    // File tags get the neutral pill style; only cursor-selection gets the green accent
     parts.push(
-      <span key={match.index} className="inline-chip inline-chip-selection align-middle mx-0.5">
+      <span key={match.index} className={`inline-chip${isSelection ? ' inline-chip-selection' : ''} align-middle mx-0.5`}>
         <span className="chip-glyph flex items-center">
           {isSelection ? (
             <svg className="w-2.5 h-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -236,6 +241,149 @@ function getInputData(el: HTMLElement): {
   return { text: clone.textContent?.trim() ?? '', refPaths, selection }
 }
 
+function renderMarkdown(text: string): React.ReactNode[] {
+  if (!text) return []
+  const lines = text.split('\n')
+  const nodes: React.ReactNode[] = []
+  let i = 0
+
+  while (i < lines.length) {
+    const line = lines[i]
+
+    // Fenced code block
+    if (line.startsWith('```')) {
+      const lang = line.slice(3).trim()
+      const codeLines: string[] = []
+      i++
+      while (i < lines.length && !lines[i].startsWith('```')) {
+        codeLines.push(lines[i])
+        i++
+      }
+      nodes.push(
+        <pre key={i} className="bg-[var(--bg-hover)] rounded-[6px] px-3 py-2 my-1.5 overflow-x-auto">
+          <code className="text-[11px] font-mono text-[var(--text)]">
+            {lang && <span className="text-[var(--text-muted)] text-[9px] uppercase tracking-widest block mb-1">{lang}</span>}
+            {codeLines.join('\n')}
+          </code>
+        </pre>
+      )
+      i++ // skip closing ```
+      continue
+    }
+
+    // Headings
+    const h3 = line.match(/^### (.+)/)
+    const h2 = line.match(/^## (.+)/)
+    const h1 = line.match(/^# (.+)/)
+    if (h1) { nodes.push(<p key={i} className="font-semibold text-[var(--text-heading)] mt-2 mb-0.5">{inlineMarkdown(h1[1])}</p>); i++; continue }
+    if (h2) { nodes.push(<p key={i} className="font-semibold text-[var(--text-heading)] mt-1.5 mb-0.5 text-[11px]">{inlineMarkdown(h2[1])}</p>); i++; continue }
+    if (h3) { nodes.push(<p key={i} className="font-medium text-[var(--text-secondary)] mt-1 mb-0.5 text-[10px] uppercase tracking-wide">{inlineMarkdown(h3[1])}</p>); i++; continue }
+
+    // Blockquote
+    if (line.startsWith('> ')) {
+      nodes.push(
+        <div key={i} className="border-l-2 border-[var(--border)] pl-2.5 my-1 text-[var(--text-secondary)] italic">
+          {inlineMarkdown(line.slice(2))}
+        </div>
+      )
+      i++; continue
+    }
+
+    // Horizontal rule
+    if (/^[-*]{3,}$/.test(line.trim())) {
+      nodes.push(<hr key={i} className="border-[var(--border)] my-2" />)
+      i++; continue
+    }
+
+    // Bullet list
+    if (/^[-*+] /.test(line)) {
+      const items: React.ReactNode[] = []
+      while (i < lines.length && /^[-*+] /.test(lines[i])) {
+        items.push(<li key={i}>{inlineMarkdown(lines[i].slice(2))}</li>)
+        i++
+      }
+      nodes.push(<ul key={`ul-${i}`} className="list-disc list-inside my-1 space-y-0.5">{items}</ul>)
+      continue
+    }
+
+    // Numbered list
+    if (/^\d+\. /.test(line)) {
+      const items: React.ReactNode[] = []
+      while (i < lines.length && /^\d+\. /.test(lines[i])) {
+        items.push(<li key={i}>{inlineMarkdown(lines[i].replace(/^\d+\. /, ''))}</li>)
+        i++
+      }
+      nodes.push(<ol key={`ol-${i}`} className="list-decimal list-inside my-1 space-y-0.5">{items}</ol>)
+      continue
+    }
+
+    // Empty line → spacing
+    if (line.trim() === '') {
+      nodes.push(<div key={i} className="h-1.5" />)
+      i++; continue
+    }
+
+    // Normal paragraph
+    nodes.push(<p key={i} className="my-0.5 leading-relaxed">{inlineMarkdown(line)}</p>)
+    i++
+  }
+
+  return nodes
+}
+
+function inlineMarkdown(text: string): React.ReactNode[] {
+  // Handle bold, italic, inline code in sequence
+  const parts: React.ReactNode[] = []
+  const regex = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|__[^_]+__|_[^_]+_)/g
+  let last = 0
+  let m: RegExpExecArray | null
+  let idx = 0
+  while ((m = regex.exec(text)) !== null) {
+    if (m.index > last) parts.push(text.slice(last, m.index))
+    const raw = m[0]
+    if (raw.startsWith('`')) {
+      parts.push(<code key={idx++} className="bg-[var(--bg-hover)] px-1 py-0.5 rounded text-[10.5px] font-mono">{raw.slice(1, -1)}</code>)
+    } else if (raw.startsWith('**') || raw.startsWith('__')) {
+      parts.push(<strong key={idx++} className="font-semibold text-[var(--text-heading)]">{raw.slice(2, -2)}</strong>)
+    } else {
+      parts.push(<em key={idx++} className="italic text-[var(--text-secondary)]">{raw.slice(1, -1)}</em>)
+    }
+    last = m.index + raw.length
+  }
+  if (last < text.length) parts.push(text.slice(last))
+  return parts
+}
+
+function ThinkingDropdown({ text, defaultOpen = false }: { text: string; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(false)
+
+  useEffect(() => {
+    if (defaultOpen) setOpen(true)
+  }, [defaultOpen])
+
+  return (
+    <div className="flex flex-col gap-0 self-start w-full mb-0">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-1.5 text-[10px] text-[var(--text-muted)] font-sans hover:text-[var(--text-secondary)] transition-colors select-none py-0.5 w-fit"
+      >
+        <svg
+          className={`w-2.5 h-2.5 transition-transform duration-150 ${open ? 'rotate-90' : ''}`}
+          viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+        >
+          <path d="m9 18 6-6-6-6" />
+        </svg>
+        {text && !open ? 'Thought Process' : open ? 'Thought Process' : 'Thinking'}
+      </button>
+      {open && (
+        <div className="font-mono text-[10px] text-[var(--text-muted)] leading-relaxed max-h-[120px] overflow-y-auto whitespace-pre-wrap pl-4 border-l border-[var(--border-subtle)] mt-1">
+          {text}
+        </div>
+      )}
+    </div>
+  )
+}
 
 export function SimpleAssist() {
   const {
@@ -251,6 +399,8 @@ export function SimpleAssist() {
   const [isPlanning, setIsPlanning] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
   const [plannerContextFiles, setPlannerContextFiles] = useState<string[]>([])
+  const [streamingThinkingText, setStreamingThinkingText] = useState('')
+  const [streamingChatText, setStreamingChatText] = useState('')
   const [instructionText, setInstructionText] = useState('')
   const [historyLogs, setHistoryLogs] = useState<SimpleLogEntry[]>([])
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({})
@@ -462,7 +612,7 @@ export function SimpleAssist() {
 
     const chip = document.createElement('span')
     chip.contentEditable = 'false'
-    chip.className = 'inline-chip inline-chip-selection'
+    chip.className = 'inline-chip'
     chip.dataset.path = file.path
     chip.dataset.name = file.name
     appendChipText(chip, file.name, { path: file.path })
@@ -498,11 +648,12 @@ export function SimpleAssist() {
     const selectionInfo = domSelection
     const localHasSelection = !!selectionInfo
     const selectionText = selectionInfo ? selectionInfo.text : ''
-
     setIsWorking(true)
     setIsPlanning(true)
     setIsGenerating(false)
     setPlannerContextFiles([])
+    setStreamingThinkingText('')
+    setStreamingChatText('')
     setActiveInstruction(currentInstruction)
     const currentRefFiles = refPaths
       .map(path => openedFiles.find(f => f.path === path))
@@ -565,6 +716,10 @@ export function SimpleAssist() {
       const reader = res.body!.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
+      let accumulatedOutput = ''
+      const startPos = localHasSelection && selectionInfo ? selectionInfo.from : anchorPosition
+      let currentEndPos = localHasSelection && selectionInfo ? selectionInfo.to : anchorPosition
+      const previousContent = useEditorStore.getState().content
 
       while (true) {
         const { done, value } = await reader.read()
@@ -589,6 +744,20 @@ export function SimpleAssist() {
             } else if (data.status === 'generating') {
               setIsPlanning(false)
               setIsGenerating(true)
+            } else if (data.status === 'thinking_chunk') {
+              setStreamingThinkingText(prev => prev + (data.chunk as string))
+            } else if (data.status === 'chunk') {
+              setIsPlanning(false)
+              setIsGenerating(true)
+              accumulatedOutput += data.chunk as string
+              const liveEditor = useEditorStore.getState().editor || activeEditor
+              if (liveEditor && liveEditor.view && liveEditor.state && !liveEditor.isDestroyed) {
+                const tr = liveEditor.state.tr.insertText(accumulatedOutput, startPos, currentEndPos)
+                liveEditor.view.dispatch(tr)
+                currentEndPos = startPos + accumulatedOutput.length
+                liveEditor.commands.setAiHighlight(startPos, currentEndPos)
+                liveEditor.commands.setTextSelection(currentEndPos)
+              }
             } else if (data.status === 'applied') {
               if (data.model_used) {
                 useEditorStore.getState().setActiveModel(data.model_used)
@@ -597,9 +766,7 @@ export function SimpleAssist() {
 
               const liveEditor = useEditorStore.getState().editor || activeEditor
               if (liveEditor && liveEditor.view && liveEditor.state && !liveEditor.isDestroyed) {
-                const previousContent = useEditorStore.getState().content
                 const setAiPendingEdit = useEditorStore.getState().setAiPendingEdit
-                const startPos = localHasSelection && selectionInfo ? selectionInfo.from : anchorPosition
                 const beforeSize = liveEditor.state.doc.content.size
                 const selectionSize = localHasSelection && selectionInfo ? (selectionInfo.to - selectionInfo.from) : 0
 
@@ -610,9 +777,7 @@ export function SimpleAssist() {
                 })
 
                 let chain = liveEditor.chain()
-                if (localHasSelection && selectionInfo) {
-                  chain = chain.deleteRange({ from: selectionInfo.from, to: selectionInfo.to })
-                }
+                chain = chain.deleteRange({ from: startPos, to: currentEndPos })
                 chain = chain.insertContentAt(startPos, output)
                 chain.run()
 
@@ -650,6 +815,8 @@ export function SimpleAssist() {
       setIsPlanning(false)
       setIsGenerating(false)
       setPlannerContextFiles([])
+      setStreamingThinkingText('')
+      setStreamingChatText('')
       setActiveInstruction('')
       setActiveRefFiles([])
     }
@@ -666,9 +833,11 @@ export function SimpleAssist() {
     const selectionText = selectionInfo ? selectionInfo.text : ''
 
     setIsWorking(true)
-    setIsPlanning(false)
-    setIsGenerating(true)
+    setIsPlanning(true)
+    setIsGenerating(false)
     setPlannerContextFiles([])
+    setStreamingThinkingText('')
+    setStreamingChatText('')
     setActiveInstruction(currentInstruction)
     const currentRefFiles = refPaths
       .map(path => openedFiles.find(f => f.path === path))
@@ -730,14 +899,26 @@ export function SimpleAssist() {
           const rawData = cleanLine.slice(6)
           try {
             const data = JSON.parse(rawData)
-            if (data.status === 'generating') {
+            if (data.status === 'planning') {
+              setIsPlanning(true)
+              setIsGenerating(false)
+            } else if (data.status === 'context_resolved') {
+              if (Array.isArray(data.context_needed)) {
+                setPlannerContextFiles(data.context_needed)
+              }
+            } else if (data.status === 'generating') {
               setIsPlanning(false)
               setIsGenerating(true)
+            } else if (data.status === 'thinking_chunk') {
+              setStreamingThinkingText(prev => prev + (data.chunk as string))
+            } else if (data.status === 'chunk') {
+              setIsPlanning(false)
+              setIsGenerating(true)
+              setStreamingChatText(prev => prev + (data.chunk as string))
             } else if (data.status === 'chat') {
               if (data.model_used) {
                 useEditorStore.getState().setActiveModel(data.model_used)
               }
-              // Done generating
             } else if (data.status === 'error') {
               throw new Error(data.detail || 'Chat failed')
             }
@@ -755,6 +936,8 @@ export function SimpleAssist() {
       setIsPlanning(false)
       setIsGenerating(false)
       setPlannerContextFiles([])
+      setStreamingThinkingText('')
+      setStreamingChatText('')
       setActiveInstruction('')
       setActiveRefFiles([])
     }
@@ -842,7 +1025,6 @@ export function SimpleAssist() {
       const chip = document.createElement('span')
       chip.contentEditable = 'false'
       chip.className = 'inline-chip inline-chip-selection'
-      chip.dataset.role = 'selection'
       chip.dataset.from = String(pendingEditSelection.from)
       chip.dataset.to = String(pendingEditSelection.to)
       chip.dataset.text = pendingEditSelection.text
@@ -1247,8 +1429,48 @@ export function SimpleAssist() {
                         </div>
                       </div>
                     )}
-                    <div className={`text-xs font-sans leading-relaxed whitespace-pre-wrap select-text ${log.success === false ? 'text-[var(--danger)] font-medium' : 'text-[var(--text)]'}`}>
-                      {log.output}
+                    {/* Thinking dropdown — visible when thinking output exists */}
+                    {log.thinking_output && (
+                      <div className="mt-0.5">
+                        <ThinkingDropdown text={log.thinking_output} defaultOpen={false} />
+                      </div>
+                    )}
+
+                    {/* Always-visible context rows — ref files + planner context + selection */}
+                    {((log.ref_files && log.ref_files.length > 0) || log.selected_text || plannerContextFiles.length > 0) && (
+                      <div className="flex flex-col gap-1 mt-1 select-none">
+                        {log.ref_files?.map((file) => (
+                          <div key={file.path} className="flex items-center gap-1.5 text-[10.5px] text-[var(--text-muted)] font-sans">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0z" />
+                              <circle cx="12" cy="12" r="3" />
+                            </svg>
+                            <span>Read {file.name}</span>
+                          </div>
+                        ))}
+                        {plannerContextFiles.map((filepath) => (
+                          <div key={filepath} className="flex items-center gap-1.5 text-[10.5px] text-[var(--text-muted)] font-sans">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0z" />
+                              <circle cx="12" cy="12" r="3" />
+                            </svg>
+                            <span>Read {filepath}</span>
+                          </div>
+                        ))}
+                        {log.selected_text && (
+                          <div className="flex items-center gap-1.5 text-[10.5px] text-[var(--text-muted)] font-sans">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0z" />
+                              <circle cx="12" cy="12" r="3" />
+                            </svg>
+                            <span>Read editor selection ({log.selected_text.length} ch)</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <div className={`text-xs font-sans leading-relaxed select-text mt-1 ${log.success === false ? 'text-[var(--danger)] font-medium whitespace-pre-wrap' : 'text-[var(--text)]'}`}>
+                      {log.success === false ? log.output : renderMarkdown(log.output)}
                     </div>
                   </div>
                 </div>
@@ -1284,13 +1506,27 @@ export function SimpleAssist() {
                   )
                 })}
 
-                {/* Thinking Status */}
-                <div className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)] font-serif italic py-1 select-none animate-pulse" ref={outputRef}>
-                  <svg className="w-3.5 h-3.5 animate-spin text-[var(--accent-brown)]" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <circle cx="12" cy="12" r="10" stroke="var(--border)" strokeWidth="3" />
-                    <path d="M12 2C6.47715 2 2 6.47715 2 12C2 13.5796 2.36592 15.071 3.01662 16.4024" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-                  </svg>
-                  <span>
+                {streamingThinkingText && (
+                  <div className="self-start w-full">
+                    <ThinkingDropdown text={streamingThinkingText} defaultOpen={true} />
+                  </div>
+                )}
+
+                {/* Live chat stream render */}
+                {mode === 'chat' && streamingChatText && (
+                  <div className="flex flex-col gap-1.5 self-start w-full select-text max-w-full py-1 animate-scale-in">
+                    <div className="text-xs font-sans leading-relaxed select-text text-[var(--text)]">
+                      {renderMarkdown(streamingChatText)}
+                    </div>
+                  </div>
+                )}
+
+                {/* Phase-aware status indicator */}
+                <div className="flex items-center gap-2 text-xs font-serif italic py-1 select-none" ref={outputRef}>
+                  <div className={`status-indicator-square ${isPlanning ? 'animate-planning' : isGenerating ? 'animate-generating-pulse' : ''}`}>
+                    <div className={`status-indicator-inner ${isGenerating ? 'animate-orbit' : ''}`} />
+                  </div>
+                  <span className="animate-shimmer">
                     {isPlanning ? 'Planning...' : isGenerating ? 'Generating...' : 'Thinking about the edit...'}
                   </span>
                 </div>

@@ -28,12 +28,20 @@ def _resolve_simple_assist_client() -> llm.LLMClient:
         endpoints = s.get("endpoints") or {}
         ep = endpoints.get(ep_id)
         if ep:
+            is_thinking = ep.get("is_thinking", True)
+            custom_tags = ep.get("custom_thinking_tags") or []
+            custom_open = [t["open"] for t in custom_tags if isinstance(t, dict) and "open" in t]
+            custom_close = [t["close"] for t in custom_tags if isinstance(t, dict) and "close" in t]
             return llm.LLMClient(
                 model=ep.get("model") or None,
                 base_url=ep.get("url") or None,
                 api_key=ep.get("api_key") or None,
+                is_thinking=is_thinking,
+                custom_opening_tags=custom_open,
+                custom_closing_tags=custom_close,
             )
-    return llm.LLMClient()
+    is_thinking = s.get("is_thinking", True)
+    return llm.LLMClient(is_thinking=is_thinking)
 
 
 def _build_simple_system_prompt(base_text: str = "") -> str:
@@ -136,6 +144,7 @@ def _log_simple_assist(
     prompt_tokens: int = 0,
     completion_tokens: int = 0,
     total_tokens: int = 0,
+    thinking_output: Optional[str] = None,
 ) -> None:
     log_entry = {
         "id": f"simple_{uuid.uuid4().hex}",
@@ -155,6 +164,8 @@ def _log_simple_assist(
         "completion_tokens": completion_tokens,
         "total_tokens": total_tokens,
     }
+    if thinking_output is not None:
+        log_entry["thinking_output"] = thinking_output
     if edit_mode is not None:
         log_entry["edit_mode"] = edit_mode
     if planner_system_prompt is not None:
@@ -204,18 +215,128 @@ def extract_anchor_context(
     return paragraph_before, target_paragraph, paragraph_after, target_idx, replace
 
 
+def _get_active_context_window(settings: dict) -> int:
+    active_ep = settings.get("active_endpoint")
+    if active_ep:
+        endpoints = settings.get("endpoints") or {}
+        ep = endpoints.get(active_ep)
+        if ep and ep.get("context_window"):
+            try:
+                return int(ep.get("context_window"))
+            except ValueError:
+                pass
+    return int(settings.get("default_context_window") or 8192)
+
+
+def _build_chat_messages(
+    session_id: Optional[str],
+    system_prompt: str,
+    current_user_msg: str,
+    settings: dict,
+) -> list[dict]:
+    if not session_id:
+        return [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": current_user_msg}
+        ]
+
+    logs = storage.get_simple_ai_logs()
+    filtered_logs = [
+        log for log in logs
+        if log.get("session_id") == session_id
+        and log.get("mode") == "chat"
+        and log.get("success", True)
+    ]
+    filtered_logs.sort(key=lambda x: x.get("timestamp", ""))
+
+    history_turns = int(settings.get("history_turns", 5))
+    threshold_pct = 85
+    context_window = _get_active_context_window(settings)
+    threshold_tokens = (threshold_pct / 100.0) * context_window
+
+    history_pairs = filtered_logs[-history_turns:] if history_turns > 0 else []
+
+    while True:
+        messages = [{"role": "system", "content": system_prompt}]
+        for log in history_pairs:
+            messages.append({"role": "user", "content": log.get("instruction", "")})
+            messages.append({"role": "assistant", "content": log.get("output", "")})
+        messages.append({"role": "user", "content": current_user_msg})
+
+        if not history_pairs:
+            break
+
+        # Estimate total tokens: sum(len(content) / 4.0)
+        total_tokens = sum(len(msg["content"]) / 4.0 for msg in messages)
+        if total_tokens <= threshold_tokens:
+            break
+
+        history_pairs.pop(0)
+
+    return messages
+
+
+def _build_planner_history(session_id: Optional[str], settings: dict) -> str:
+    if not session_id:
+        return ""
+    
+    logs = storage.get_simple_ai_logs()
+    filtered_logs = [
+        log for log in logs
+        if log.get("session_id") == session_id
+        and log.get("mode") == "edit"
+        and log.get("success", True)
+    ]
+    filtered_logs.sort(key=lambda x: x.get("timestamp", ""))
+    
+    history_turns = int(settings.get("history_turns", 5))
+    recent_logs = filtered_logs[-history_turns:] if history_turns > 0 else []
+    
+    if not recent_logs:
+        return ""
+    
+    lines = ["RECENT_EDITS:"]
+    for idx, log in enumerate(recent_logs):
+        instruction = log.get("instruction", "")
+        pl_out = log.get("planner_output")
+        context_files = []
+        if pl_out:
+            try:
+                if isinstance(pl_out, str):
+                    try:
+                        pl_dict = json.loads(pl_out)
+                    except Exception:
+                        start, end = pl_out.find("{"), pl_out.rfind("}") + 1
+                        if start != -1 and end > start:
+                            pl_dict = json.loads(pl_out[start:end])
+                        else:
+                            pl_dict = {}
+                else:
+                    pl_dict = pl_out
+                context_files = pl_dict.get("context_needed", [])
+            except Exception:
+                pass
+        lines.append(f"[Turn {idx + 1}] USER: \"{instruction}\" → FILES: {json.dumps(context_files)}")
+    
+    return "\n".join(lines)
+
+
+
 def run_planner(
     content: str,
     message: str,
     selected_text: Optional[str] = None,
     cursor_paragraph_text: Optional[str] = None,
+    session_id: Optional[str] = None,
 ) -> tuple[dict, str, str, str, Optional[dict]]:
     system = _load_simple_prompt("simple-planner.md")
     
     user_prompt_lines = [f"USER_INSTRUCTION:\n{message}\n"]
 
+    s = storage.get_settings()
+
     # Build document outline if enabled
-    if storage.get_settings().get("planner_include_outline", False):
+    if s.get("planner_include_outline", False):
         paragraphs = [p for p in content.split('\n\n') if p.strip()]
         outline_lines = []
         for i, p in enumerate(paragraphs):
@@ -228,6 +349,11 @@ def run_planner(
         user_prompt_lines.append(f"SELECTED_TEXT:\n{selected_text}\n")
     elif cursor_paragraph_text:
         user_prompt_lines.append(f"ANCHOR_PARAGRAPH_TEXT:\n{cursor_paragraph_text}\n")
+    
+    # Inject planner history
+    history_str = _build_planner_history(session_id, s)
+    if history_str:
+        user_prompt_lines.append(f"{history_str}\n")
     
     manifest_sections = []
     try:
@@ -260,7 +386,8 @@ def run_planner(
             start, end = raw.find("{"), raw.rfind("}") + 1
             return json.loads(raw[start:end]), system, user, raw, client.last_usage
         except Exception:
-            return {"context_needed": []}, system, user, raw, client.last_usage
+            return {"context_needed": [], "refined_query": message}, system, user, raw, client.last_usage
+
 
 
 
@@ -345,11 +472,12 @@ async def simple_assist(payload: SimpleAssistRequest):
                         payload.message,
                         payload.selected_text,
                         payload.cursor_paragraph_text,
+                        payload.session_id,
                     )
                 )
 
                 context_needed = plan.get("context_needed", [])
-                query = payload.message
+                query = plan.get("refined_query") or payload.message
 
                 yield {"data": json.dumps({
                     "status": "context_resolved",
@@ -368,15 +496,43 @@ async def simple_assist(payload: SimpleAssistRequest):
 
                 max_toks = _pick_writer_max_tokens()
                 client = _resolve_simple_assist_client()
-                raw = await loop.run_in_executor(
-                    None,
-                    lambda: client.generate_to_completion(
-                        system_prompt=system_prompt,
-                        user_prompt=user_prompt,
-                        temperature=0.7,
-                        max_tokens=max_toks
-                    )
-                )
+
+                queue = asyncio.Queue()
+                loop = asyncio.get_running_loop()
+
+                def run_writer_stream():
+                    try:
+                        gen = client.generate(
+                            system_prompt=system_prompt,
+                            user_prompt=user_prompt,
+                            stream=True,
+                            temperature=0.7,
+                            max_tokens=max_toks
+                        )
+                        for chunk_type, chunk_text in gen:
+                            loop.call_soon_threadsafe(queue.put_nowait, (chunk_type, chunk_text))
+                        loop.call_soon_threadsafe(queue.put_nowait, ("done", None))
+                    except Exception as e:
+                        loop.call_soon_threadsafe(queue.put_nowait, ("error", e))
+
+                # Start streaming in executor thread
+                loop.run_in_executor(None, run_writer_stream)
+
+                full_raw = ""
+                full_thinking = ""
+                while True:
+                    msg_type, val = await queue.get()
+                    if msg_type == "chunk":
+                        full_raw += val
+                        yield {"data": json.dumps({"status": "chunk", "chunk": val})}
+                    elif msg_type == "thinking":
+                        full_thinking += val
+                        yield {"data": json.dumps({"status": "thinking_chunk", "chunk": val})}
+                    elif msg_type == "done":
+                        break
+                    elif msg_type == "error":
+                        raise val
+
                 actual_model = getattr(client, "last_model_used", client.model)
                 writer_usage = client.last_usage or {
                     "prompt_tokens": 0,
@@ -389,7 +545,7 @@ async def simple_assist(payload: SimpleAssistRequest):
                 c_tokens = (planner_usage.get("completion_tokens") if planner_usage else 0) + writer_usage.get("completion_tokens", 0)
                 t_tokens = (planner_usage.get("total_tokens") if planner_usage else 0) + writer_usage.get("total_tokens", 0)
 
-                clean_raw = raw.strip()
+                clean_raw = full_raw.strip()
                 if clean_raw.startswith("```"):
                     lines = clean_raw.splitlines()
                     if lines[0].startswith("```"):
@@ -398,23 +554,8 @@ async def simple_assist(payload: SimpleAssistRequest):
                         lines = lines[:-1]
                     clean_raw = "\n".join(lines).strip()
 
-                writer_output = clean_raw
-
-                if replace and payload.selected_text:
-                    # If the writer output is already the full modified paragraph,
-                    # we should not splice it again to avoid duplication.
-                    ratio = difflib.SequenceMatcher(None, target_paragraph, writer_output).ratio()
-                    if ratio > 0.5:
-                        output_text = writer_output
-                    else:
-                        # Replace only within the confirmed target paragraph
-                        if payload.selected_text in target_paragraph:
-                            output_text = target_paragraph.replace(payload.selected_text, writer_output, 1)
-                        else:
-                            # Selection not found in target — fall back to full paragraph replacement
-                            output_text = writer_output
-                else:
-                    output_text = writer_output
+                # Belt-and-suspenders: strip any reasoning tags that leaked into the stream
+                writer_output = client._clean_reasoning(clean_raw)
 
                 await loop.run_in_executor(
                     None,
@@ -423,7 +564,7 @@ async def simple_assist(payload: SimpleAssistRequest):
                         session_id=payload.session_id,
                         system_prompt=system_prompt,
                         user_prompt=user_prompt,
-                        response=raw,
+                        response=full_raw,
                         instruction=payload.message,
                         selected_text=payload.selected_text,
                         text_before=paragraph_before,
@@ -439,12 +580,13 @@ async def simple_assist(payload: SimpleAssistRequest):
                         prompt_tokens=p_tokens,
                         completion_tokens=c_tokens,
                         total_tokens=t_tokens,
+                        thinking_output=full_thinking or None,
                     )
                 )
 
                 yield {"data": json.dumps({
                     "status": "applied",
-                    "output": output_text,
+                    "output": writer_output,
                     "cursor_paragraph_index": resolved_idx,
                     "model_used": actual_model
                 })}
@@ -462,26 +604,53 @@ async def simple_assist(payload: SimpleAssistRequest):
                 if payload.selected_text:
                     user_message = f"[{len(payload.selected_text)} Ch]: \"{payload.selected_text[:120]}...\"\n\n{user_message}"
 
+                settings = storage.get_settings()
+                messages = _build_chat_messages(payload.session_id, full_system, user_message, settings)
+
                 user_prompt = ""
-                for h in payload.history:
-                    role = h.get("role", "user")
-                    content = h.get("content", "")
-                    tag = "User" if role == "user" else "Assistant"
-                    user_prompt += f"{tag}: {content}\n\n"
-                user_prompt += f"User: {user_message}"
+                for msg in messages:
+                    if msg["role"] == "user":
+                        user_prompt += f"User: {msg['content']}\n\n"
+                    elif msg["role"] == "assistant":
+                        user_prompt += f"Assistant: {msg['content']}\n\n"
+                user_prompt = user_prompt.strip()
 
                 system_prompt = full_system
 
                 loop = asyncio.get_running_loop()
-                result = await loop.run_in_executor(
-                    None,
-                    lambda: client.generate_to_completion(
-                        system_prompt=full_system,
-                        user_prompt=user_prompt,
-                        temperature=0.7,
-                        max_tokens=_pick_writer_max_tokens(),
-                    )
-                )
+                queue = asyncio.Queue()
+
+                def run_chat_stream():
+                    try:
+                        gen = client.generate_stream_with_history(
+                            messages=messages,
+                            temperature=0.7,
+                            max_tokens=_pick_writer_max_tokens(),
+                        )
+                        for chunk_type, chunk_text in gen:
+                            loop.call_soon_threadsafe(queue.put_nowait, (chunk_type, chunk_text))
+                        loop.call_soon_threadsafe(queue.put_nowait, ("done", None))
+                    except Exception as e:
+                        loop.call_soon_threadsafe(queue.put_nowait, ("error", e))
+
+                # Start streaming in executor thread
+                loop.run_in_executor(None, run_chat_stream)
+
+                full_chat = ""
+                full_thinking = ""
+                while True:
+                    msg_type, val = await queue.get()
+                    if msg_type == "chunk":
+                        full_chat += val
+                        yield {"data": json.dumps({"status": "chunk", "chunk": val})}
+                    elif msg_type == "thinking":
+                        full_thinking += val
+                        yield {"data": json.dumps({"status": "thinking_chunk", "chunk": val})}
+                    elif msg_type == "done":
+                        break
+                    elif msg_type == "error":
+                        raise val
+
                 actual_model = getattr(client, "last_model_used", client.model)
                 chat_usage = client.last_usage or {
                     "prompt_tokens": 0,
@@ -496,7 +665,7 @@ async def simple_assist(payload: SimpleAssistRequest):
                         session_id=payload.session_id,
                         system_prompt=full_system,
                         user_prompt=user_prompt,
-                        response=result,
+                        response=full_chat,
                         instruction=message,
                         ref_files=payload.ref_files,
                         selected_text=payload.selected_text,
@@ -505,12 +674,13 @@ async def simple_assist(payload: SimpleAssistRequest):
                         prompt_tokens=chat_usage.get("prompt_tokens", 0),
                         completion_tokens=chat_usage.get("completion_tokens", 0),
                         total_tokens=chat_usage.get("total_tokens", 0),
+                        thinking_output=full_thinking or None,
                     )
                 )
 
                 yield {"data": json.dumps({
                     "status": "chat",
-                    "output": result,
+                    "output": full_chat,
                     "model_used": actual_model
                 })}
         except Exception as e:

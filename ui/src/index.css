@@ -648,6 +648,33 @@
   opacity: 1;
 }
 
+.contenteditable-input {
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+  outline: none;
+  -webkit-user-modify: read-write;
+}
+
+.contenteditable-input:empty:before {
+  content: attr(data-placeholder);
+  color: var(--text-muted);
+  pointer-events: none;
+  cursor: text;
+}
+
+.contenteditable-input:empty:focus:before {
+  content: attr(data-placeholder);
+}
+
+.contenteditable-input [contenteditable="false"] {
+  cursor: default;
+}
+
+html {
+  background-color: var(--bg-editor);
+}
+
 body {
   font-family: var(--font-ui);
   background: var(--bg);
@@ -736,6 +763,9 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: color-mix(in srgb, var(--text-secondary) 60%, transparent);
 }
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
 * {
   scrollbar-width: thin;
   scrollbar-color: transparent transparent;
@@ -756,6 +786,7 @@ body {
 .editor-scroll-container::-webkit-scrollbar-track {
   margin-top: 32px;
   margin-bottom: 32px;
+  background: transparent;
 }
 
 @keyframes slideInRight {
@@ -772,3 +803,82 @@ body {
 .animate-slide-in-right {
   animation: slideInRight 250ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
+
+:root {
+  --shimmer-placeholder-length: 10;
+  --shimmer-bg-spread: 6;
+  --shimmer-bg-angle: 90;
+  --shimmer-offset: calc(var(--shimmer-bg-spread, 6) * 0.5ch);
+  --shimmer-angle: calc(var(--shimmer-bg-angle) * 1deg);
+  --shimmer-classic: linear-gradient(
+    var(--shimmer-angle),
+    #0000 calc(50% - var(--shimmer-offset)),
+    var(--text-heading),
+    #0000 calc(50% + var(--shimmer-offset))
+  );
+  --shimmer-chosen: var(--shimmer-classic);
+  --shimmer-place-color: color-mix(in srgb, var(--text-muted) 75%, transparent);
+  --shimmer-bg: var(--shimmer-chosen) 0 0 / 300% 100% no-repeat border-box,
+    linear-gradient(var(--shimmer-place-color), var(--shimmer-place-color)) padding-box;
+}
+
+[data-shimmer-style='classic'] { --shimmer-chosen: var(--shimmer-classic); }
+
+@keyframes shimmer {
+  0% { background-position: 100% 0; }
+  50%, 100% { background-position: 0% 0; }
+}
+
+.animate-shimmer {
+  --multiplier: 3.5;
+  --duration: calc((var(--shimmer-placeholder-length, 10) * var(--multiplier)) * 0.2s);
+  white-space: nowrap;
+  background: var(--shimmer-bg);
+  animation: shimmer var(--duration) infinite both ease-in-out;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  display: inline-block;
+}
+
+@keyframes indicator-flash {
+  0% {
+    box-shadow: 0 0 0px transparent;
+    transform: scale(1);
+  }
+  20% {
+    box-shadow: 0 0 10px color-mix(in srgb, var(--accent-brown) 90%, transparent);
+    transform: scale(1.08);
+  }
+  100% {
+    box-shadow: 0 0 0px transparent;
+    transform: scale(1);
+  }
+}
+
+.status-indicator-square {
+  width: 10px;
+  height: 10px;
+  background-color: var(--accent-brown);
+  border-radius: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.animate-flash {
+  animation: indicator-flash 0.8s ease-out;
+}
+
+.status-indicator-inner {
+  width: 3.5px;
+  height: 3.5px;
+  background-color: var(--bg);
+  border-radius: 0.5px;
+}
+
+
+

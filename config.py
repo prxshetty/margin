@@ -20,7 +20,6 @@ LMSTUDIO = {
     "stream": True,
 }
 
-REASONING_MODEL = os.getenv("REASONING_MODEL", "").lower() in ("true", "1", "yes")
 DISABLE_TOKEN_LIMITS = os.getenv("DISABLE_TOKEN_LIMITS", "").lower() in ("true", "1", "yes")
 
 THINKING_PREAMBLE = (

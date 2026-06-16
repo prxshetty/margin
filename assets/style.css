@@ -29,6 +29,11 @@
   padding: 0;
 }
 
+html {
+  background-color: var(--bg-canvas);
+  overflow-y: overlay;
+}
+
 body {
   font-family: var(--font-sans);
   background-color: var(--bg-canvas);
@@ -55,6 +60,10 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(115, 79, 45, 0.3);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 /* Page Layout Wrapper */

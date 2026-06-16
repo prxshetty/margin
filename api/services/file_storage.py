@@ -40,7 +40,7 @@ class FileStorageService:
     def get_settings(self) -> Dict[str, Any]:
         settings = {
             "linked_workspace_dir": None,
-            "reasoning_model": True,
+            "is_thinking": True,
             "prepend_thinking_preamble": False,  # Off by default!
             "dialogue_density": 0.5,
             "additional_context": "",

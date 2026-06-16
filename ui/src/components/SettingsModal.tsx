@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { X, Plus, Trash2, CheckCircle, Play, RefreshCw, Edit } from 'lucide-react'
+import { X, Plus, Trash2, CheckCircle, Play, RefreshCw, Edit, Brain } from 'lucide-react'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useEditorStore } from '../stores/editorStore'
 import type { AppSettings } from '../stores/settingsStore'
@@ -432,6 +432,29 @@ function ContextSettings({
 
   return (
     <div className="flex flex-col gap-8">
+      <section className="border-b border-[var(--border-subtle)] pb-6">
+        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Session Memory</h3>
+        <p className="text-[12px] text-[var(--text-secondary)] mb-3">
+          Configure how previous conversation history and edits are carried forward.
+        </p>
+        <div className="flex flex-col gap-4">
+          <div className="flex items-center gap-2">
+            <span className="text-[12px] text-[var(--text-secondary)] min-w-[130px]">Max History Depth:</span>
+            <input
+              type="number"
+              min="1"
+              max="10"
+              value={settings.history_turns ?? 5}
+              onChange={(e) => updateSettings({ history_turns: Math.max(1, Math.min(10, parseInt(e.target.value) || 1)) })}
+              className="w-16 border border-[var(--border-subtle)] rounded-[6px] px-2 py-1 text-[13px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]"
+            />
+            <span className="text-[11px] text-[var(--text-muted)]">
+              The maximum number of recent conversation turns to retain.
+            </span>
+          </div>
+        </div>
+      </section>
+
       <section>
         <div className="flex items-center justify-between mb-1">
           <h3 className="text-[13px] font-medium text-[var(--text-heading)]">Tone Preset</h3>
@@ -576,12 +599,54 @@ function ContextSettings({
   )
 }
 
+function AddCustomTagForm({ onAdd }: { onAdd: (open: string, close: string) => void }) {
+  const [openTag, setOpenTag] = useState('')
+  const [closeTag, setCloseTag] = useState('')
+
+  const handleAddTag = () => {
+    const o = openTag.trim()
+    const c = closeTag.trim()
+    if (o && c) {
+      onAdd(o, c)
+      setOpenTag('')
+      setCloseTag('')
+    }
+  }
+
+  return (
+    <div className="flex gap-2 items-center mt-1 w-full">
+      <input
+        placeholder="<think>"
+        value={openTag}
+        onChange={(e) => setOpenTag(e.target.value)}
+        className="flex-1 min-w-0 border border-[var(--border-subtle)] rounded-[4px] px-2.5 py-1 text-[11px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)] font-mono"
+      />
+      <input
+        placeholder="</think>"
+        value={closeTag}
+        onChange={(e) => setCloseTag(e.target.value)}
+        className="flex-1 min-w-0 border border-[var(--border-subtle)] rounded-[4px] px-2.5 py-1 text-[11px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)] font-mono"
+      />
+      <button
+        type="button"
+        onClick={handleAddTag}
+        disabled={!openTag.trim() || !closeTag.trim()}
+        className="px-2.5 py-1 text-[11px] bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[4px] hover:border-[var(--text-secondary)] text-[var(--text-heading)] font-medium transition-colors disabled:opacity-50 cursor-pointer shrink-0"
+      >
+        Add
+      </button>
+    </div>
+  )
+}
+
 function EndpointsSettings({ settings, updateSettings }: { settings: AppSettings, updateSettings: (u: Partial<AppSettings>) => void }) {
   const [newId, setNewId] = useState('')
   const [newUrl, setNewUrl] = useState('http://localhost:1234')
   const [newKey, setNewKey] = useState('')
   const [newModel, setNewModel] = useState('')
   const [newContext, setNewContext] = useState('8192')
+  const [newIsThinking, setNewIsThinking] = useState(true)
+  const [newCustomTags, setNewCustomTags] = useState<{ open: string; close: string }[]>([])
   const [editingId, setEditingId] = useState<string | null>(null)
   const [testResult, setTestResult] = useState<{ status: 'idle' | 'testing' | 'success' | 'error', msg?: string }>({ status: 'idle' })
 
@@ -594,7 +659,9 @@ function EndpointsSettings({ settings, updateSettings }: { settings: AppSettings
         url: newUrl,
         api_key: newKey,
         model: newModel,
-        context_window: parseInt(newContext) || undefined
+        context_window: parseInt(newContext) || undefined,
+        is_thinking: newIsThinking,
+        custom_thinking_tags: newCustomTags
       }
     }
     if (editingId && editingId !== id) {
@@ -610,6 +677,8 @@ function EndpointsSettings({ settings, updateSettings }: { settings: AppSettings
     setNewKey('')
     setNewModel('')
     setNewContext('8192')
+    setNewIsThinking(true)
+    setNewCustomTags([])
   }
 
   const handleCancelEdit = () => {
@@ -619,6 +688,8 @@ function EndpointsSettings({ settings, updateSettings }: { settings: AppSettings
     setNewKey('')
     setNewModel('')
     setNewContext('8192')
+    setNewIsThinking(true)
+    setNewCustomTags([])
   }
 
   const handleTest = async (url: string, key: string) => {
@@ -651,65 +722,103 @@ function EndpointsSettings({ settings, updateSettings }: { settings: AppSettings
         <p className="text-[12px] text-[var(--text-secondary)] mb-3">Select the LLM routing endpoint. If none, falls back to .env defaults.</p>
 
         <div className="flex flex-col gap-2">
-          <label className="flex items-center gap-3 p-3 border border-[var(--border-subtle)] rounded-[6px] cursor-pointer hover:bg-[var(--bg-hover)] transition-colors">
-            <input
-              type="radio"
-              name="active_endpoint"
-              checked={settings.active_endpoint === null}
-              onChange={() => updateSettings({ active_endpoint: null })}
-              className="accent-[var(--accent-brown)]"
-            />
-            <span className="text-[13px] font-medium text-[var(--text-heading)] flex-1">.env Default (Local)</span>
-            <div className="flex items-center gap-2" onClick={(e) => e.preventDefault()}>
-              <button onClick={() => handleTest("default", "")} className="p-1.5 text-[var(--text-secondary)] hover:text-[var(--text-heading)] bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[4px] cursor-pointer" title="Test Connection">
-                <Play size={14} />
-              </button>
-            </div>
-          </label>
-
-          {Object.entries(settings.endpoints || {}).map(([id, ep]) => (
-            <div key={id} className={`flex items-center justify-between p-3 border rounded-[6px] transition-colors ${settings.active_endpoint === id ? 'border-[var(--text-secondary)] bg-[var(--bg-hover)]' : 'border-[var(--border-subtle)] hover:bg-[var(--bg-hover)]'}`}>
-              <label className="flex items-center gap-3 cursor-pointer flex-1">
-                <input
-                  type="radio"
-                  name="active_endpoint"
-                  checked={settings.active_endpoint === id}
-                  onChange={() => updateSettings({ active_endpoint: id })}
-                  className="accent-[var(--accent-brown)]"
-                />
-                <div className="flex flex-col">
-                  <span className="text-[13px] font-medium text-[var(--text-heading)] capitalize">{id.replace('_', ' ')}</span>
-                  <span className="text-[11px] text-[var(--text-secondary)]">{ep.url} {ep.model ? `• ${ep.model}` : ''} {ep.context_window ? `• ${ep.context_window.toLocaleString()} ctx` : ''}</span>
+          <div className={`flex flex-col border border-[var(--border-subtle)] rounded-[6px] transition-colors ${settings.active_endpoint === null ? 'border-[var(--text-secondary)] bg-[var(--bg-hover)]' : ''}`}>
+            <label className="flex items-center gap-3 p-3 cursor-pointer hover:bg-[var(--bg-hover)]/30 transition-colors">
+              <input
+                type="radio"
+                name="active_endpoint"
+                checked={settings.active_endpoint === null}
+                onChange={() => updateSettings({ active_endpoint: null })}
+                className="accent-[var(--accent-brown)]"
+              />
+              <div className="flex-1 flex flex-col min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-[13px] font-medium text-[var(--text-heading)]">.env Default (Local)</span>
+                  {settings.is_thinking !== false && (
+                    <span title="Thinking Filter Enabled">
+                      <Brain size={14} className="text-[var(--text-secondary)] shrink-0" />
+                    </span>
+                  )}
                 </div>
-              </label>
-              <div className="flex items-center gap-2">
-                <button onClick={() => handleTest(ep.url, ep.api_key)} className="p-1.5 text-[var(--text-secondary)] hover:text-[var(--text-heading)] bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[4px] cursor-pointer" title="Test Connection">
+                <span className="text-[11px] text-[var(--text-secondary)] truncate">Fallback configuration</span>
+              </div>
+              <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                <button onClick={() => handleTest("default", "")} className="p-1.5 text-[var(--text-secondary)] hover:text-[var(--text-heading)] bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[4px] cursor-pointer" title="Test Connection">
                   <Play size={14} />
                 </button>
-                <button
-                  onClick={() => {
-                    setEditingId(id)
-                    setNewId(id)
-                    setNewUrl(ep.url)
-                    setNewKey(ep.api_key || '')
-                    setNewModel(ep.model || '')
-                    setNewContext(ep.context_window ? String(ep.context_window) : '8192')
-                  }}
-                  className="p-1.5 text-[var(--text-secondary)] hover:text-[var(--text-heading)] bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[4px] cursor-pointer" title="Edit Endpoint"
-                >
-                  <Edit size={14} />
-                </button>
-                <button
-                  onClick={() => {
-                    const newEps = { ...settings.endpoints }
-                    delete newEps[id]
-                    updateSettings({ endpoints: newEps, active_endpoint: settings.active_endpoint === id ? null : settings.active_endpoint })
-                    if (editingId === id) handleCancelEdit()
-                  }}
-                  className="p-1.5 text-[var(--text-secondary)] hover:text-red-500 bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[4px] cursor-pointer" title="Delete"
-                >
-                  <Trash2 size={14} />
-                </button>
+              </div>
+            </label>
+            <div className="px-3 pb-3 pt-1.5 border-t border-[var(--border-subtle)]/30 flex items-center justify-between gap-4">
+              <div className="flex flex-col">
+                <span className="text-[12px] font-medium text-[var(--text-secondary)]">Thinking Model</span>
+                <span className="text-[10px] text-[var(--text-muted)]">Filters reasoning/thinking blocks dynamically.</span>
+              </div>
+              <input
+                type="checkbox"
+                checked={settings.is_thinking !== false}
+                onChange={(e) => updateSettings({ is_thinking: e.target.checked })}
+                className="accent-[var(--accent-brown)] cursor-pointer w-4 h-4"
+              />
+            </div>
+          </div>
+
+          {Object.entries(settings.endpoints || {}).map(([id, ep]) => (
+            <div key={id} className={`flex flex-col border rounded-[6px] transition-colors ${settings.active_endpoint === id ? 'border-[var(--text-secondary)] bg-[var(--bg-hover)]' : 'border-[var(--border-subtle)] hover:bg-[var(--bg-hover)]'}`}>
+              <div className="flex items-center justify-between p-3">
+                <label className="flex items-center gap-3 cursor-pointer flex-1">
+                  <input
+                    type="radio"
+                    name="active_endpoint"
+                    checked={settings.active_endpoint === id}
+                    onChange={() => updateSettings({ active_endpoint: id })}
+                    className="accent-[var(--accent-brown)]"
+                  />
+                  <div className="flex flex-col min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[13px] font-medium text-[var(--text-heading)] capitalize truncate">{id.replace('_', ' ')}</span>
+                      {ep.is_thinking !== false && (
+                        <span title="Thinking Filter Enabled">
+                          <Brain size={14} className="text-[var(--text-secondary)] shrink-0" />
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[11px] text-[var(--text-secondary)] truncate">
+                      {ep.url} {ep.model ? `• ${ep.model}` : ''} {ep.context_window ? `• ${ep.context_window.toLocaleString()} ctx` : ''}
+                      {ep.custom_thinking_tags && ep.custom_thinking_tags.length > 0 && ` • +${ep.custom_thinking_tags.length} custom`}
+                    </span>
+                  </div>
+                </label>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => handleTest(ep.url, ep.api_key)} className="p-1.5 text-[var(--text-secondary)] hover:text-[var(--text-heading)] bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[4px] cursor-pointer" title="Test Connection">
+                    <Play size={14} />
+                  </button>
+                  <button
+                    onClick={() => {
+                      setEditingId(id)
+                      setNewId(id)
+                      setNewUrl(ep.url)
+                      setNewKey(ep.api_key || '')
+                      setNewModel(ep.model || '')
+                      setNewContext(ep.context_window ? String(ep.context_window) : '8192')
+                      setNewIsThinking(ep.is_thinking !== false)
+                      setNewCustomTags(ep.custom_thinking_tags || [])
+                    }}
+                    className="p-1.5 text-[var(--text-secondary)] hover:text-[var(--text-heading)] bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[4px] cursor-pointer" title="Edit Endpoint"
+                  >
+                    <Edit size={14} />
+                  </button>
+                  <button
+                    onClick={() => {
+                      const newEps = { ...settings.endpoints }
+                      delete newEps[id]
+                      updateSettings({ endpoints: newEps, active_endpoint: settings.active_endpoint === id ? null : settings.active_endpoint })
+                      if (editingId === id) handleCancelEdit()
+                    }}
+                    className="p-1.5 text-[var(--text-secondary)] hover:text-red-500 bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[4px] cursor-pointer" title="Delete"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
               </div>
             </div>
           ))}
@@ -730,7 +839,56 @@ function EndpointsSettings({ settings, updateSettings }: { settings: AppSettings
           </div>
         </div>
 
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-4 border-t border-[var(--border-subtle)]/50 pt-3 mt-3 mb-3">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex flex-col">
+              <span className="text-[12px] font-medium text-[var(--text-heading)]">Thinking Model</span>
+              <span className="text-[10.5px] text-[var(--text-secondary)]">Enable dynamic filtering of thinking/reasoning blocks.</span>
+            </div>
+            <input
+              type="checkbox"
+              checked={newIsThinking}
+              onChange={(e) => setNewIsThinking(e.target.checked)}
+              className="accent-[var(--accent-brown)] cursor-pointer w-4 h-4"
+            />
+          </div>
+
+          {newIsThinking && (
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-col">
+                <span className="text-[12px] font-medium text-[var(--text-heading)]">Custom Thinking Tags</span>
+                <span className="text-[10.5px] text-[var(--text-secondary)]">Add tag pairs to filter out. Default tags are supported automatically.</span>
+              </div>
+              
+              {newCustomTags.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-1">
+                  {newCustomTags.map((tag, idx) => (
+                    <span key={idx} className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[4px] text-[var(--text-heading)] font-mono">
+                      <span>{tag.open}</span>
+                      <span className="text-[var(--text-muted)]">➔</span>
+                      <span>{tag.close}</span>
+                      <button
+                        type="button"
+                        onClick={() => setNewCustomTags(newCustomTags.filter((_, i) => i !== idx))}
+                        className="text-[var(--text-muted)] hover:text-red-500 transition-colors ml-1 font-sans font-bold cursor-pointer"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              <AddCustomTagForm
+                onAdd={(open, close) => {
+                  setNewCustomTags([...newCustomTags, { open, close }])
+                }}
+              />
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-between border-t border-[var(--border-subtle)]/50 pt-3">
           <div className="flex items-center gap-2">
             <button onClick={() => handleTest(newUrl, newKey)} disabled={!newUrl || testResult.status === 'testing'} className="px-3 py-1.5 text-[12px] bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[4px] hover:border-[var(--text-secondary)] transition-colors disabled:opacity-50 cursor-pointer text-[var(--text)]">
               {testResult.status === 'testing' ? 'Testing...' : 'Test Connection'}

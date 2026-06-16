@@ -9,9 +9,17 @@ export interface AppSettings {
   show_thinking_by_default: boolean
   pinned_ref_files: string[]
   ignored_ref_files?: string[]
-  endpoints: Record<string, { url: string; api_key: string; model: string; context_window?: number }>
+  endpoints: Record<string, {
+    url: string
+    api_key: string
+    model: string
+    context_window?: number
+    is_thinking?: boolean
+    custom_thinking_tags?: Array<{ open: string; close: string }>
+  }>
   default_context_window?: number
   active_endpoint: string | null
+  is_thinking?: boolean
   theme?: 'light' | 'dark' | 'system'
   theme_family?: 'sand' | 'notion' | 'sage' | 'blue' | 'rose'
   text_style?: 'system' | 'editorial' | 'manuscript' | 'technical' | 'warm'
@@ -19,6 +27,7 @@ export interface AppSettings {
   show_outline?: boolean
   planner_include_outline?: boolean
   linked_workspace_dir?: string | null
+  history_turns?: number
 }
 
 interface SettingsState {
