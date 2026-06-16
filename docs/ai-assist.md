@@ -58,6 +58,28 @@ In Edit mode, the AI always receives exactly three paragraphs of surrounding con
 
 This keeps token usage low and focused, which is especially important for smaller local models. The Writer agent is instructed to never echo or reproduce the surrounding paragraphs -- only to produce new text for the target.
 
+## Reasoning & Thinking
+
+Some AI models produce internal reasoning (or "thinking") before generating their final response. When this happens, the reasoning text appears in a collapsible **Thought Process** dropdown above the response.
+
+### During Streaming
+
+While the model is generating, the reasoning text streams in live and the dropdown opens automatically. You can close it to focus on the final output as it arrives.
+
+### In History
+
+Past AI responses that included reasoning show a collapsed **Thought Process** button. Click it to review the model's reasoning after the fact.
+
+### How to Control It
+
+You can configure the thinking behavior per endpoint in **Settings > Endpoints**:
+
+- **Thinking Model toggle**: Turn reasoning on or off for a specific endpoint. When off, the model's output passes through unmodified.
+- **Custom Thinking Tags**: Some models use non-standard reasoning tags. You can add custom `(open, close)` tag pairs so the system can strip them from the output you see.
+- **Show thinking by default**: Set whether the Thought Process dropdown opens automatically for new responses.
+
+> See [Endpoints > Reasoning Settings](./configuration/endpoints.md#reasoning-settings) for full configuration details.
+
 ## Debugging & Telemetry
 
 Each AI request and response is logged locally. Click the **telemetry / book icon** in the AI Assist panel to open the inspector, which shows:

@@ -45,3 +45,7 @@ h4 {
 html {
     overflow-y: scroll;
 }
+
+.dark img[src*="logo"] {
+    filter: invert(1);
+}

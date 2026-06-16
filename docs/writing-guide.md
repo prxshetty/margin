@@ -47,7 +47,7 @@ workspace/
 │   ├── CHARACTERS.md  Manifest: lists all character files
 │   ├── elara.md
 │   └── kaelen.md
-├── styles/            Tone/style preset files (with YAML frontmatter)
+├── styles/            Tone/style preset files
 │   ├── STYLES.md      Manifest: lists all style files
 │   ├── cinematic.md
 │   └── general.md
@@ -72,14 +72,12 @@ workspace/characters/
 Each manifest is a markdown file that lists the files in its folder with a brief description. For example, `CHARACTERS.md`:
 
 ```markdown
-# Characters
-
 - elara_vance.md -- Protagonist, volatile artist
 - kaelen_rhys.md -- Frenemy, sarcastic and grounded
 - lena_hayes.md -- Dr. Lena Hayes, calm scientist
 ```
 
-::: tip Manifests are maintained automatically -- when you add or remove files through the UI, the manifest updates itself.
+::: tip Manifests are maintained by hand -- when you add or remove files, update the manifest to keep it in sync with the folder contents.
 :::
 
 ### How the Planner Uses Manifests
@@ -90,7 +88,7 @@ This means you don't need to manually specify which files to include -- the Plan
 
 ## Character Profiles
 
-Create markdown files inside a `characters/` folder in your workspace. Each file describes a character:
+Create markdown files inside a `characters/` folder in your workspace. Each file describes a character — the entire file content is sent to the AI when the profile is referenced, so structure it however makes the information clearest for both you and the model:
 
 ```markdown
 # Elara Vance
@@ -103,26 +101,20 @@ When you mention a character name in your request, the Planner automatically fin
 
 ## Style Presets (Tone Presets)
 
-Define writing styles as markdown files inside a `styles/` folder. Each file uses YAML frontmatter to declare metadata, followed by markdown guidelines:
+Define writing styles as markdown files inside a `styles/` folder. Each file is plain markdown with section headings for guidelines:
 
 ```markdown
----
-description: Full cinematic scene -- narration sets atmosphere, dialogue drives conflict.
-output_size: expansive
----
-
 ## Writer Guidelines
 - Show, don't tell. Use sensory details.
 - Keep descriptions heavy and atmospheric.
 - Dialogue should feel natural, not expository.
 ```
 
-### Frontmatter Fields
+The **description** shown in the Tone Preset selector comes from the `STYLES.md` manifest file in the same folder. Each entry maps a style filename to a short summary:
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `description` | Yes | Short summary shown in the Tone Preset selector |
-| `output_size` | No | Overrides verbosity: `concise`, `balanced`, `expansive` |
+```markdown
+- cinematic -- Full cinematic scene -- narration sets the atmosphere, dialogue drives the conflict
+```
 
 Available styles appear automatically in Settings under **Context > Tone Preset**. Select **Auto** to let the Planner choose, or pick a specific style.
 

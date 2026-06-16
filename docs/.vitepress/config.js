@@ -3,6 +3,8 @@ export default {
     description: 'Notes in the margin of your manuscript',
     base: '/margin/docs/',
     themeConfig: {
+        logo: '/logo.png',
+        siteTitle: false,
         socialLinks: [
             { icon: 'github', link: 'https://github.com/prxshetty/margin' }
         ],
@@ -14,6 +16,7 @@ export default {
                     { text: 'AI Assist', link: '/ai-assist' },
                     {
                         text: 'Configuration',
+                        collapsed: true,
                         items: [
                             { text: 'General', link: '/configuration/general' },
                             { text: 'Appearance', link: '/configuration/appearance' },
