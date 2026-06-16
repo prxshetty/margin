@@ -75,11 +75,20 @@ export const AiDiffHighlightExtension = Extension.create<AiDiffHighlightOptions>
                   return true
                 })
 
+                // Inline widget — sits in normal document flow before the first
+                // highlighted block. Do NOT use position:absolute — ProseMirror
+                // would resolve it against the whole editor container, not the
+                // paragraph, causing the widget to float to the editor's top-right.
                 const widget = document.createElement('div')
-                widget.style.position = 'absolute'
-                widget.style.right = '1rem' // Placed inside the padding so it doesn't get cut off
-                widget.style.zIndex = '40'
-                widget.className = 'flex flex-row items-center p-1 gap-1 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-[8px] shadow-[0_4px_12px_rgba(0,0,0,0.06)] animate-fade-in select-none'
+                widget.style.display = 'flex'
+                widget.style.flexDirection = 'row'
+                widget.style.alignItems = 'center'
+                widget.style.gap = '2px'
+                widget.style.padding = '2px'
+                widget.style.marginBottom = '4px'
+                widget.style.width = 'fit-content'
+                widget.style.marginLeft = 'auto'
+                widget.className = 'bg-[var(--bg-elevated)] border border-[var(--border)] rounded-[8px] shadow-[0_4px_12px_rgba(0,0,0,0.06)] select-none animate-fade-in'
 
                 widget.innerHTML = `
                   <button class="accept-btn flex items-center justify-center w-6 h-6 rounded-[4px] text-[var(--text-accent)] hover:bg-[var(--bg-hover)] cursor-pointer transition-all active:scale-[0.9]" title="Accept changes (✓)">
@@ -91,7 +100,7 @@ export const AiDiffHighlightExtension = Extension.create<AiDiffHighlightOptions>
                   </button>
                 `
 
-                // We use dynamic imports to prevent circular dependency issues during plugin eval
+                // Dynamic import avoids circular dependency issues during plugin eval
                 import('../../stores/editorStore').then(({ useEditorStore }) => {
                   widget.querySelector('.accept-btn')?.addEventListener('click', (e) => {
                     e.preventDefault()
@@ -116,6 +125,8 @@ export const AiDiffHighlightExtension = Extension.create<AiDiffHighlightOptions>
                   })
                 })
 
+                // side: -1 inserts the widget BEFORE the character at `from`,
+                // placing it above the first highlighted block in the text flow
                 decorations.push(Decoration.widget(from, widget, { side: -1 }))
 
                 return DecorationSet.create(tr.doc, decorations)
