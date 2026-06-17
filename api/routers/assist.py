@@ -284,7 +284,7 @@ def _build_planner_history(session_id: Optional[str], settings: dict) -> str:
     filtered_logs = [
         log for log in logs
         if log.get("session_id") == session_id
-        and log.get("mode") == "edit"
+        and log.get("mode") == "edit_plan"
         and log.get("success", True)
     ]
     filtered_logs.sort(key=lambda x: x.get("timestamp", ""))
@@ -328,7 +328,7 @@ def run_planner(
     selected_text: Optional[str] = None,
     cursor_paragraph_text: Optional[str] = None,
     session_id: Optional[str] = None,
-) -> tuple[dict, str, str, str, Optional[dict]]:
+) -> tuple[dict, str, str, str, Optional[dict], str]:
     system = _load_simple_prompt("simple-planner.md")
     
     user_prompt_lines = [f"USER_INSTRUCTION:\n{message}\n"]
@@ -378,15 +378,16 @@ def run_planner(
         temperature=0.1,
         max_tokens=None
     )
+    model_used = getattr(client, "last_model_used", client.model)
     
     try:
-        return json.loads(raw), system, user, raw, client.last_usage
+        return json.loads(raw), system, user, raw, client.last_usage, model_used
     except Exception:
         try:
             start, end = raw.find("{"), raw.rfind("}") + 1
-            return json.loads(raw[start:end]), system, user, raw, client.last_usage
+            return json.loads(raw[start:end]), system, user, raw, client.last_usage, model_used
         except Exception:
-            return {"context_needed": [], "refined_query": message}, system, user, raw, client.last_usage
+            return {"context_needed": [], "refined_query": message}, system, user, raw, client.last_usage, model_used
 
 
 
@@ -465,7 +466,7 @@ async def simple_assist(payload: SimpleAssistRequest):
                 yield {"data": json.dumps({"status": "planning"})}
 
                 loop = asyncio.get_running_loop()
-                plan, planner_system, planner_user, planner_raw, planner_usage = await loop.run_in_executor(
+                plan, planner_system, planner_user, planner_raw, planner_usage, planner_model = await loop.run_in_executor(
                     None,
                     lambda: run_planner(
                         payload.content,
@@ -476,6 +477,25 @@ async def simple_assist(payload: SimpleAssistRequest):
                     )
                 )
 
+                await loop.run_in_executor(
+                    None,
+                    lambda: _log_simple_assist(
+                        mode="edit_plan",
+                        session_id=payload.session_id,
+                        system_prompt=planner_system,
+                        user_prompt=planner_user,
+                        response=planner_raw,
+                        instruction=payload.message,
+                        selected_text=payload.selected_text,
+                        edit_mode=edit_mode,
+                        success=True,
+                        model_used=planner_model,
+                        planner_output=planner_raw,
+                        prompt_tokens=planner_usage.get("prompt_tokens", 0) if planner_usage else 0,
+                        completion_tokens=planner_usage.get("completion_tokens", 0) if planner_usage else 0,
+                        total_tokens=planner_usage.get("total_tokens", 0) if planner_usage else 0,
+                    )
+                )
                 context_needed = plan.get("context_needed", [])
                 query = plan.get("refined_query") or payload.message
 
@@ -540,11 +560,6 @@ async def simple_assist(payload: SimpleAssistRequest):
                     "total_tokens": 0
                 }
 
-                # Combine planner and writer tokens
-                p_tokens = (planner_usage.get("prompt_tokens") if planner_usage else 0) + writer_usage.get("prompt_tokens", 0)
-                c_tokens = (planner_usage.get("completion_tokens") if planner_usage else 0) + writer_usage.get("completion_tokens", 0)
-                t_tokens = (planner_usage.get("total_tokens") if planner_usage else 0) + writer_usage.get("total_tokens", 0)
-
                 clean_raw = full_raw.strip()
                 if clean_raw.startswith("```"):
                     lines = clean_raw.splitlines()
@@ -560,7 +575,7 @@ async def simple_assist(payload: SimpleAssistRequest):
                 await loop.run_in_executor(
                     None,
                     lambda: _log_simple_assist(
-                        mode="edit",
+                        mode="edit_write",
                         session_id=payload.session_id,
                         system_prompt=system_prompt,
                         user_prompt=user_prompt,
@@ -577,9 +592,9 @@ async def simple_assist(payload: SimpleAssistRequest):
                         success=True,
                         cursor_paragraph_index=resolved_idx,
                         model_used=actual_model,
-                        prompt_tokens=p_tokens,
-                        completion_tokens=c_tokens,
-                        total_tokens=t_tokens,
+                        prompt_tokens=writer_usage.get("prompt_tokens", 0),
+                        completion_tokens=writer_usage.get("completion_tokens", 0),
+                        total_tokens=writer_usage.get("total_tokens", 0),
                         thinking_output=full_thinking or None,
                     )
                 )
@@ -700,9 +715,6 @@ async def simple_assist(payload: SimpleAssistRequest):
                         text_after=locals().get('paragraph_after', None),
                         ref_files=payload.ref_files,
                         edit_mode=edit_mode if mode == "edit" else None,
-                        planner_system_prompt=planner_system,
-                        planner_user_prompt=planner_user,
-                        planner_output=planner_raw,
                         success=False,
                         prompt_tokens=0,
                         completion_tokens=0,
