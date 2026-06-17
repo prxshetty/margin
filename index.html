@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>margin — a better harness for writing.</title>
+  <meta name="description"
+    content="A premium, style-driven, multi-agent story generation framework designed to run locally on Small Language Models (SLMs).">
+
+  <!-- SEO & Social Meta -->
+  <meta property="og:title" content="margin">
+  <meta property="og:description"
+    content="Style-driven, multi-agent story generation pipeline built for local Small Language Models (SLMs).">
+  <meta property="og:type" content="website">
+
+  <!-- Fonts: Instrument Serif + Geist + JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@100..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap"
+    rel="stylesheet">
+
+  <!-- Stylesheets -->
+  <link rel="stylesheet" href="assets/style.css">
+  <link rel="icon" type="image/png" href="assets/logo.png">
+</head>
+
+<body>
+
+  <header class="site-header home-header">
+    <div class="header-container">
+      <a href="index.html" class="logo-link header-reveal" style="transition-delay: 750ms;">
+        <img src="assets/logo.png" alt="margin logo" class="header-logo-img">
+      </a>
+      <nav class="header-nav header-reveal" style="transition-delay: 850ms;">
+        <a href="docs/" class="nav-link">Docs</a>
+        <a href="https://github.com/prxshetty/margin" class="btn btn-github-cta" target="_blank" rel="noopener">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path
+              d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22" />
+          </svg>
+          GitHub
+        </a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <!-- Hero Section -->
+    <header class="hero-section">
+      <div class="hero-content">
+        <h1 class="hero-title hero-text-reveal" style="transition-delay: 400ms;">A better harness for writing.</h1>
+        <p class="hero-subtitle hero-text-reveal" style="transition-delay: 550ms;">
+          A local AI writing tool that tracks your context automatically — your scene, your chapter, your cast. Works
+          offline. Works with small models. Markdown for all.
+        </p>
+
+        <div class="macos-window hero-window fade-in-up" style="margin-top: 2rem;">
+          <div class="window-chrome">
+            <div class="chrome-dots">
+              <div class="chrome-dot" style="background-color: #FF5F56;"></div>
+              <div class="chrome-dot" style="background-color: #FFBD2E;"></div>
+              <div class="chrome-dot" style="background-color: #27C93F;"></div>
+            </div>
+            <div class="window-title">simple-workspace / chapter_1.md</div>
+            <div style="width: 40px;"></div>
+          </div>
+
+          <div class="window-body">
+            <div class="mockup-sidebar">
+              <div>
+                <div class="mockup-section-title">Chapters</div>
+                <div class="mockup-file-list">
+                  <div class="mockup-file active" id="file-chapter-1">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+                      <polyline points="14 2 14 8 20 8" />
+                    </svg>
+                    chapter_1.md
+                  </div>
+                  <div class="mockup-file" id="file-chapter-2">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+                      <polyline points="14 2 14 8 20 8" />
+                    </svg>
+                    chapter_2.md
+                  </div>
+                </div>
+              </div>
+              <div>
+                <div class="mockup-section-title">Characters</div>
+                <div class="mockup-file-list">
+                  <div class="mockup-file" id="file-kaelen">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                      <circle cx="12" cy="7" r="4" />
+                    </svg>
+                    kaelen.md
+                  </div>
+                </div>
+              </div>
+              <div>
+                <div class="mockup-section-title">Worlds</div>
+                <div class="mockup-file-list">
+                  <div class="mockup-file" id="file-eldoria">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <circle cx="12" cy="12" r="10" />
+                      <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
+                      <path d="M2 12h20" />
+                    </svg>
+                    eldoria.md
+                  </div>
+                </div>
+              </div>
+              <div>
+                <div class="mockup-section-title">Styles</div>
+                <div class="mockup-file-list">
+                  <div class="mockup-file" id="file-gothic">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+                      <polyline points="14 2 14 8 20 8" />
+                    </svg>
+                    gothic.md
+                  </div>
+                  <div class="mockup-file" id="file-voice">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                      <circle cx="12" cy="7" r="4" />
+                    </svg>
+                    voice.md
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="mockup-editor-card-container">
+              <div class="mockup-editor-card">
+                <div class="mockup-editor" id="mock-editor" contenteditable="true" spellcheck="false">
+                  <h2>Chapter 1 — The Damp Hollow</h2>
+                  <p id="editor-p1">The fog settled thick over the rotting floor of the wood. Kaelen walked slowly, his
+                    eyes shifting behind the branches. <span id="selection-target">The weather was bad, and he was quite
+                      cold.</span> The trail had vanished an hour ago under a thick shroud of pine needles and damp leaf
+                    mulch.</p>
+                  <p id="editor-p2">He paused, pressing a calloused palm against the cold bark of a dying elm. In the
+                    silence, the distant babble of the creek sounded like muted whispering.</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="mockup-assist-panel">
+              <div class="assist-header">
+                <span class="assist-title">Assist</span>
+                <div class="assist-header-actions">
+                  <svg class="assist-header-icon" width="12" height="12" viewBox="0 0 20 20" fill="none"
+                    stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M10 3v14M3 10h14" />
+                  </svg>
+                  <svg class="assist-header-icon" width="12" height="12" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M11.25 7.75v5h3" />
+                    <path d="M4.855 7.875a8.25 8.25 0 1 1-.824 6.26m-.176-5.26v-4.75m0 4.75h4.75" />
+                  </svg>
+                  <svg class="assist-header-icon" width="12" height="12" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="3" />
+                    <path
+                      d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                  </svg>
+                </div>
+              </div>
+              <div class="assist-body">
+                <div class="mockup-history">
+                  <div class="mockup-bubble-user" id="bubble-user" style="display: none;">
+                    <div class="bubble-text" id="bubble-user-text">Rewrite to be more descriptive and gothic.</div>
+                  </div>
+                  <div class="mockup-bubble-ai" id="bubble-ai" style="display: none;">
+                    <div class="bubble-ai-label" id="bubble-ai-label">Applied</div>
+                    <div class="bubble-ai-text" id="bubble-ai-text">The sky hung heavy, a bruised violet shroud over the
+                      decaying floor. Kaelen picked his way through the rot, cold seeping deep into his marrow.</div>
+                  </div>
+                </div>
+                <div class="mockup-input-card">
+                  <div class="mockup-input-area">
+                    <div class="mockup-input-content" id="mockup-input" contenteditable="true"
+                      data-placeholder="Describe changes..."></div>
+                    <div class="mockup-selection-chip" id="mockup-selection-chip" style="display: none;">
+                      <svg width="7" height="7" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        stroke-width="2.5">
+                        <path d="m4 4 7.07 16.97 2.51-7.39 7.39-2.51L4 4Z" />
+                        <path d="m13 13 6 6" />
+                      </svg>
+                      @selection
+                    </div>
+                  </div>
+                  <div class="mockup-input-bar">
+                    <div class="mockup-mode-toggle">
+                      <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+                        stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+                        <path
+                          d="M2 2h4a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1Zm4.655 8.595a.75.75 0 0 1 0 1.06L4.03 14.28a.75.75 0 0 1-1.06 0l-1.5-1.5a.749.749 0 0 1 .326-1.275a.749.749 0 0 1 .734.215l.97.97l2.095-2.095a.75.75 0 0 1 1.06 0ZM9.75 2.5h5.5a.75.75 0 0 1 0 1.5h-5.5a.75.75 0 0 1 0-1.5Zm0 5h5.5a.75.75 0 0 1 0 1.5h-5.5a.75.75 0 0 1 0-1.5Zm0 5h5.5a.75.75 0 0 1 0 1.5h-5.5a.75.75 0 0 1 0-1.5Zm-7.25-9v3h3v-3Z" />
+                      </svg>
+                    </div>
+                    <div class="mockup-send-btn">
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="12" y1="19" x2="12" y2="5" />
+                        <polyline points="5 12 12 5 19 12" />
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Problem Statement -->
+    <section class="problem-section fade-in-up">
+      <div class="problem-content">
+        <p class="problem-text">Every AI writing tool makes you fight it — pasting context, writing prompts, managing
+          chat histories. <em>margin</em> reads your manuscript, your characters, your worlds — and writes like it
+          already knows the story.</p>
+      </div>
+    </section>
+
+
+
+    <!-- Features -->
+    <section id="features" class="features-section">
+      <div class="how-grid">
+        <div class="how-step fade-in-up">
+          <div class="feature-svg-container">
+            <svg viewBox="0 0 24 24">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+              <circle cx="12" cy="7" r="4" />
+            </svg>
+          </div>
+          <h3 class="how-heading">Knows what you want</h3>
+          <p class="how-desc">
+            Margin reads your files as needed, and keeps your writing context consistent across every edit.
+          </p>
+        </div>
+
+        <div class="how-step fade-in-up">
+          <div class="feature-svg-container">
+            <svg viewBox="0 0 24 24">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+            </svg>
+          </div>
+          <h3 class="how-heading">Context from your files</h3>
+          <p class="how-desc">
+            Drop markdown files for characters, worlds, or style guides. The engine reads them automatically — no
+            copy-pasting needed.
+          </p>
+        </div>
+
+        <div class="how-step fade-in-up">
+          <div class="feature-svg-container">
+            <svg viewBox="0 0 24 24">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+            </svg>
+          </div>
+          <h3 class="how-heading">Your drafts never leave you. Ever.</h3>
+          <p class="how-desc">
+            No cloud servers, no logging, no telemetry. Every word stays on your machine — your drafts never leave you.
+          </p>
+        </div>
+
+        <div class="how-step fade-in-up">
+          <div class="feature-svg-container">
+            <svg viewBox="0 0 24 24">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+              <line x1="12" y1="18" x2="12" y2="12" />
+              <line x1="9" y1="15" x2="15" y2="15" />
+            </svg>
+          </div>
+          <h3 class="how-heading">Add anything as context</h3>
+          <p class="how-desc">
+            Character profiles, world bibles, style guides — drop a markdown file and it's instantly available. No
+            setup, no database.
+          </p>
+        </div>
+
+        <div class="how-step fade-in-up">
+          <div class="feature-svg-container">
+            <svg viewBox="0 0 24 24">
+              <polyline points="9 11 12 14 22 4" />
+              <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+            </svg>
+          </div>
+          <h3 class="how-heading">Suggestions, not insertions.</h3>
+          <p class="how-desc">
+            Review suggestions block-by-block with high-contrast text diffs. Accept or reject changes to merge them
+            into your writing.
+          </p>
+        </div>
+
+        <div class="how-step fade-in-up">
+          <div class="feature-svg-container">
+            <svg viewBox="0 0 24 24">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+              <line x1="16" y1="13" x2="8" y2="13" />
+              <line x1="16" y1="17" x2="8" y2="17" />
+              <polyline points="10 9 9 9 8 9" />
+            </svg>
+          </div>
+          <h3 class="how-heading">Plain files. No database. No lock-in.</h3>
+          <p class="how-desc">
+            A distraction-free, rich WYSIWYG editor built on Tiptap that loads and autosaves standard Markdown files
+            directly, ensuring zero lock-in.
+          </p>
+        </div>
+      </div>
+    </section>
+
+
+    <!-- Setup -->
+    <section id="setup">
+      <div class="setup-container fade-in-up">
+        <h2 class="setup-title">Quick Installation</h2>
+
+        <div class="code-block-wrapper">
+          <button class="copy-btn"
+            data-clipboard="git clone https://github.com/prxshetty/margin && cd margin&#10;pip install -r requirements.txt&#10;uvicorn api.main:app --reload"
+            aria-label="Copy code">
+            <svg class="copy-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+              stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+            <svg class="check-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+              stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: none;">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+          </button>
+          <pre><code>git clone https://github.com/prxshetty/margin && cd margin
+pip install -r requirements.txt
+uvicorn api.main:app --reload</code></pre>
+        </div>
+
+
+
+        <div class="setup-docs-link-container">
+          <a href="docs/" class="setup-docs-link"> Full guide →</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- FAQ -->
+    <section class="faq-section fade-in-up">
+      <h2 class="faq-title">Frequently Asked Questions</h2>
+      <div class="faq-grid">
+        <div class="faq-item">
+          <h3 class="faq-question">How is this different from pasting my chapter into ChatGPT?</h3>
+          <p class="faq-answer">
+            margin is built around your existing files — it reads your manuscript, character profiles, world bible, and
+            style guides automatically. You don't write prompts that describe your story; you write <em>in</em> your
+            story and ask for targeted changes. Every suggestion is reviewed block-by-block with visible diffs, so you
+            stay in control. ChatGPT is a blank chat window every time. margin is a writing workspace that knows what
+            you're working on.
+          </p>
+        </div>
+        <div class="faq-item">
+          <h3 class="faq-question">Does it work with Obsidian vaults?</h3>
+          <p class="faq-answer">
+            Yes. Since margin works directly with markdown files, you can point it at your Obsidian vault folder. Your
+            chapters, characters, and notes are read as-is — no export step, no plugin needed.
+          </p>
+        </div>
+        <div class="faq-item">
+          <h3 class="faq-question">How does it decide which character files to pull in?</h3>
+          <p class="faq-answer">
+            margin scans your workspace for markdown files and uses a context resolver that matches character references
+            in your active chapter against your character files. If your scene mentions Kaelen, margin finds
+            <code>kaelen.md</code> and includes it automatically. You can also pin specific files to the context
+            manually.
+          </p>
+        </div>
+        <div class="faq-item">
+          <h3 class="faq-question">Can I use a reasoning model like DeepSeek?</h3>
+          <p class="faq-answer">
+            Absolutely. margin works with any OpenAI-compatible API, so you can use DeepSeek, Claude, GPT, or local
+            models via Ollama and LM Studio. Swap models through the endpoint config — no code changes needed.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer-section fade-in-up">
+      <div class="footer-container">
+        <div class="footer-brand">
+          <img src="assets/logo.png" alt="margin logo" class="footer-logo-img">
+          <span class="footer-separator">|</span>
+          <span class="footer-tagline">The harness for Writers</span>
+        </div>
+        <div class="footer-links">
+          <p class="footer-credit">Built by <a class="footer-link" href="https://x.com/pnxshy">Pranam</a>.</p>
+        </div>
+      </div>
+    </footer>
+  </main>
+
+  <script src="assets/app.js"></script>
+</body>
+
+</html>
