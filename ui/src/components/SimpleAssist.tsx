@@ -8,7 +8,7 @@ import type { FileEntry } from '../stores/editorStore'
 interface SimpleLogEntry {
   id: string
   timestamp: string
-  mode: 'replace' | 'insert' | 'chat'
+  mode: 'chat' | 'edit_plan' | 'edit_write'
   session_id?: string
   system_prompt: string
   user_prompt: string
@@ -486,19 +486,11 @@ export function SimpleAssist() {
     ? historyLogs.filter(l => l.session_id === activeSessionId)
     : historyLogs
 
-  const sessionTokens = useMemo(() => {
-    let prompt = 0
-    let completion = 0
-    for (const log of filteredLogs) {
-      prompt += log.prompt_tokens || 0
-      completion += log.completion_tokens || 0
-    }
-    return {
-      prompt,
-      completion,
-      total: prompt + completion
-    }
-  }, [filteredLogs])
+  const displayLogs = useMemo(() =>
+    filteredLogs.filter(l => l.mode !== 'edit_plan'),
+    [filteredLogs]
+  )
+
 
   const activeContextWindow = useMemo(() => {
     if (!settings) return 8192
@@ -655,7 +647,7 @@ export function SimpleAssist() {
     setStreamingThinkingText('')
     setStreamingChatText('')
     setActiveInstruction(currentInstruction)
-    const currentRefFiles = refPaths
+    const currentRefFiles = Array.from(new Set(refPaths))
       .map(path => openedFiles.find(f => f.path === path))
       .filter((f): f is FileEntry => !!f)
     setActiveRefFiles(currentRefFiles)
@@ -672,7 +664,6 @@ export function SimpleAssist() {
 
       const cleanMessage = currentInstruction
         .replace(/\s*@selection\([^)]*\)\s*/g, ' ')
-        .replace(/\s*@[\w.-]+(?:\.[\w]+)?\s*/g, ' ')
         .replace(/\s+/g, ' ')
         .trim()
 
@@ -717,6 +708,7 @@ export function SimpleAssist() {
       const decoder = new TextDecoder()
       let buffer = ''
       let accumulatedOutput = ''
+      let isStreaming = false
       const startPos = localHasSelection && selectionInfo ? selectionInfo.from : anchorPosition
       let currentEndPos = localHasSelection && selectionInfo ? selectionInfo.to : anchorPosition
       const previousContent = useEditorStore.getState().content
@@ -749,12 +741,19 @@ export function SimpleAssist() {
             } else if (data.status === 'chunk') {
               setIsPlanning(false)
               setIsGenerating(true)
-              accumulatedOutput += data.chunk as string
+              const chunk = data.chunk as string
+              accumulatedOutput += chunk
               const liveEditor = useEditorStore.getState().editor || activeEditor
               if (liveEditor && liveEditor.view && liveEditor.state && !liveEditor.isDestroyed) {
-                const tr = liveEditor.state.tr.insertText(accumulatedOutput, startPos, currentEndPos)
+                let tr
+                if (!isStreaming) {
+                  tr = liveEditor.state.tr.insertText(chunk, startPos, currentEndPos)
+                  isStreaming = true
+                } else {
+                  tr = liveEditor.state.tr.insertText(chunk, currentEndPos)
+                }
                 liveEditor.view.dispatch(tr)
-                currentEndPos = startPos + accumulatedOutput.length
+                currentEndPos = tr.mapping.map(currentEndPos)
                 liveEditor.commands.setAiHighlight(startPos, currentEndPos)
                 liveEditor.commands.setTextSelection(currentEndPos)
               }
@@ -768,7 +767,6 @@ export function SimpleAssist() {
               if (liveEditor && liveEditor.view && liveEditor.state && !liveEditor.isDestroyed) {
                 const setAiPendingEdit = useEditorStore.getState().setAiPendingEdit
                 const beforeSize = liveEditor.state.doc.content.size
-                const selectionSize = localHasSelection && selectionInfo ? (selectionInfo.to - selectionInfo.from) : 0
 
                 setAiPendingEdit({
                   previousContent,
@@ -782,8 +780,7 @@ export function SimpleAssist() {
                 chain.run()
 
                 const afterSize = liveEditor.state.doc.content.size
-                const delta = afterSize - (beforeSize - selectionSize)
-                const endPos = startPos + delta
+                const endPos = currentEndPos + (afterSize - beforeSize)
 
                 if (endPos > startPos) {
                   liveEditor.commands.setAiHighlight(startPos, endPos)
@@ -839,7 +836,7 @@ export function SimpleAssist() {
     setStreamingThinkingText('')
     setStreamingChatText('')
     setActiveInstruction(currentInstruction)
-    const currentRefFiles = refPaths
+    const currentRefFiles = Array.from(new Set(refPaths))
       .map(path => openedFiles.find(f => f.path === path))
       .filter((f): f is FileEntry => !!f)
     setActiveRefFiles(currentRefFiles)
@@ -856,7 +853,6 @@ export function SimpleAssist() {
 
       const cleanMessage = currentInstruction
         .replace(/\s*@selection\([^)]*\)\s*/g, ' ')
-        .replace(/\s*@[\w.-]+(?:\.[\w]+)?\s*/g, ' ')
         .replace(/\s+/g, ' ')
         .trim()
 
@@ -1025,6 +1021,7 @@ export function SimpleAssist() {
       const chip = document.createElement('span')
       chip.contentEditable = 'false'
       chip.className = 'inline-chip inline-chip-selection'
+      chip.dataset.role = 'selection'
       chip.dataset.from = String(pendingEditSelection.from)
       chip.dataset.to = String(pendingEditSelection.to)
       chip.dataset.text = pendingEditSelection.text
@@ -1150,7 +1147,7 @@ export function SimpleAssist() {
         {/* Context Ring and Action Button Group */}
         <div className="flex items-center gap-2 -mr-1.5">
           {/* Circular Context Ring */}
-          <div 
+          <div
             className={`group relative flex items-center gap-1.5 ${percentUsed === 0 ? 'opacity-45' : 'opacity-100'} transition-opacity duration-200`}
           >
             <span className="text-[10px] font-mono text-[var(--text-secondary)]">{Math.round(percentUsed)}%</span>
@@ -1173,7 +1170,7 @@ export function SimpleAssist() {
                 />
               </svg>
             </div>
-            
+
             {/* Custom Tooltip */}
             <div className="pointer-events-none absolute bottom-[calc(100%+8px)] right-0 opacity-0 group-hover:opacity-100 transition-opacity bg-[var(--bg-elevated)] border border-[var(--border)] shadow-[0_4px_16px_rgba(0,0,0,0.06)] rounded-[8px] p-2.5 z-50 whitespace-nowrap text-[10.5px] font-mono text-[var(--text-secondary)] leading-relaxed flex flex-col gap-0.5 animate-fade-in origin-bottom-right">
               <div className="flex justify-between gap-4">
@@ -1225,7 +1222,6 @@ export function SimpleAssist() {
       <div className="flex items-center justify-between gap-1.5 pb-1.5 border-b border-[var(--border-sidebar)] select-none shrink-0 w-full animate-fade-in">
         {/* Header Title */}
         <div className="text-[12px] font-medium text-[var(--text-heading)] font-serif pl-1">
-          margin.ai
         </div>
         {/* Action Buttons Group */}
         <div className="flex items-center gap-1.5">
@@ -1319,7 +1315,7 @@ export function SimpleAssist() {
       {hasHistory && (
         <>
           <div className="flex-1 overflow-y-auto flex flex-col gap-4 pr-1 pt-2 min-h-0 select-text">
-            {filteredLogs.map((log) => {
+            {displayLogs.map((log) => {
               const isExpanded = !!expandedIds[log.id]
 
               const plannerContextFiles: string[] = (() => {
@@ -1437,37 +1433,34 @@ export function SimpleAssist() {
                     )}
 
                     {/* Always-visible context rows — ref files + planner context + selection */}
-                    {((log.ref_files && log.ref_files.length > 0) || log.selected_text || plannerContextFiles.length > 0) && (
-                      <div className="flex flex-col gap-1 mt-1 select-none">
-                        {log.ref_files?.map((file) => (
-                          <div key={file.path} className="flex items-center gap-1.5 text-[10.5px] text-[var(--text-muted)] font-sans">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0z" />
-                              <circle cx="12" cy="12" r="3" />
-                            </svg>
-                            <span>Read {file.name}</span>
-                          </div>
-                        ))}
-                        {plannerContextFiles.map((filepath) => (
-                          <div key={filepath} className="flex items-center gap-1.5 text-[10.5px] text-[var(--text-muted)] font-sans">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0z" />
-                              <circle cx="12" cy="12" r="3" />
-                            </svg>
-                            <span>Read {filepath}</span>
-                          </div>
-                        ))}
-                        {log.selected_text && (
-                          <div className="flex items-center gap-1.5 text-[10.5px] text-[var(--text-muted)] font-sans">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0z" />
-                              <circle cx="12" cy="12" r="3" />
-                            </svg>
-                            <span>Read editor selection ({log.selected_text.length} ch)</span>
-                          </div>
-                        )}
-                      </div>
-                    )}
+                    {((log.ref_files && log.ref_files.length > 0) || log.selected_text || plannerContextFiles.length > 0) && (() => {
+                      const uniqueFiles = new Map<string, string>()
+                      log.ref_files?.forEach(f => uniqueFiles.set(f.path, f.name))
+                      plannerContextFiles.forEach(f => uniqueFiles.set(f, f))
+
+                      return (
+                        <div className="flex flex-col gap-1 mt-1 select-none">
+                          {Array.from(uniqueFiles.values()).map((name, i) => (
+                            <div key={i} className="flex items-center gap-1.5 text-[10.5px] text-[var(--text-muted)] font-sans">
+                              <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0z" />
+                                <circle cx="12" cy="12" r="3" />
+                              </svg>
+                              <span>Read {name}</span>
+                            </div>
+                          ))}
+                          {log.selected_text && (
+                            <div className="flex items-center gap-1.5 text-[10.5px] text-[var(--text-muted)] font-sans">
+                              <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0z" />
+                                <circle cx="12" cy="12" r="3" />
+                              </svg>
+                              <span>Read editor selection ({log.selected_text.length} ch)</span>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })()}
 
                     <div className={`text-xs font-sans leading-relaxed select-text mt-1 ${log.success === false ? 'text-[var(--danger)] font-medium whitespace-pre-wrap' : 'text-[var(--text)]'}`}>
                       {log.success === false ? log.output : renderMarkdown(log.output)}
