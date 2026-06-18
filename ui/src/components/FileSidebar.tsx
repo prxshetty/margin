@@ -1,8 +1,89 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { FolderPlus, FileText, Loader, Check, Plus, Trash2, Pencil } from 'lucide-react'
 import { useEditorStore, type FileEntry } from '../stores/editorStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { API_BASE } from '../lib/api'
+
+interface FolderNode {
+  type: 'folder'
+  name: string
+  path: string
+  children: TreeNode[]
+}
+
+interface FileNode {
+  type: 'file'
+  name: string
+  path: string
+  file: FileEntry
+}
+
+type TreeNode = FolderNode | FileNode
+
+function buildTree(files: FileEntry[]): TreeNode[] {
+  const rootNodes: TreeNode[] = []
+
+  const getOrCreateFolder = (nodes: TreeNode[], name: string, path: string): FolderNode => {
+    let folder = nodes.find((n) => n.type === 'folder' && n.name === name) as FolderNode
+    if (!folder) {
+      folder = {
+        type: 'folder',
+        name,
+        path,
+        children: [],
+      }
+      nodes.push(folder)
+    }
+    return folder
+  }
+
+  files.forEach((file) => {
+    if (file.path.startsWith('prompts/') || file.path.startsWith('.')) {
+      return
+    }
+
+    const parts = file.path.split('/')
+    if (parts.length === 1) {
+      return // see rootFiles, we render separately outside the tree.
+    }
+
+    let currentLevel = rootNodes
+    let currentPath = ''
+
+    for (let i = 0; i < parts.length - 1; i++) {
+      const part = parts[i]
+      currentPath = currentPath ? `${currentPath}/${part}` : part
+
+      const folder = getOrCreateFolder(currentLevel, part, currentPath)
+      currentLevel = folder.children
+    }
+
+    const fileName = parts[parts.length - 1]
+    currentLevel.push({
+      type: 'file',
+      name: fileName,
+      path: file.path,
+      file,
+    })
+  })
+
+  const sortNodes = (nodes: TreeNode[]) => {
+    nodes.sort((a, b) => {
+      if (a.type !== b.type) {
+        return a.type === 'folder' ? -1 : 1
+      }
+      return a.name.localeCompare(b.name)
+    })
+    nodes.forEach((node) => {
+      if (node.type === 'folder') {
+        sortNodes(node.children)
+      }
+    })
+  }
+
+  sortNodes(rootNodes)
+  return rootNodes
+}
 
 function FileIcon({ className = '' }: { className?: string }) {
   return (
@@ -46,7 +127,46 @@ export function FileSidebar({
   const removeFile = useEditorStore((s) => s.removeFile)
   const currentFilePath = useEditorStore((s) => s.currentFilePath)
 
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
+    () => new Set()
+  )
 
+  const toggleFolder = useCallback((path: string) => {
+    setExpandedFolders((prev) => {
+      const next = new Set(prev)
+      if (next.has(path)) {
+        next.delete(path)
+      } else {
+        next.add(path)
+      }
+      return next
+    })
+  }, [])
+
+  const hasAutoExpanded = useRef(false)
+
+  // Auto-expand top-level folders once on initial load
+  useEffect(() => {
+    if (openedFiles.length === 0 || hasAutoExpanded.current) return
+    hasAutoExpanded.current = true
+    setExpandedFolders((prev) => {
+      const next = new Set(prev)
+      openedFiles.forEach((file) => {
+        const parts = file.path.split('/')
+        if (parts.length > 1) {
+          const topLevel = parts[0]
+          if (topLevel !== 'prompts' && !topLevel.startsWith('.')) {
+            next.add(topLevel)
+          }
+        }
+      })
+      return next
+    })
+  }, [openedFiles])
+
+  const treeNodes = useMemo(() => {
+    return buildTree(openedFiles)
+  }, [openedFiles])
 
   // Close dropdown on click outside
   useEffect(() => {
@@ -67,6 +187,7 @@ export function FileSidebar({
     setLoading(true)
     clearFiles()
     initialLoadDone.current = true
+    hasAutoExpanded.current = false
 
     const fetchWorkspaceFiles = async () => {
       try {
@@ -76,49 +197,14 @@ export function FileSidebar({
         if (!active) return
         setWorkspaceDir(settings?.linked_workspace_dir ? 'custom' : 'sample')
         for (const file of files) {
-          try {
-            const fileRes = await fetch(`${API_BASE}/api/workspace/files/${encodeURIComponent(file.path)}`)
-            if (!fileRes.ok) continue
-            const data = await fileRes.json()
-            if (!active) return
-            addFile({ name: file.name, path: file.path, content: data.content, originalContent: data.content })
-          } catch {
-            // skip
-          }
+          addFile({ name: file.name, path: file.path, content: '', originalContent: '' })
         }
       } catch {
         // skip
       }
     }
 
-    const fetchPrompts = async () => {
-      try {
-        const res = await fetch(`${API_BASE}/api/assist/prompts`)
-        if (!res.ok) throw new Error()
-        const prompts = await res.json()
-        if (!active) return
-        for (const p of prompts) {
-          try {
-            const promptRes = await fetch(`${API_BASE}/api/assist/prompts/${encodeURIComponent(p.path)}`)
-            if (!promptRes.ok) continue
-            const data = await promptRes.json()
-            if (!active) return
-            addFile({
-              name: p.name,
-              path: `prompts/${p.path}`,
-              content: data.content,
-              originalContent: data.content
-            })
-          } catch {
-            // skip
-          }
-        }
-      } catch {
-        // skip
-      }
-    }
-
-    Promise.all([fetchWorkspaceFiles(), fetchPrompts()])
+    fetchWorkspaceFiles()
       .finally(() => {
         if (active) setLoading(false)
       })
@@ -137,16 +223,30 @@ export function FileSidebar({
     if (currentFilePath) {
       updateFileContent(currentFilePath, content)
     }
-    const file = openedFiles.find((f) => f.path === path)
+    
+    let file = openedFiles.find((f) => f.path === path)
     if (file) {
-      setContent(file.content)
+      // Lazy load content if it hasn't been fetched yet
+      if (!file.content && !file.originalContent) {
+        try {
+          const res = await fetch(`${API_BASE}/api/workspace/files/${encodeURIComponent(path)}`)
+          if (res.ok) {
+            const data = await res.json()
+            useEditorStore.getState().loadFileContent(path, data.content)
+            file = { ...file, content: data.content, originalContent: data.content }
+          }
+        } catch (err) {
+          console.error("Failed to fetch file content", err)
+        }
+      }
+
+      setContent(file.content || '')
       setCurrentFilePath(path)
     }
   }, [openedFiles, setContent, setCurrentFilePath, updateFileContent, onSaveCurrentFile])
 
   const handleCreateFile = useCallback(async (folder: string) => {
-    const defaultName = folder === 'chapters' ? 'new-chapter.md' : folder === 'characters' ? 'new-character.md' : folder === 'styles' ? 'new-style.md' : `new-${folder.slice(0, -1) || 'file'}.md`
-    const raw = window.prompt(`New ${folder.slice(0, -1)} file name (will be saved to ${folder}/):`, defaultName)
+    const raw = window.prompt(`New file name (will be saved to ${folder}/):`, 'new-file.md')
     if (!raw) return
     const trimmed = raw.trim()
     if (!trimmed) return
@@ -254,17 +354,7 @@ export function FileSidebar({
   }, [removeFile, addFile, setCurrentFilePath])
 
   const rootFiles = openedFiles.filter((f) => !f.path.includes('/'))
-  const promptFiles = openedFiles.filter((f) => f.path.startsWith('prompts/'))
 
-  const defaultFolders = ['chapters', 'characters', 'styles']
-  const extraFolders = Array.from(
-    new Set(
-      openedFiles
-        .map((f) => f.path.split('/')[0])
-        .filter((dir) => dir && !defaultFolders.includes(dir) && dir !== 'prompts' && !dir.includes('.'))
-    )
-  ).sort()
-  const allFolders = [...defaultFolders, ...extraFolders]
 
   return (
     <div ref={containerRef} className="flex flex-col gap-3 w-full h-full overflow-y-auto select-none">
@@ -343,31 +433,26 @@ export function FileSidebar({
           {rootFiles.length > 0 && (
             <div className="flex flex-col gap-0.5">
               {rootFiles.map((file) => (
-                <FileRow key={file.path} file={file} onSelect={handleFileClick} onDelete={handleDeleteFile} onRename={handleRenameFile} />
+                <FileRow key={file.path} file={file} depth={0} onSelect={handleFileClick} onDelete={handleDeleteFile} onRename={handleRenameFile} />
               ))}
             </div>
           )}
 
-          {allFolders.map((folder) => {
-            const folderFiles = openedFiles.filter((f) => f.path.startsWith(`${folder}/`))
-            return (
-              <div key={folder} className="flex flex-col gap-0.5 animate-fade-in">
-                <SectionHeader label={`${folder}/`} onAdd={() => handleCreateFile(folder)} />
-                {folderFiles.map((file) => (
-                  <FileRow key={file.path} file={file} onSelect={handleFileClick} onDelete={handleDeleteFile} onRename={handleRenameFile} />
-                ))}
-              </div>
-            )
-          })}
+          {treeNodes.map((node) => (
+            <TreeNodeComponent
+              key={node.path}
+              node={node}
+              depth={0}
+              expandedFolders={expandedFolders}
+              toggleFolder={toggleFolder}
+              handleCreateFile={handleCreateFile}
+              handleFileClick={handleFileClick}
+              handleDeleteFile={handleDeleteFile}
+              handleRenameFile={handleRenameFile}
+            />
+          ))}
 
-          {promptFiles.length > 0 && (
-            <div className="flex flex-col gap-0.5 animate-fade-in">
-              <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-[var(--text-secondary)]/70 mb-1.5 px-2 select-none">prompts/</p>
-              {promptFiles.map((file) => (
-                <FileRow key={file.path} file={file} onSelect={handleFileClick} onDelete={handleDeleteFile} onRename={handleRenameFile} />
-              ))}
-            </div>
-          )}
+
 
           {openedFiles.length === 0 && (
             <p className="text-[10px] text-[var(--text-muted)] px-2 pt-1 select-none">
@@ -380,14 +465,47 @@ export function FileSidebar({
   )
 }
 
-function SectionHeader({ label, onAdd }: { label: string; onAdd: () => void }) {
+function FolderRow({
+  name,
+  depth,
+  isExpanded,
+  onToggle,
+  onAddFile
+}: {
+  name: string
+  depth: number
+  isExpanded: boolean
+  onToggle: () => void
+  onAddFile: () => void
+}) {
   return (
-    <div className="group flex items-center justify-between mb-1.5 px-2 select-none">
-      <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-[var(--text-secondary)]/70 truncate min-w-0">{label}</p>
+    <div
+      onClick={onToggle}
+      style={{ paddingLeft: `${depth * 12 + 6}px` }}
+      className="group flex items-center justify-between py-1.5 pr-2 rounded-[6px] text-[10px] font-bold uppercase tracking-[0.1em] text-[var(--text-secondary)]/70 hover:bg-[var(--border-sidebar)]/20 hover:text-[var(--text)] transition-colors duration-150 cursor-pointer select-none"
+    >
+      <div className="flex items-center gap-1 min-w-0 flex-1">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className={`w-3.5 h-3.5 shrink-0 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}
+        >
+          <path d="m9 18 6-6-6-6" />
+        </svg>
+        <span className="truncate select-none">{name}/</span>
+      </div>
       <button
-        onClick={onAdd}
-        title={`New ${label.replace('/', '')} file`}
-        className="flex items-center justify-center w-4 h-4 text-[var(--text-secondary)]/60 hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 rounded-[4px] transition-all cursor-pointer active:scale-[0.9]"
+        onClick={(e) => {
+          e.stopPropagation()
+          onAddFile()
+        }}
+        title={`New file in ${name}`}
+        className="flex items-center justify-center w-4 h-4 text-[var(--text-secondary)]/60 hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 rounded-[4px] transition-all cursor-pointer active:scale-[0.9] opacity-0 group-hover:opacity-100"
       >
         <Plus className="w-3 h-3" strokeWidth={2.25} />
       </button>
@@ -395,13 +513,86 @@ function SectionHeader({ label, onAdd }: { label: string; onAdd: () => void }) {
   )
 }
 
+function TreeNodeComponent({
+  node,
+  depth,
+  expandedFolders,
+  toggleFolder,
+  handleCreateFile,
+  handleFileClick,
+  handleDeleteFile,
+  handleRenameFile,
+}: {
+  node: TreeNode
+  depth: number
+  expandedFolders: Set<string>
+  toggleFolder: (path: string) => void
+  handleCreateFile: (folder: string) => void
+  handleFileClick: (path: string) => void
+  handleDeleteFile: (path: string) => void
+  handleRenameFile: (path: string) => void
+}) {
+  if (node.type === 'file') {
+    return (
+      <FileRow
+        file={node.file}
+        depth={depth}
+        onSelect={handleFileClick}
+        onDelete={handleDeleteFile}
+        onRename={handleRenameFile}
+      />
+    )
+  }
+
+  const isExpanded = expandedFolders.has(node.path)
+
+  return (
+    <div>
+      <FolderRow
+        name={node.name}
+        depth={depth}
+        isExpanded={isExpanded}
+        onToggle={() => toggleFolder(node.path)}
+        onAddFile={() => handleCreateFile(node.path)}
+      />
+      {isExpanded && (
+        <div className="flex flex-col gap-0.5">
+          {node.children.map((child) => (
+            <TreeNodeComponent
+              key={child.path}
+              node={child}
+              depth={depth + 1}
+              expandedFolders={expandedFolders}
+              toggleFolder={toggleFolder}
+              handleCreateFile={handleCreateFile}
+              handleFileClick={handleFileClick}
+              handleDeleteFile={handleDeleteFile}
+              handleRenameFile={handleRenameFile}
+            />
+          ))}
+        </div>
+      )}
+      {isExpanded && node.children.length === 0 && (
+        <div
+          style={{ paddingLeft: `${(depth + 1) * 12 + 20}px` }}
+          className="text-[10px] text-[var(--text-muted)] py-1 select-none italic"
+        >
+          Empty folder
+        </div>
+      )}
+    </div>
+  )
+}
+
 function FileRow({
   file,
+  depth = 0,
   onSelect,
   onDelete,
   onRename,
 }: {
   file: FileEntry
+  depth?: number
   onSelect: (path: string) => void
   onDelete?: (path: string) => void
   onRename?: (path: string) => void
@@ -411,7 +602,8 @@ function FileRow({
   return (
     <div
       onClick={() => onSelect(file.path)}
-      className={`group flex items-center gap-1 px-2.5 py-2 rounded-[6px] text-xs transition-colors duration-150 cursor-pointer ${isActive
+      style={{ paddingLeft: `${depth * 12 + 20}px` }}
+      className={`group flex items-center gap-1 pr-2.5 py-2 rounded-[6px] text-xs transition-colors duration-150 cursor-pointer ${isActive
         ? 'bg-[var(--border-sidebar)]/40 text-[var(--text)]'
         : 'text-[var(--text-secondary)] hover:bg-[var(--border-sidebar)]/30 hover:text-[var(--text)]'
         }`}
