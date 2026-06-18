@@ -129,7 +129,11 @@ class LLMClient:
                                 
                                 reasoning_content = delta.get("reasoning_content", "")
                                 if reasoning_content:
-                                    yield ("thinking", reasoning_content)
+                                    if self.is_thinking:
+                                        yield ("thinking", reasoning_content)
+                                    else:
+                                        full_content += reasoning_content
+                                        yield ("chunk", reasoning_content)
 
                                 content = delta.get("content", "")
                                 if content:
