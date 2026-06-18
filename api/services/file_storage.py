@@ -153,7 +153,7 @@ class FileStorageService:
 
     def create_input_file(self, folder: str, name: str, content: str = "") -> Dict[str, str]:
         folder = folder.strip("/")
-        if not folder or folder == "outputs" or folder.startswith(".") or "/" in folder or "\\" in folder:
+        if not folder or folder.startswith(".") or ".." in folder or folder.split("/")[0] == "outputs":
             raise ValueError("Invalid folder name")
 
         name = (name or "").strip()
@@ -161,10 +161,13 @@ class FileStorageService:
             raise ValueError("File name is required")
         if not name.lower().endswith(".md"):
             name = f"{name}.md"
-        if "/" in name or "\\" in name or name.startswith("."):
+        if "/" in name or "\\" in name or name.startswith(".") or ".." in name:
             raise ValueError("Invalid file name")
 
-        target_dir = self.workspace_dir / folder
+        target_dir = (self.workspace_dir / folder).resolve()
+        if not str(target_dir).startswith(str(self.workspace_dir.resolve())):
+            raise ValueError("Access denied")
+
         target_dir.mkdir(parents=True, exist_ok=True)
         target_path = target_dir / name
         if target_path.exists():
@@ -176,11 +179,15 @@ class FileStorageService:
         return {"name": name, "path": rel_path, "content": content or ""}
 
     def update_input_file(self, path: str, content: str) -> bool:
-        target_path = self.workspace_dir / path
+        target_path = (self.workspace_dir / path).resolve()
+        workspace_root = self.workspace_dir.resolve()
+        if not str(target_path).startswith(str(workspace_root)) or str(target_path).startswith(str(workspace_root / "outputs")) or any(part.startswith(".") for part in target_path.parts):
+            raise ValueError("Access denied")
         if not target_path.exists():
             raise FileNotFoundError(f"File not found: {path}")
         target_path.write_text(content or "", encoding="utf-8")
         return True
+
     def delete_input_file(self, path: str) -> bool:
         full_path = (self.workspace_dir / path).resolve()
         workspace_root = self.workspace_dir.resolve()
@@ -226,25 +233,21 @@ class FileStorageService:
         logs_dir = self.outputs_dir / "ai_logs"
         all_logs = []
         if logs_dir.exists():
-            for mode_dir in logs_dir.iterdir():
-                if mode_dir.is_dir():
-                    for session_file in mode_dir.glob("*.json"):
-                        try:
-                            with open(session_file, "r", encoding="utf-8") as f:
-                                session_logs = json.load(f)
-                                all_logs.extend(session_logs)
-                        except Exception:
-                            pass
+            for session_file in logs_dir.glob("*.json"):
+                try:
+                    with open(session_file, "r", encoding="utf-8") as f:
+                        session_logs = json.load(f)
+                        all_logs.extend(session_logs)
+                except Exception:
+                    pass
         
         # Sort by timestamp
         all_logs.sort(key=lambda x: x.get("timestamp", ""))
         return all_logs
 
     def save_simple_ai_log(self, log_entry: dict) -> None:
-        session_id = log_entry.get("session_id", "default")
-        mode = log_entry.get("mode", "chat")
-        
-        logs_dir = self.outputs_dir / f"ai_logs/{mode}"
+        session_id = log_entry.get("session_id", "default")        
+        logs_dir = self.outputs_dir / f"ai_logs"
         logs_dir.mkdir(parents=True, exist_ok=True)
         logs_path = logs_dir / f"{session_id}.json"
         
@@ -275,17 +278,12 @@ class FileStorageService:
                 pass
 
     def delete_simple_ai_logs_by_session(self, session_id: str) -> None:
-        logs_dir = self.outputs_dir / "ai_logs"
-        if not logs_dir.exists():
-            return
-            
-        for mode in ["chat", "edit"]:
-            logs_path = logs_dir / f"{mode}/{session_id}.json"
-            if logs_path.exists():
-                try:
-                    logs_path.unlink()
-                except Exception:
-                    pass
+        logs_path = self.outputs_dir / f"ai_logs/{session_id}.json"
+        if logs_path.exists():
+            try:
+                logs_path.unlink()
+            except Exception:
+                pass
 
 # Global singleton
 storage = FileStorageService()
