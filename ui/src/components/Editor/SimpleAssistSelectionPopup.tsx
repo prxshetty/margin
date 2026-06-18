@@ -71,14 +71,15 @@ export function SimpleAssistSelectionPopup() {
       ref={popupRef}
       onMouseDown={(e) => e.preventDefault()}
       style={{ top, left }}
-      className="absolute z-[9999] flex items-center gap-1.5 px-1.5 py-1.5 bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-[10px] shadow-[0_4px_12px_rgba(0,0,0,0.06)] animate-fade-in select-none"
+      className="absolute z-[9999] flex items-center p-1 bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-[8px] shadow-[0_2px_8px_rgba(0,0,0,0.04)] animate-fade-in select-none"
     >
       <button
         onClick={handleAdd}
-        className="text-[12.5px] font-medium font-sans text-[var(--accent-brown)] hover:text-[var(--accent-brown-hover)] transition-colors duration-150 cursor-pointer px-1.5 py-0.5 rounded-[4px] hover:bg-[var(--bg-hover)] leading-none"
+        className="text-[11.5px] font-semibold font-mono text-[var(--accent-brown)] hover:text-[var(--accent-brown-hover)] transition-colors duration-150 cursor-pointer px-2 py-1 rounded-[6px] hover:bg-[var(--bg-hover)] leading-none"
       >
-        + Add to Assist
+        + Add to Margin
       </button>
     </div>
   )
 }
+
