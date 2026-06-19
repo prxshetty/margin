@@ -1,21 +1,6 @@
 from pathlib import Path
 from api.services.file_storage import storage
 
-FOLDER_STRATEGIES = {
-    "styles": "context_block",
-    "characters": "context_block",
-    "chapters": "context_block",
-}
-
-def get_injection_strategy(filepath: str, settings: dict) -> str:
-    parts = filepath.replace("\\", "/").split("/")
-    if len(parts) < 2:
-        return settings.get("default_folder_strategy", "context_block")
-    
-    folder = parts[0].lower()
-    folder_strategies = settings.get("folder_strategies") or FOLDER_STRATEGIES
-    return folder_strategies.get(folder, settings.get("default_folder_strategy", "context_block"))
-
 def inject_as_context_block(filepath: str, actual_path: str, system_parts: list) -> None:
     try:
         file_content = storage.read_input_file(actual_path)

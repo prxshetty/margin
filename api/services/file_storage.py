@@ -44,7 +44,6 @@ class FileStorageService:
             "prepend_thinking_preamble": False,  # Off by default!
             "dialogue_density": 0.5,
             "additional_context": "",
-            "tone_preset": "general",
             "default_mode": "edit",
             "default_verbosity": "balanced",
             "show_thinking_by_default": False,
@@ -58,9 +57,7 @@ class FileStorageService:
             "editor_stats": "both",
             "show_outline": True,
             "planner_include_outline": False,
-            "history_turns": 5,
-            "folder_strategies": {"styles": "context_block", "characters": "context_block", "chapters": "context_block"},
-            "default_folder_strategy": "context_block"
+            "history_turns": 5
         }
 
         if self.settings_path.exists():
