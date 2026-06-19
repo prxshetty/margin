@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { X, Plus, Trash2, CheckCircle, Play, RefreshCw, Edit, Brain } from 'lucide-react'
+import { X, Plus, Trash2, CheckCircle, Play, Edit, Brain, ChevronRight, ChevronDown, Folder, FolderOpen, Pin, EyeOff, Eye } from 'lucide-react'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useEditorStore } from '../stores/editorStore'
 import type { AppSettings } from '../stores/settingsStore'
@@ -87,27 +87,14 @@ const textStyles: { id: TextStyle; name: string; description: string; sample: st
 
 export function SettingsModal({ onClose }: SettingsModalProps) {
   const { settings, updateSettings } = useSettingsStore()
-  const [activeTab, setActiveTab] = useState<'general' | 'appearance' | 'editor' | 'context' | 'endpoints'>('general')
+  const [activeTab, setActiveTab] = useState<'general' | 'appearance' | 'context' | 'endpoints'>('general')
   const [availableFiles, setAvailableFiles] = useState<{ name: string; path: string }[]>([])
-  const [availableStyles, setAvailableStyles] = useState<{ name: string; description: string }[]>([])
-
-  const refreshStyles = async () => {
-    try {
-      const res = await fetch(`${API_BASE}/api/workspace/styles`)
-      const data = await res.json()
-      setAvailableStyles(data)
-    } catch (err) {
-      console.error(err)
-    }
-  }
 
   useEffect(() => {
     fetch(`${API_BASE}/api/workspace/files`)
       .then(res => res.json())
       .then(data => setAvailableFiles(data))
       .catch(err => console.error(err))
-
-    refreshStyles()
   }, [])
 
   if (!settings) return null
@@ -128,7 +115,6 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
           <div className="w-[180px] border-r border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-4 flex flex-col gap-1">
             <TabButton active={activeTab === 'general'} onClick={() => setActiveTab('general')} label="General" />
             <TabButton active={activeTab === 'appearance'} onClick={() => setActiveTab('appearance')} label="Appearance" />
-            <TabButton active={activeTab === 'editor'} onClick={() => setActiveTab('editor')} label="Editor" />
             <TabButton active={activeTab === 'context'} onClick={() => setActiveTab('context')} label="Context" />
             <TabButton active={activeTab === 'endpoints'} onClick={() => setActiveTab('endpoints')} label="Endpoints" />
           </div>
@@ -137,8 +123,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
           <div className="flex-1 p-8 overflow-y-auto bg-[var(--bg)] text-[var(--text)]">
             {activeTab === 'general' && <GeneralSettings settings={settings} updateSettings={updateSettings} />}
             {activeTab === 'appearance' && <AppearanceSettings settings={settings} updateSettings={updateSettings} />}
-            {activeTab === 'editor' && <EditorSettings settings={settings} updateSettings={updateSettings} />}
-            {activeTab === 'context' && <ContextSettings settings={settings} updateSettings={updateSettings} availableFiles={availableFiles} availableStyles={availableStyles} refreshStyles={refreshStyles} />}
+            {activeTab === 'context' && <ContextSettings settings={settings} updateSettings={updateSettings} availableFiles={availableFiles} />}
             {activeTab === 'endpoints' && <EndpointsSettings settings={settings} updateSettings={updateSettings} />}
           </div>
         </div>
@@ -276,135 +261,144 @@ function GeneralSettings({ settings, updateSettings }: { settings: AppSettings, 
 function AppearanceSettings({ settings, updateSettings }: { settings: AppSettings, updateSettings: (u: Partial<AppSettings>) => void }) {
   const selectedFamily = settings.theme_family || 'sand'
   const selectedMode = settings.theme || 'light'
-
-  return (
-    <div className="flex flex-col gap-6">
-      <section>
-        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Mode</h3>
-        <p className="text-[12px] text-[var(--text-secondary)] mb-3">Choose the interface color mode.</p>
-        <div className="inline-flex rounded-[7px] border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-1">
-          {themeModes.map(({ id, label }) => (
-            <button
-              key={id}
-              onClick={() => updateSettings({ theme: id })}
-              className={`flex items-center gap-1.5 rounded-[5px] px-3 py-1.5 text-[12px] transition-colors cursor-pointer ${selectedMode === id
-                ? 'bg-[var(--accent-brown)] text-[var(--text-inverse)] font-medium'
-                : 'text-[var(--text-secondary)] hover:text-[var(--text-heading)]'
-                }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <section>
-        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Theme</h3>
-        <p className="text-[12px] text-[var(--text-secondary)] mb-3">Select a color palette for your workspace.</p>
-        <div className="grid grid-cols-2 gap-3">
-          {themeFamilies.map((themeFamily) => {
-            const active = selectedFamily === themeFamily.id
-            return (
-              <button
-                key={themeFamily.id}
-                onClick={() => updateSettings({ theme_family: themeFamily.id })}
-                className={`relative text-left rounded-[8px] border p-2.5 transition-colors cursor-pointer flex flex-col justify-between h-full ${active
-                  ? 'border-[var(--accent-brown)] bg-[var(--bg-hover)]'
-                  : 'border-[var(--border-subtle)] bg-[var(--bg)] hover:border-[var(--text-secondary)]'
-                  }`}
-              >
-                <div className="flex items-start justify-between gap-3 w-full">
-                  <div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[13px] font-medium text-[var(--text-heading)]">{themeFamily.name}</span>
-                    </div>
-                    <div className="mt-0.5 text-[11px] leading-relaxed text-[var(--text-secondary)] min-h-[32px]">{themeFamily.description}</div>
-                  </div>
-                </div>
-                <div className="mt-2.5 flex gap-1.5 w-full">
-                  {themeFamily.swatches.map((swatch) => (
-                    <span
-                      key={swatch}
-                      className="h-4 flex-1 rounded-[3px] border border-black/10"
-                      style={{ backgroundColor: swatch }}
-                    />
-                  ))}
-                </div>
-              </button>
-            )
-          })}
-        </div>
-      </section>
-    </div>
-  )
-}
-
-function EditorSettings({ settings, updateSettings }: { settings: AppSettings, updateSettings: (u: Partial<AppSettings>) => void }) {
   const selectedTextStyle = settings.text_style || 'system'
   const selectedStats = settings.editor_stats || 'both'
 
   return (
-    <div className="flex flex-col gap-6">
-      <section>
-        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Document Outline</h3>
-        <p className="text-[12px] text-[var(--text-secondary)] mb-3">Show an interactive structure outline / ruler on the left side of the editor.</p>
-        <label className="flex items-center gap-2 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={settings.show_outline !== false}
-            onChange={(e) => updateSettings({ show_outline: e.target.checked })}
-            className="accent-[var(--accent-brown)]"
-          />
-          <span className="text-[13px] text-[var(--text-secondary)] font-medium">Show Outline Ruler</span>
-        </label>
-      </section>
+    <div className="flex flex-col gap-8">
+      {/* Category 1: Theme & Color Palette */}
+      <div>
+        <h3 className="text-[14px] font-medium text-[var(--text-heading)] tracking-tight border-b border-[var(--border-subtle)] pb-2 mb-4">Theme & Color Palette</h3>
+        <div className="flex flex-col gap-6">
+          <section>
+            <h4 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Mode</h4>
+            <p className="text-[12px] text-[var(--text-secondary)] mb-3">Choose the interface color mode.</p>
+            <div className="inline-flex rounded-[7px] border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-1">
+              {themeModes.map(({ id, label }) => (
+                <button
+                  key={id}
+                  onClick={() => updateSettings({ theme: id })}
+                  className={`flex items-center gap-1.5 rounded-[5px] px-3 py-1.5 text-[12px] transition-colors cursor-pointer ${selectedMode === id
+                    ? 'bg-[var(--accent-brown)] text-[var(--text-inverse)] font-medium'
+                    : 'text-[var(--text-secondary)] hover:text-[var(--text-heading)]'
+                    }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </section>
 
-      <section>
-        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Editor Statistics</h3>
-        <p className="text-[12px] text-[var(--text-secondary)] mb-3">Display word and/or character counts in the editor.</p>
-        <select
-          value={selectedStats}
-          onChange={(e) => updateSettings({ editor_stats: e.target.value as any })}
-          className="border border-[var(--border-subtle)] rounded-[6px] px-3 py-2 text-[13px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)] transition-colors w-[200px]"
-        >
-          <option value="both">Words & Characters</option>
-          <option value="words">Words Only</option>
-          <option value="characters">Characters Only</option>
-          <option value="none">None</option>
-        </select>
-      </section>
-
-      <section>
-        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Text Style</h3>
-        <p className="text-[12px] text-[var(--text-secondary)] mb-3">Change the typography and spacing of the writing surface.</p>
-        <div className="grid grid-cols-2 gap-3">
-          {textStyles.map(({ id, name, description }) => {
-            const active = selectedTextStyle === id
-            return (
-              <button
-                key={id}
-                onClick={() => updateSettings({ text_style: id })}
-                className={`text-left rounded-[8px] border p-2.5 transition-colors cursor-pointer flex flex-col justify-between h-full ${active
-                  ? 'border-[var(--accent-brown)] bg-[var(--bg-hover)]'
-                  : 'border-[var(--border-subtle)] bg-[var(--bg)] hover:border-[var(--text-secondary)]'
-                  }`}
-              >
-                <div className="flex items-start justify-between gap-3 w-full">
-                  <div className={`min-w-0 theme-font-preview-${id}`}>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[13px] font-medium text-[var(--text-heading)]">{name}</span>
+          <section>
+            <h4 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Theme</h4>
+            <p className="text-[12px] text-[var(--text-secondary)] mb-3">Select a color palette for your workspace.</p>
+            <div className="grid grid-cols-2 gap-3">
+              {themeFamilies.map((themeFamily) => {
+                const active = selectedFamily === themeFamily.id
+                return (
+                  <button
+                    key={themeFamily.id}
+                    onClick={() => updateSettings({ theme_family: themeFamily.id })}
+                    className={`relative text-left rounded-[8px] border p-2.5 transition-colors cursor-pointer flex flex-col justify-between h-full ${active
+                      ? 'border-[var(--accent-brown)] bg-[var(--bg-hover)]'
+                      : 'border-[var(--border-subtle)] bg-[var(--bg)] hover:border-[var(--text-secondary)]'
+                      }`}
+                  >
+                    <div className="flex items-start justify-between gap-3 w-full">
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[13px] font-medium text-[var(--text-heading)]">{themeFamily.name}</span>
+                        </div>
+                        <div className="mt-0.5 text-[11px] leading-relaxed text-[var(--text-secondary)] min-h-[32px]">{themeFamily.description}</div>
+                      </div>
                     </div>
-                    <div className="mt-0.5 text-[11px] leading-relaxed text-[var(--text-secondary)] min-h-[32px]">{description}</div>
-                  </div>
-                  <span className={`text-[15px] font-medium text-[var(--text-heading)] opacity-60 mt-0.5 shrink-0 theme-font-preview-${id}`}>
-                    Aa
-                  </span>
-                </div>
-              </button>
-            )
-          })}
+                    <div className="mt-2.5 flex gap-1.5 w-full">
+                      {themeFamily.swatches.map((swatch) => (
+                        <span
+                          key={swatch}
+                          className="h-4 flex-1 rounded-[3px] border border-black/10"
+                          style={{ backgroundColor: swatch }}
+                        />
+                      ))}
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          </section>
         </div>
-      </section>
+      </div>
+
+      {/* Category 2: Typography */}
+      <div>
+        <h3 className="text-[14px] font-medium text-[var(--text-heading)] tracking-tight border-b border-[var(--border-subtle)] pb-2 mb-4">Typography</h3>
+        <section>
+          <h4 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Text Style</h4>
+          <p className="text-[12px] text-[var(--text-secondary)] mb-3">Change the typography and spacing of the writing surface.</p>
+          <div className="grid grid-cols-2 gap-3">
+            {textStyles.map(({ id, name, description }) => {
+              const active = selectedTextStyle === id
+              return (
+                <button
+                  key={id}
+                  onClick={() => updateSettings({ text_style: id })}
+                  className={`text-left rounded-[8px] border p-2.5 transition-colors cursor-pointer flex flex-col justify-between h-full ${active
+                    ? 'border-[var(--accent-brown)] bg-[var(--bg-hover)]'
+                    : 'border-[var(--border-subtle)] bg-[var(--bg)] hover:border-[var(--text-secondary)]'
+                    }`}
+                >
+                  <div className="flex items-start justify-between gap-3 w-full">
+                    <div className={`min-w-0 theme-font-preview-${id}`}>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[13px] font-medium text-[var(--text-heading)]">{name}</span>
+                      </div>
+                      <div className="mt-0.5 text-[11px] leading-relaxed text-[var(--text-secondary)] min-h-[32px]">{description}</div>
+                    </div>
+                    <span className={`text-[15px] font-medium text-[var(--text-heading)] opacity-60 mt-0.5 shrink-0 theme-font-preview-${id}`}>
+                      Aa
+                    </span>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        </section>
+      </div>
+
+      {/* Category 3: Layout & Details */}
+      <div>
+        <h3 className="text-[14px] font-medium text-[var(--text-heading)] tracking-tight border-b border-[var(--border-subtle)] pb-2 mb-4">Layout & Details</h3>
+        <div className="flex flex-col gap-6">
+          <section>
+            <h4 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Document Outline</h4>
+            <p className="text-[12px] text-[var(--text-secondary)] mb-3">Show an interactive structure outline / ruler on the left side of the editor.</p>
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={settings.show_outline !== false}
+                onChange={(e) => updateSettings({ show_outline: e.target.checked })}
+                className="accent-[var(--accent-brown)]"
+              />
+              <span className="text-[13px] text-[var(--text-secondary)] font-medium">Show Outline Ruler</span>
+            </label>
+          </section>
+
+          <section>
+            <h4 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Editor Statistics</h4>
+            <p className="text-[12px] text-[var(--text-secondary)] mb-3">Display word and/or character counts in the editor.</p>
+            <select
+              value={selectedStats}
+              onChange={(e) => updateSettings({ editor_stats: e.target.value as any })}
+              className="border border-[var(--border-subtle)] rounded-[6px] px-3 py-2 text-[13px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)] transition-colors w-[200px]"
+            >
+              <option value="both">Words & Characters</option>
+              <option value="words">Words Only</option>
+              <option value="characters">Characters Only</option>
+              <option value="none">None</option>
+            </select>
+          </section>
+        </div>
+      </div>
     </div>
   )
 }
@@ -412,22 +406,37 @@ function EditorSettings({ settings, updateSettings }: { settings: AppSettings, u
 function ContextSettings({
   settings,
   updateSettings,
-  availableFiles,
-  availableStyles,
-  refreshStyles
+  availableFiles
 }: {
   settings: AppSettings,
   updateSettings: (u: Partial<AppSettings>) => void,
-  availableFiles: { name: string; path: string }[],
-  availableStyles: { name: string; description: string }[],
-  refreshStyles: () => Promise<void>
+  availableFiles: { name: string; path: string }[]
 }) {
-  const [isRefreshing, setIsRefreshing] = useState(false)
+  const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({})
 
-  const handleRefresh = async () => {
-    setIsRefreshing(true)
-    await refreshStyles()
-    setTimeout(() => setIsRefreshing(false), 500)
+  // Group files by folder
+  const groups: Record<string, typeof availableFiles> = {}
+  availableFiles.forEach(file => {
+    const parts = file.path.split('/')
+    const folder = parts.length > 1 ? parts[0] : ''
+    if (!groups[folder]) {
+      groups[folder] = []
+    }
+    groups[folder].push(file)
+  })
+
+  // Sort folders alphabetically, with empty (root files) group last
+  const sortedFolders = Object.keys(groups).sort((a, b) => {
+    if (a === '') return 1
+    if (b === '') return -1
+    return a.localeCompare(b)
+  })
+
+  const toggleFolder = (folder: string) => {
+    setCollapsedFolders(prev => ({
+      ...prev,
+      [folder]: !prev[folder]
+    }))
   }
 
   return (
@@ -452,49 +461,6 @@ function ContextSettings({
               The maximum number of recent conversation turns to retain.
             </span>
           </div>
-        </div>
-      </section>
-
-      <section>
-        <div className="flex items-center justify-between mb-1">
-          <h3 className="text-[13px] font-medium text-[var(--text-heading)]">Tone Preset</h3>
-          <button
-            onClick={handleRefresh}
-            disabled={isRefreshing}
-            className="text-[var(--text-secondary)] hover:text-[var(--text-heading)] transition-colors cursor-pointer disabled:opacity-50"
-            title="Refresh style guidelines"
-          >
-            <RefreshCw size={14} className={isRefreshing ? 'animate-spin' : ''} />
-          </button>
-        </div>
-        <p className="text-[12px] text-[var(--text-secondary)] mb-3">
-          Tone used by the writer agent by default. 'Auto' lets the planner choose based on your request. 'None' disables style injection.
-        </p>
-        <div className="flex flex-wrap gap-2">
-          <button
-            onClick={() => updateSettings({ tone_preset: '' })}
-            className={`px-3 py-1.5 rounded-[4px] text-[12px] border transition-colors cursor-pointer capitalize ${(!settings.tone_preset || settings.tone_preset.toLowerCase() === 'none') ? 'bg-[var(--accent-brown)] text-[var(--text-inverse)] border-[var(--accent-brown)] font-medium' : 'bg-[var(--bg)] text-[var(--text-secondary)] border-[var(--border-subtle)] hover:border-[var(--text-secondary)] hover:text-[var(--text-heading)]'}`}
-            title="Disable style guidelines injection"
-          >
-            None
-          </button>
-          <button
-            onClick={() => updateSettings({ tone_preset: 'auto' })}
-            className={`px-3 py-1.5 rounded-[4px] text-[12px] border transition-colors cursor-pointer capitalize ${(settings.tone_preset?.toLowerCase() === 'auto') ? 'bg-[var(--accent-brown)] text-[var(--text-inverse)] border-[var(--accent-brown)] font-medium' : 'bg-[var(--bg)] text-[var(--text-secondary)] border-[var(--border-subtle)] hover:border-[var(--text-secondary)] hover:text-[var(--text-heading)]'}`}
-            title="Let the AI Planner dynamically select the best style"
-          >
-            Auto
-          </button>
-          {availableStyles.map(style => (
-            <button
-              key={style.name}
-              onClick={() => updateSettings({ tone_preset: style.name })}
-              className={`px-3 py-1.5 rounded-[4px] text-[12px] border transition-colors cursor-pointer capitalize ${settings.tone_preset === style.name ? 'bg-[var(--accent-brown)] text-[var(--text-inverse)] border-[var(--accent-brown)] font-medium' : 'bg-[var(--bg)] text-[var(--text-secondary)] border-[var(--border-subtle)] hover:border-[var(--text-secondary)] hover:text-[var(--text-heading)]'}`}
-              title={style.description}
-            >
-              {style.name.replace('_', ' ')}
-            </button>
-          ))}
         </div>
       </section>
 
@@ -526,69 +492,121 @@ function ContextSettings({
       </section>
 
       <section>
-        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Reference Files</h3>
+        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Context & Reference Files</h3>
         <p className="text-[12px] text-[var(--text-secondary)] mb-3">
-          All workspace files are available for the planner to reference. <strong>Pin</strong> a file to always include it in every request. <strong>Cross it out</strong> to prevent the AI from reading it — useful when smaller models struggle with conflicting reference material.
+          All workspace files are available for the planner to reference. <strong>Pin</strong> a file to always include it. <strong>Cross out</strong> a folder or file to prevent the AI from reading it.
         </p>
-        <div className="border border-[var(--border-subtle)] rounded-[6px] max-h-[300px] overflow-y-auto p-2">
+        <div className="border border-[var(--border-subtle)] rounded-[6px] max-h-[300px] overflow-y-auto p-2 flex flex-col gap-1.5">
           {availableFiles.length === 0 ? (
             <p className="text-[12px] text-[var(--text-secondary)] p-2 text-center">No files in workspace.</p>
           ) : (
-            availableFiles.map(file => {
-              const isPinned = (settings.pinned_ref_files || []).includes(file.path)
-              const isIgnored = (settings.ignored_ref_files || []).includes(file.path)
-
-              const cycleState = () => {
-                if (!isPinned && !isIgnored) {
-                  updateSettings({
-                    pinned_ref_files: [...(settings.pinned_ref_files || []), file.path],
-                    ignored_ref_files: (settings.ignored_ref_files || []).filter(p => p !== file.path),
-                  })
-                } else if (isPinned) {
-                  updateSettings({
-                    pinned_ref_files: (settings.pinned_ref_files || []).filter(p => p !== file.path),
-                    ignored_ref_files: [...(settings.ignored_ref_files || []), file.path],
-                  })
-                } else {
-                  updateSettings({
-                    ignored_ref_files: (settings.ignored_ref_files || []).filter(p => p !== file.path),
-                  })
-                }
-              }
-
-              const stateColor = isPinned
-                ? 'text-[var(--accent-brown)]'
-                : isIgnored
-                  ? 'text-red-400'
-                  : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
-
-              const stateTitle = isPinned
-                ? 'Always included in context (click to block)'
-                : isIgnored
-                  ? 'Blocked from AI (click to restore default)'
-                  : 'Available to planner (click to pin)'
+            sortedFolders.map(folder => {
+              const files = groups[folder]
+              const isCollapsed = !!collapsedFolders[folder]
+              const displayTitle = folder === '' ? 'Workspace Root' : `${folder}/`
 
               return (
-                <div key={file.path} className="flex items-center gap-2 p-2 hover:bg-[var(--bg-hover)] rounded-[4px] group">
-                  <span className="text-[13px] text-[var(--text-heading)] min-w-0 truncate flex-1">{file.name}</span>
-                  <span className="text-[11px] text-[var(--text-muted)] hidden group-hover:inline truncate max-w-[200px]">{file.path}</span>
-                  <button
-                    onClick={cycleState}
-                    className={`p-1 rounded-[4px] transition-all cursor-pointer shrink-0 ${stateColor}`}
-                    title={stateTitle}
+                <div key={`group-${folder}`} className="flex flex-col gap-1">
+                  {/* Collapsible Folder Row */}
+                  <div
+                    onClick={() => toggleFolder(folder)}
+                    className="flex items-center gap-2 p-1.5 hover:bg-[var(--bg-hover)]/60 rounded-[4px] cursor-pointer select-none transition-colors"
                   >
-                    {isPinned ? (
-                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="m3 21 4.63-4.631m.005-.005-2.78-2.78c-.954-.954.006-2.996 1.31-3.078 1.178-.075 3.905.352 4.811-.555l2.49-2.49c.618-.618.226-2 .186-2.762-.058-1.016 1.558-2.271 2.415-1.414l4.647 4.648c.86.858-.4 2.469-1.413 2.415-.762-.04-2.145-.432-2.763.185l-2.49 2.49c-.906.907-.48 3.633-.554 4.811-.082 1.305-2.125 2.265-3.08 1.31l-2.78-2.78Z" />
-                      </svg>
+                    {isCollapsed ? (
+                      <ChevronRight size={14} className="text-[var(--text-secondary)]" />
                     ) : (
-                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
-                        <circle cx="12" cy="12" r="3" />
-                        {isIgnored && <line x1="4" y1="4" x2="20" y2="20" />}
-                      </svg>
+                      <ChevronDown size={14} className="text-[var(--text-secondary)]" />
                     )}
-                  </button>
+                    {isCollapsed ? (
+                      <Folder size={14} className="text-[var(--text-secondary)] shrink-0" />
+                    ) : (
+                      <FolderOpen size={14} className="text-[var(--text-secondary)] shrink-0" />
+                    )}
+                    <span className="text-[11px] font-semibold text-[var(--text-heading)] uppercase tracking-wider">
+                      {displayTitle}
+                    </span>
+                    <span className="text-[10px] text-[var(--text-muted)] font-normal ml-auto bg-[var(--bg-hover)] px-1.5 py-0.5 rounded-[4px]">
+                      {files.length} {files.length === 1 ? 'file' : 'files'}
+                    </span>
+                  </div>
+
+                  {/* Indented Files List */}
+                  {!isCollapsed && (
+                    <div className="pl-4 border-l border-[var(--border-subtle)]/40 ml-3.5 my-0.5 flex flex-col gap-1">
+                      {files.map(file => {
+                        const isPinned = (settings.pinned_ref_files || []).includes(file.path)
+                        const isIgnored = (settings.ignored_ref_files || []).includes(file.path)
+
+                        const cycleState = (e: React.MouseEvent) => {
+                          e.stopPropagation()
+                          if (!isPinned && !isIgnored) {
+                            updateSettings({
+                              pinned_ref_files: [...(settings.pinned_ref_files || []), file.path],
+                              ignored_ref_files: (settings.ignored_ref_files || []).filter(p => p !== file.path),
+                            })
+                          } else if (isPinned) {
+                            updateSettings({
+                              pinned_ref_files: (settings.pinned_ref_files || []).filter(p => p !== file.path),
+                              ignored_ref_files: [...(settings.ignored_ref_files || []), file.path],
+                            })
+                          } else {
+                            updateSettings({
+                              ignored_ref_files: (settings.ignored_ref_files || []).filter(p => p !== file.path),
+                            })
+                          }
+                        }
+
+                        const stateColor = isPinned
+                          ? 'text-[var(--accent-brown)]'
+                          : isIgnored
+                            ? 'text-red-400'
+                            : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+
+                        const stateTitle = isPinned
+                          ? 'Always included in context (click to block)'
+                          : isIgnored
+                            ? 'Blocked from AI (click to restore default)'
+                            : 'Available to planner (click to pin)'
+
+                        return (
+                          <div
+                            key={file.path}
+                            className="flex items-center gap-2 p-1 px-2 hover:bg-[var(--bg-hover)]/40 rounded-[4px] group"
+                          >
+                            <span
+                              className={`text-[12.5px] min-w-0 truncate flex-1 ${
+                                isPinned
+                                  ? 'text-[var(--accent-brown)] font-semibold'
+                                  : isIgnored
+                                    ? 'line-through text-[var(--text-muted)] opacity-50'
+                                    : 'text-[var(--text)]'
+                              }`}
+                            >
+                              {file.name}
+                            </span>
+                            {folder !== '' && file.path !== `${folder}/${file.name}` && (
+                              <span className="text-[10px] text-[var(--text-muted)] hidden group-hover:inline truncate max-w-[200px] font-mono">
+                                {file.path}
+                              </span>
+                            )}
+                            <button
+                              onClick={cycleState}
+                              className={`p-1 rounded-[4px] transition-all cursor-pointer shrink-0 ${stateColor}`}
+                              title={stateTitle}
+                            >
+                              {isPinned ? (
+                                <Pin size={13} />
+                              ) : isIgnored ? (
+                                <EyeOff size={13} />
+                              ) : (
+                                <Eye size={13} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+                              )}
+                            </button>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
               )
             })
