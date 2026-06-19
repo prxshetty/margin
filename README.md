@@ -1,149 +1,70 @@
-# margin
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/gh-cover-white.png">
+  <source media="(prefers-color-scheme: light)" srcset="assets/gh-cover.png">
+  <img src="assets/gh-cover-white.png" alt="margin">
+</picture>
 
-*Minimalist, Local-First, AI-Assisted Manuscript Editor*
-
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python: 3.8+](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+[![Python: 3.10+](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
 [![Node: 18+](https://img.shields.io/badge/Node-18+-green.svg)](https://nodejs.org/)
 
 ---
 
-**margin** is a locally installed user interface that acts as your collaborative AI writing assistant. It combines a distraction-free, beautifully themed markdown editor with a powerful, context-aware AI pipeline. Because it operates purely on standard text files (no databases required), you maintain complete privacy and full ownership of your creative work.
+Margin is an open-source, local-first AI writing studio for Markdown users.
 
----
+Think of it as SillyTavern for story writing: a customizable environment where writers can collaborate with context-aware AI agents, swap models, manage prompts, and build their own creative workflows—all while keeping their work on their own machine.
 
-## What is margin?
-
-Unlike heavy SaaS applications or complex command-line interfaces, `margin` is a lightweight, single-page writing environment. It turns your folders of raw notes, outlines, character sheets, and style guides into dynamic context that guides the AI during the writing process. 
-
----
+Instead of treating AI as a chat window, Margin integrates it directly into the writing process. Draft scenes, brainstorm plots, maintain world lore, rewrite passages, and iterate on ideas inside a distraction-free editor designed for long-form writing.
 
 ## Why margin?
 
-1. **Complete Data Privacy**: Your manuscripts, outlines, and notes never leave your machine. No user telemetry is tracked, and no hosted servers are used.
-2. **SLM friendly**: Use any model you want, local or otherwise. Tested with as low as 3B parameter models. You do you and have fun writing around with them.
-3.  **Writer-First Utility**: Provide intuitive prompt customization and context management. Let the software adapt to your style and layout, not the other way around.
-4.  **Aesthetic Focus**: A workspace designed to match your theme and mood, letting you focus entirely on the craft of writing.
+* **Markdown-Native Writing Environment** — A distraction-free editor designed for long-form writing projects and documentation.
+* **Runs Locally** — Your manuscripts, notes, and context stay on your machine. No required cloud services or telemetry.
+* **Optimized for Local Models** — Works well with lightweight language models and supports Ollama, LM Studio, and OpenAI-compatible providers.
+* **Automatic Context Management** — Organize characters, lore, outlines, and style guides into folders. Margin automatically includes the relevant context for each task.
+* **Customizable AI Workflows** — Configure prompts, agents, and writing pipelines to match your process instead of adapting to rigid presets.
+* **Interactive Diff Review** — Review AI-generated edits with clear inline diffs before accepting or rejecting changes.
 
 ---
 
-## Requirements
+## Screenshots
 
-To run `margin`, you only need:
-*   A computer (Windows, MacOS, or Linux) running Python 3.8+ and Node.js 18+.
-*   Access to **any coherent or sensible Large Language Model**—either hosted locally (e.g. via LM Studio, KoboldAI, Ollama) or through an OpenAI-compatible API endpoint (e.g. OpenAI, Claude, OpenRouter).
-
----
-
-## How the AI Assist Works (The Dual-Agent System)
-
-`margin` splits every AI assist action into a two-agent architecture:
-
-```
-                  ┌───────────────────────┐
-                  │ 1. User Instruction   │
-                  └───────────────────────┘
-                              │
-                              ▼
-                  ┌───────────────────────┐
-                  │      2. PLANNER       │ ◄─── Reads manifests (WORLD.md, CHARACTERS.md)
-                  │ (Context Classifier)  │
-                  └───────────────────────┘
-                              │ Resolves required context files
-                              ▼
-                  ┌───────────────────────┐
-                  │       3. WRITER       │ ◄─── Recieves instructions + context guidelines
-                  │    (Prose Stream)     │      (Has no direct access to workspace files)
-                  └───────────────────────┘
-```
-
-1.  **The Planner**: The planner is a pure context classifier. It scans your instructions and the list of available reference documents (like characters, styles, or world details) to dynamically resolve which files are required as context. The writer agent itself has no direct knowledge or context of the workspace files; it relies entirely on the planner to fetch them.
-2.  **The Writer**: The writer takes the resolved context guidelines, the specific target paragraph, its surrounding lines (before/after context), and your user instructions to generate the updated prose.
-
-### Text Splicing & Editing Gestures
-The AI assist records your editor actions to determine how the generated text should be placed:
-*   **Highlight & Edit (Selection)**: When you select a specific word, phrase, or sentence in the manuscript, the AI editor acts on that selected region, replacing or augmenting the selection.
-*   **Insert at Cursor (Cursor Placement)**: When you place your cursor inside a paragraph without selecting any text, the editor records the paragraph index and streams the AI's output as new paragraphs directly after your cursor block.
-
----
-
-## Core Features
-
-*   **Dynamic Context Management**: Create arbitrary folders inside your workspace (e.g., `lore/`, `world_building/`, `characters/`). `margin` dynamically indexes these directories, auto-generates Markdown manifests (e.g., `LORE.md`) describing the files, and uses them to supply context to the AI.
-*   **Interactive Edit Approval (Diff Mode)**: AI-generated modifications are rendered directly inside the manuscript card as high-contrast diff highlights. Review changes block-by-block and Accept or Reject them based on how well they align with your vision.
-*   **Markdown Native Editor**: A rich WYSIWYG canvas built on Tiptap (Novel) that loads and saves raw markdown natively.
-*   **Universal Model Compatibility**: Switch between local servers (LM Studio) and cloud APIs dynamically. Check endpoints and verify compatibility directly in the UI.
-*   **Aesthetic Themes**: Something I like. :)
+<div align="center">
+  <table>
+    <tr>
+      <td><a href="screenshots/home-minimal.png"><img src="screenshots/home-minimal.png" width="400" alt="Editor home"></a></td>
+      <td><a href="screenshots/edit-preview.png"><img src="screenshots/edit-preview.png" width="400" alt="Edit preview"></a></td>
+    </tr>
+    <tr>
+      <td><a href="screenshots/chat-preview.png"><img src="screenshots/chat-preview.png" width="400" alt="Chat preview"></a></td>
+      <td><a href="screenshots/home.png"><img src="screenshots/home.png" width="400" alt="Home full view"></a></td>
+    </tr>
+  </table>
+</div>
 
 
----
 
-## Installation
+## Getting Started
 
-### 1. Run the Backend (FastAPI)
+See the [Getting Started guide](docs/getting-started.md) for setup instructions, prerequisites, and configuration.
 
-1.  Navigate to the repository root directory.
-2.  Install the Python requirements:
-    ```bash
-    pip install -r requirements.txt
-    ```
-3.  Set up your environment variables:
-    ```bash
-    cp .env.example .env
-    ```
-    *(Edit `.env` to configure your default API keys, local base URLs, and token ceilings).*
-4.  Start the FastAPI backend:
-    ```bash
-    uvicorn api.main:app --reload
-    ```
-    The API runs at `http://localhost:8000`. API documentation is available at `http://localhost:8000/docs`.
 
-### 2. Run the Frontend (React + Vite)
+## Docs
 
-1.  Navigate to the `ui/` directory:
-    ```bash
-    cd ui
-    ```
-2.  Install Node dependencies:
-    ```bash
-    npm install
-    ```
-3.  Start the development server:
-    ```bash
-    npm run dev
-    ```
-    Open `http://localhost:5173` in your browser to start writing.
+- [AI Assist](docs/ai-assist.md) — Edit and Chat modes, context window, reasoning
+- [Writing Guide](docs/writing-guide.md) — Dual-agent system, manifests, character profiles, workspace demo.
+- [Configuration](docs/configuration/general.md) — Workspace, appearance, editor, endpoints, context settings
 
----
 
-## Workspace Structure
-
-The application operates on a directory (defaults to `./sample-workspace` or your linked folder):
-
-```
-workspace/
-├── chapters/          # Manuscript chapters (e.g., chapter-1.md)
-├── characters/        # Character profiles (e.g., elara_vance.md)
-├── styles/            # Writing style guidelines (e.g., heroic.md)
-├── lore/              # Custom directory (e.g., geography.md)
-├── LORE.md            # Auto-generated manifest index
-└── outputs/           # Logs
-```
-
-*Create custom folders (like `lore/` or `world/`) inside the workspace to expand your lorebook. The engine automatically indexes them and generates the matching manifest files.*
-
----
 
 ## Contributing
 
-`margin` is continuously developed and shaped by the community. We welcome contributions, issue reports, and feature requests!
+We welcome contributions of all kinds. See [CONTRIBUTING.md](CONTRIBUTING.md) to get started. Please read our [Code of Conduct](.github/CODE_OF_CONDUCT.md).
 
-1.  Fork the repository and create your branch.
-2.  Submit feature suggestions or bug fixes.
-3.  Review pull requests and documentation changes.
 
----
 
 ## License
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+This project is licensed under the **GNU Affero General Public License v3.0** — see [LICENSE](LICENSE) for details.
+
+Commercial licenses are available for proprietary use. [Contact us](https://github.com/prxshetty/margin) for details.
