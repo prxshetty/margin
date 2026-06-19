@@ -3,7 +3,6 @@ import { API_BASE } from '../lib/api'
 
 export interface AppSettings {
   additional_context: string
-  tone_preset: string
   default_mode: string
   default_verbosity: string
   show_thinking_by_default: boolean
