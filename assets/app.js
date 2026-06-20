@@ -99,6 +99,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let textInterval = null;
   let statusInterval = null;
   const originalEditorHTML = editorContent.innerHTML;
+  let originalTargetText = '';
 
   const resetDemo = () => {
     if (autoplayTimer) clearTimeout(autoplayTimer);
@@ -126,6 +127,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // 1. Highlight target text
     const target = document.getElementById('selection-target');
     if (target) {
+      originalTargetText = target.textContent;
       target.classList.add('editor-highlight');
     }
     
@@ -168,14 +170,47 @@ document.addEventListener('DOMContentLoaded', () => {
               } else {
                 clearInterval(statusInterval);
                 
-                // 5. Done state
+                // 5. Done state — apply diff highlight + accept/reject bar
                 demoState = 'done';
-                bubbleAiLabel.textContent = 'Applied';
-                bubbleAiText.textContent = 'Replaced selection with new beat prose.';
                 if (target) {
                   target.classList.remove('editor-highlight');
+                  const parentP = target.closest('p');
+                  if (parentP && !parentP.classList.contains('mockup-ai-diff-block')) {
+                    parentP.classList.add('mockup-ai-diff-block');
+                    const actions = document.createElement('div');
+                    actions.className = 'mockup-diff-actions';
+                    actions.innerHTML = `
+                      <button class="mockup-accept-btn" title="Accept changes">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><path d="M20 6 9 17l-5-5"></path></svg>
+                      </button>
+                      <div class="mockup-divider"></div>
+                      <button class="mockup-reject-btn" title="Reject changes">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+                      </button>
+                    `;
+                    parentP.parentNode.insertBefore(actions, parentP);
+                    bubbleAiLabel.textContent = 'Applied';
+                    bubbleAiText.textContent = 'Replaced selection with new beat prose.';
+
+                    actions.querySelector('.mockup-accept-btn').addEventListener('click', () => {
+                      target.classList.remove('editor-highlight');
+                      parentP.classList.remove('mockup-ai-diff-block');
+                      actions.remove();
+                      bubbleAiLabel.textContent = 'Kept';
+                      bubbleAiText.textContent = 'New text kept for manual editing.';
+                    });
+
+                    actions.querySelector('.mockup-reject-btn').addEventListener('click', () => {
+                      target.textContent = originalTargetText;
+                      target.classList.remove('editor-highlight');
+                      parentP.classList.remove('mockup-ai-diff-block');
+                      actions.remove();
+                      bubbleAiLabel.textContent = 'Reverted';
+                      bubbleAiText.textContent = 'Original text restored.';
+                    });
+                  }
                 }
-              }
+          }
             }, 20);
           }, 600);
         }, 400);
