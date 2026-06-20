@@ -8,19 +8,6 @@ margin remembers your recent conversation turns (questions and AI responses) to 
 
 - **Max History Depth**: Set between 1 and 10 turns. A higher number gives the AI more context but uses more tokens. The default of 5 works well for most conversations.
 
-## Tone Preset
-
-A **tone preset** tells the writer agent what style to use when generating text. These presets are defined as markdown files in your workspace's `styles/` folder.
-
-- **None**: No style injected. The AI writes in its default voice.
-- **Auto**: The Planner agent decides which tone fits best based on your request and available styles.
-- **Specific preset**: Choose from your workspace's available styles (e.g., "Cinematic", "General", "Superman").
-
-The sample workspace comes with a few presets to get you started.
-
-::: tip You can create your own tone presets. See the [Writing Guide](../writing-guide.md#style-presets-tone-presets) for how to define them.
-:::
-
 ## Include Document Structure
 
 When enabled, the AI receives a structural outline (paragraph previews) of your active document. This helps the Planner understand the broader story flow, but consumes more tokens.

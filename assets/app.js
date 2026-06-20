@@ -168,14 +168,30 @@ document.addEventListener('DOMContentLoaded', () => {
               } else {
                 clearInterval(statusInterval);
                 
-                // 5. Done state
+                // 5. Done state — apply diff highlight + accept/reject bar
                 demoState = 'done';
-                bubbleAiLabel.textContent = 'Applied';
-                bubbleAiText.textContent = 'Replaced selection with new beat prose.';
                 if (target) {
                   target.classList.remove('editor-highlight');
+                  const parentP = target.closest('p');
+                  if (parentP && !parentP.classList.contains('mockup-ai-diff-block')) {
+                    parentP.classList.add('mockup-ai-diff-block');
+                    const actions = document.createElement('div');
+                    actions.className = 'mockup-diff-actions';
+                    actions.innerHTML = `
+                      <button class="mockup-accept-btn" title="Accept changes">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><path d="M20 6 9 17l-5-5"></path></svg>
+                      </button>
+                      <div class="mockup-divider"></div>
+                      <button class="mockup-reject-btn" title="Reject changes">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+                      </button>
+                    `;
+                    parentP.parentNode.insertBefore(actions, parentP);
+                    bubbleAiLabel.textContent = 'Applied';
+                    bubbleAiText.textContent = 'Replaced selection with new beat prose.';
+                  }
                 }
-              }
+          }
             }, 20);
           }, 600);
         }, 400);

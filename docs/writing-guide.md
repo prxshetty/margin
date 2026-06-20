@@ -99,9 +99,9 @@ Create markdown files inside a `characters/` folder in your workspace. Each file
 
 When you mention a character name in your request, the Planner automatically finds and includes their profile as context for the Writer.
 
-## Style Presets (Tone Presets)
+## Style Files
 
-Define writing styles as markdown files inside a `styles/` folder. Each file is plain markdown with section headings for guidelines:
+Writing style guidelines can be stored as markdown files inside a `styles/` folder in your workspace. Each file is plain markdown with whatever structure works for you:
 
 ```markdown
 ## Writer Guidelines
@@ -110,13 +110,13 @@ Define writing styles as markdown files inside a `styles/` folder. Each file is 
 - Dialogue should feel natural, not expository.
 ```
 
-The **description** shown in the Tone Preset selector comes from the `STYLES.md` manifest file in the same folder. Each entry maps a style filename to a short summary:
+Add a `STYLES.md` manifest in the folder to describe each file:
 
 ```markdown
 - cinematic -- Full cinematic scene -- narration sets the atmosphere, dialogue drives the conflict
 ```
 
-Available styles appear automatically in Settings under **Context > Tone Preset**. Select **Auto** to let the Planner choose, or pick a specific style.
+Style files are available to the Planner as reference material, just like characters or lore. Pin them in **Settings > Context** if you want them included by default.
 
 ## World Building (Lore)
 

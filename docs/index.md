@@ -1,31 +1,25 @@
 # margin
 
-*Minimalist, Local-First, AI-Assisted Markdown Editor.*
+Margin is an open-source, local-first AI writing studio for Markdown users.
 
-margin is an open-source AI editor designed for writers who work in markdown. Whether you're drafting a novel, a technical guide, a screenplay, or a research paper, margin helps you write with AI assistance -- entirely on your own machine if you prefer.
+Think of it as SillyTavern for story writing: a customizable environment where writers can collaborate with context-aware AI agents, swap models, manage prompts, and build their own creative workflows -- all while keeping their work on their own machine.
 
-### What makes margin different?
+Instead of treating AI as a chat window, Margin integrates it directly into the writing process. Draft scenes, brainstorm plots, maintain world lore, rewrite passages, and iterate on ideas inside a distraction-free editor designed for long-form writing.
 
-- **Local-First**: Use local LLMs (Ollama, LM Studio) for full privacy. No data leaves your computer.
-- **Cloud-Ready**: Also works with OpenAI, Anthropic, or any OpenAI-compatible API -- configure everything from the settings UI.
-- **Dual-Agent AI**: A Planner agent reads your workspace context (characters, style guides, world notes), then a Writer agent generates prose that fits your narrative. No generic AI slop.
-- **Workspace-Oriented**: Organize your project into folders (chapters, characters, styles, lore). The AI understands your structure.
-- **Privacy-First**: Your content stays in your workspace. No telemetry, no tracking, no cloud dependency unless you choose it.
+### Why margin?
+
+- **Markdown-Native Writing Environment** -- A distraction-free editor designed for long-form writing projects and documentation.
+- **Runs Locally** -- Your manuscripts, notes, and context stay on your machine. No required cloud services or telemetry.
+- **Optimized for Local Models** -- Works well with lightweight language models and supports Ollama, LM Studio, and OpenAI-compatible providers.
+- **Automatic Context Management** -- Organize characters, lore, outlines, and style guides into folders. Margin automatically includes the relevant context for each task.
+- **Customizable AI Workflows** -- Configure prompts, agents, and writing pipelines to match your process instead of adapting to rigid presets.
+- **Interactive Diff Review** -- Review AI-generated edits with clear inline diffs before accepting or rejecting changes.
 
 ### Sections
 
 - [Getting Started](./getting-started.md) -- System requirements, installation, and first launch.
-- [Configuration](./configuration/general.md) -- All settings explained: workspace, appearance, editor, context, endpoints.
-- [Writing Guide](./writing-guide.md) -- How AI assist works, character profiles, tone presets, manifests, and custom prompts.
-
-### What's Next
-
-The AI Assist system is an evolving first version. Future improvements planned include:
-
-- Paragraph-level and document-level indexing for larger context windows
-- Smarter context selection heuristics
-- Diff previews before applying replacements
-- More granular control over which reference files are included per request
+- [Configuration](./configuration/general.md) -- All settings explained: workspace, appearance, context, endpoints.
+- [Writing Guide](./writing-guide.md) -- How AI assist works, character profiles, style guides, manifests, and custom prompts.
 
 ### Quick Links
 

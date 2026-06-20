@@ -103,5 +103,5 @@ You can link your own workspace folder from **Settings > General > Workspace Dir
 ## Next Steps
 
 - Learn about [workspaces and settings](./configuration/general.md)
-- Understand [AI assist modes and tone presets](./writing-guide.md)
+- Understand [AI assist modes and the writing guide](./writing-guide.md)
 - Create your own [character profiles and style guides](./writing-guide.md#character-profiles)

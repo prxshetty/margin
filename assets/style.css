@@ -665,6 +665,63 @@ section {
   user-select: none;
 }
 
+/* Mockup AI Diff Highlight */
+.mockup-ai-diff-block {
+  background: rgba(52, 101, 56, 0.08);
+  border-left: 3px solid rgba(52, 101, 56, 0.4);
+  border-radius: 4px;
+  padding: 0.5rem 0.75rem;
+  margin: 0 -0.75rem;
+}
+
+.mockup-diff-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  margin-bottom: 4px;
+  width: fit-content;
+  margin-left: auto;
+  background: #FFFFFF;
+  border: 1px solid #E5E2DA;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+  user-select: none;
+}
+
+.mockup-diff-actions button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.mockup-diff-actions .mockup-accept-btn {
+  color: #346538;
+}
+.mockup-diff-actions .mockup-accept-btn:hover {
+  background: rgba(52, 101, 56, 0.08);
+}
+
+.mockup-diff-actions .mockup-reject-btn {
+  color: #C53030;
+}
+.mockup-diff-actions .mockup-reject-btn:hover {
+  background: rgba(197, 48, 48, 0.08);
+}
+
+.mockup-diff-actions .mockup-divider {
+  width: 1px;
+  height: 16px;
+  background: #E5E2DA;
+}
+
 .mockup-assist-panel {
   width: 14rem;
   flex-shrink: 0;
@@ -1446,6 +1503,34 @@ section {
 .hero-window .mockup-send-btn {
   background: #E8E2D5;
   color: #1C1A16;
+}
+
+.hero-window .mockup-ai-diff-block {
+  background: rgba(143, 202, 147, 0.06);
+  border-left-color: rgba(143, 202, 147, 0.35);
+}
+
+.hero-window .mockup-diff-actions {
+  background: #1C1A16;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.hero-window .mockup-diff-actions .mockup-accept-btn {
+  color: #8FCA93;
+}
+.hero-window .mockup-diff-actions .mockup-accept-btn:hover {
+  background: rgba(143, 202, 147, 0.1);
+}
+
+.hero-window .mockup-diff-actions .mockup-reject-btn {
+  color: #E57373;
+}
+.hero-window .mockup-diff-actions .mockup-reject-btn:hover {
+  background: rgba(229, 115, 115, 0.1);
+}
+
+.hero-window .mockup-diff-actions .mockup-divider {
+  background: rgba(255, 255, 255, 0.08);
 }
 
 /* Audience / Who This Is For Section */
