@@ -77,24 +77,6 @@ class FileStorageService:
         merged.pop("context_mode", None)
         merged.pop("context_threshold_pct", None)
 
-        # Sweep: if a manifest is in ignored_ref_files, remove individual file entries from that folder
-        ignored = merged.get("ignored_ref_files") or []
-        manifest_folders = set()
-        for p in ignored:
-            parts = p.split('/')
-            if len(parts) == 2 and parts[1].upper() == parts[0].upper() + '.md':
-                manifest_folders.add(parts[0] + '/')
-        if manifest_folders:
-            cleaned = []
-            for p in ignored:
-                parts = p.split('/')
-                is_manifest = len(parts) == 2 and parts[1].upper() == parts[0].upper() + '.md'
-                folder_prefix = parts[0] + '/'
-                if folder_prefix in manifest_folders and not is_manifest:
-                    continue
-                cleaned.append(p)
-            merged["ignored_ref_files"] = cleaned
-
         try:
             with open(self.settings_path, "w", encoding="utf-8") as f:
                 json.dump(merged, f, indent=2)
