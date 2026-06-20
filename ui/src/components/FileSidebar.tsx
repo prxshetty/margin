@@ -215,11 +215,19 @@ export function FileSidebar({
   }, [settings?.linked_workspace_dir, clearFiles, addFile, setWorkspaceDir])
 
   const handleFileClick = useCallback(async (path: string) => {
+    const store = useEditorStore.getState()
+    if (store.aiPendingEdit && store.currentFilePath) {
+      const previous = store.aiPendingEdit.previousContent
+      store.editor?.commands.clearAiHighlight()
+      store.setContent(previous)
+      store.setAiPendingEdit(null)
+    }
+
     if (onSaveCurrentFile) {
       await onSaveCurrentFile()
     }
-    const store = useEditorStore.getState()
-    const { currentFilePath, content } = store
+    const updatedStore = useEditorStore.getState()
+    const { currentFilePath, content } = updatedStore
     if (currentFilePath) {
       updateFileContent(currentFilePath, content)
     }

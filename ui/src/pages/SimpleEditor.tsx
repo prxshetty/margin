@@ -119,7 +119,8 @@ export default function SimpleEditor() {
 
     if (currentFilePath.startsWith('prompts/')) {
       try {
-        const fileContent = useEditorStore.getState().content
+        const store = useEditorStore.getState()
+        const fileContent = store.aiPendingEdit ? store.aiPendingEdit.previousContent : store.content
         const filename = currentFilePath.replace('prompts/', '')
         const res = await fetch(`${API_BASE}/api/assist/prompts/${encodeURIComponent(filename)}`, {
           method: `POST`,
@@ -137,7 +138,8 @@ export default function SimpleEditor() {
 
     if (!currentFilePath) return
     try {
-      const fileContent = useEditorStore.getState().content
+      const store = useEditorStore.getState()
+      const fileContent = store.aiPendingEdit ? store.aiPendingEdit.previousContent : store.content
       const res = await fetch(`${API_BASE}/api/workspace/files/${encodeURIComponent(currentFilePath)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
