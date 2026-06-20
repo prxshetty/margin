@@ -99,6 +99,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let textInterval = null;
   let statusInterval = null;
   const originalEditorHTML = editorContent.innerHTML;
+  let originalTargetText = '';
 
   const resetDemo = () => {
     if (autoplayTimer) clearTimeout(autoplayTimer);
@@ -126,6 +127,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // 1. Highlight target text
     const target = document.getElementById('selection-target');
     if (target) {
+      originalTargetText = target.textContent;
       target.classList.add('editor-highlight');
     }
     
@@ -189,6 +191,23 @@ document.addEventListener('DOMContentLoaded', () => {
                     parentP.parentNode.insertBefore(actions, parentP);
                     bubbleAiLabel.textContent = 'Applied';
                     bubbleAiText.textContent = 'Replaced selection with new beat prose.';
+
+                    actions.querySelector('.mockup-accept-btn').addEventListener('click', () => {
+                      target.classList.remove('editor-highlight');
+                      parentP.classList.remove('mockup-ai-diff-block');
+                      actions.remove();
+                      bubbleAiLabel.textContent = 'Kept';
+                      bubbleAiText.textContent = 'New text kept for manual editing.';
+                    });
+
+                    actions.querySelector('.mockup-reject-btn').addEventListener('click', () => {
+                      target.textContent = originalTargetText;
+                      target.classList.remove('editor-highlight');
+                      parentP.classList.remove('mockup-ai-diff-block');
+                      actions.remove();
+                      bubbleAiLabel.textContent = 'Reverted';
+                      bubbleAiText.textContent = 'Original text restored.';
+                    });
                   }
                 }
           }
