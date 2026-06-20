@@ -272,12 +272,18 @@ function renderMarkdown(text: string): React.ReactNode[] {
     }
 
     // Headings
+    const h6 = line.match(/^###### (.+)/)
+    const h5 = line.match(/^##### (.+)/)
+    const h4 = line.match(/^#### (.+)/)
     const h3 = line.match(/^### (.+)/)
     const h2 = line.match(/^## (.+)/)
     const h1 = line.match(/^# (.+)/)
     if (h1) { nodes.push(<p key={i} className="font-semibold text-[var(--text-heading)] mt-2 mb-0.5">{inlineMarkdown(h1[1])}</p>); i++; continue }
     if (h2) { nodes.push(<p key={i} className="font-semibold text-[var(--text-heading)] mt-1.5 mb-0.5 text-[11px]">{inlineMarkdown(h2[1])}</p>); i++; continue }
     if (h3) { nodes.push(<p key={i} className="font-medium text-[var(--text-secondary)] mt-1 mb-0.5 text-[10px] uppercase tracking-wide">{inlineMarkdown(h3[1])}</p>); i++; continue }
+    if (h4) { nodes.push(<p key={i} className="font-medium text-[var(--text-secondary)] mt-0.5 mb-0.5 text-[10px] uppercase tracking-wide">{inlineMarkdown(h4[1])}</p>); i++; continue }
+    if (h5) { nodes.push(<p key={i} className="font-medium text-[var(--text-muted)] mt-0.5 mb-0.5 text-[9px] uppercase tracking-wide">{inlineMarkdown(h5[1])}</p>); i++; continue }
+    if (h6) { nodes.push(<p key={i} className="font-medium text-[var(--text-muted)] mt-0.5 mb-0.5 text-[9px] uppercase tracking-wide">{inlineMarkdown(h6[1])}</p>); i++; continue }
 
     // Blockquote
     if (line.startsWith('> ')) {
