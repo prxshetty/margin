@@ -504,36 +504,65 @@ function ContextSettings({
               const files = groups[folder]
               const isCollapsed = !!collapsedFolders[folder]
               const displayTitle = folder === '' ? 'Workspace Root' : `${folder}/`
+              const manifestPath = folder ? `${folder}/${folder.toUpperCase()}.md` : ''
+              const isBlocked = folder !== '' && (settings.ignored_ref_files || []).includes(manifestPath)
+
+              const toggleBlock = (e: React.MouseEvent) => {
+                e.stopPropagation()
+                const current = settings.ignored_ref_files || []
+                if (isBlocked) {
+                  updateSettings({ ignored_ref_files: current.filter(p => p !== manifestPath) })
+                } else {
+                  updateSettings({ ignored_ref_files: [...current, manifestPath] })
+                }
+              }
 
               return (
                 <div key={`group-${folder}`} className="flex flex-col gap-1">
                   {/* Collapsible Folder Row */}
                   <div
-                    onClick={() => toggleFolder(folder)}
-                    className="flex items-center gap-2 p-1.5 hover:bg-[var(--bg-hover)]/60 rounded-[4px] cursor-pointer select-none transition-colors"
+                    onClick={() => !isBlocked && toggleFolder(folder)}
+                    className={`flex items-center gap-2 p-1.5 rounded-[4px] select-none transition-colors ${isBlocked ? 'opacity-60 cursor-default' : 'hover:bg-[var(--bg-hover)]/60 cursor-pointer'}`}
                   >
-                    {isCollapsed ? (
+                    {isBlocked ? (
+                      <ChevronRight size={14} className="text-[var(--text-muted)]" />
+                    ) : isCollapsed ? (
                       <ChevronRight size={14} className="text-[var(--text-secondary)]" />
                     ) : (
                       <ChevronDown size={14} className="text-[var(--text-secondary)]" />
                     )}
-                    {isCollapsed ? (
+                    {isBlocked ? (
+                      <Folder size={14} className="text-red-400 shrink-0" />
+                    ) : isCollapsed ? (
                       <Folder size={14} className="text-[var(--text-secondary)] shrink-0" />
                     ) : (
                       <FolderOpen size={14} className="text-[var(--text-secondary)] shrink-0" />
                     )}
-                    <span className="text-[11px] font-semibold text-[var(--text-heading)] uppercase tracking-wider">
+                    <span className={`text-[11px] font-semibold uppercase tracking-wider ${isBlocked ? 'text-red-400 line-through' : 'text-[var(--text-heading)]'}`}>
                       {displayTitle}
                     </span>
-                    <span className="text-[10px] text-[var(--text-muted)] font-normal ml-auto bg-[var(--bg-hover)] px-1.5 py-0.5 rounded-[4px]">
-                      {files.length} {files.length === 1 ? 'file' : 'files'}
-                    </span>
+                    {isBlocked ? (
+                      <span className="text-[10px] text-red-400 font-normal ml-auto">Blocked</span>
+                    ) : (
+                      <span className="text-[10px] text-[var(--text-muted)] font-normal ml-auto bg-[var(--bg-hover)] px-1.5 py-0.5 rounded-[4px]">
+                        {files.length} {files.length === 1 ? 'file' : 'files'}
+                      </span>
+                    )}
+                    {folder !== '' && (
+                      <button
+                        onClick={toggleBlock}
+                        className="p-1 rounded-[4px] transition-colors cursor-pointer shrink-0 text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
+                        title={isBlocked ? 'Unblock folder' : 'Block folder'}
+                      >
+                        {isBlocked ? <EyeOff size={13} className="text-red-400" /> : <Eye size={13} />}
+                      </button>
+                    )}
                   </div>
 
                   {/* Indented Files List */}
-                  {!isCollapsed && (
+                  {!isCollapsed && !isBlocked && (
                     <div className="pl-4 border-l border-[var(--border-subtle)]/40 ml-3.5 my-0.5 flex flex-col gap-1">
-                      {files.map(file => {
+                      {files.filter(file => file.name !== `${folder.toUpperCase()}.md`).map(file => {
                         const isPinned = (settings.pinned_ref_files || []).includes(file.path)
                         const isIgnored = (settings.ignored_ref_files || []).includes(file.path)
 

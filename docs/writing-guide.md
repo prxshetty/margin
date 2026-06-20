@@ -118,27 +118,14 @@ Add a `STYLES.md` manifest in the folder to describe each file:
 
 Style files are available to the Planner as reference material, just like characters or lore. Pin them in **Settings > Context** if you want them included by default.
 
-## World Building (Lore)
+## Custom Folders
 
-Create a `lore/` folder (or any custom folder) with world-building notes. These files are automatically indexed by the Planner and included when relevant.
+Any folder you add at the top level of your workspace is automatically indexed by the Planner and included when relevant. The folder name becomes the category the Planner uses when deciding what context to reference.
 
-Examples: maps, history timelines, magic systems, faction overviews, setting descriptions.
+Examples: `lore/` (world-building notes, maps, timelines, magic systems), `settings/` (locations, factions), or any other category you create.
 
-Lore files don't need manifests -- the Planner auto-indexes any folder contents.
+Custom folders don't need manifests -- the Planner auto-indexes any folder contents.
 
 ## Chapters
 
-Your actual writing goes in the `chapters/` folder (or whatever you name it). Each chapter is a standard markdown file. The manifest (`CHAPTERS.md`) keeps them organized.
-
-## Custom Prompts (Advanced)
-
-The AI prompt templates are stored as plain markdown files in the `prompts/` folder:
-
-- `simple-planner.md` -- Instructions for the Planner agent
-- `simple-writer.md` -- Instructions for the Writer agent
-- `simple-chat.md` -- Instructions for Chat mode
-
-Advanced users can edit these files to fine-tune how the AI behaves. Changes take effect immediately -- no restart needed.
-
-::: warning Editing prompts changes how the AI behaves. If something breaks, restore the original from git history.
-:::
+Your chapter or manuscript files go in a folder of your choice (commonly `chapters/`). The folder name is arbitrary — what matters is the `CHAPTERS.md` manifest that tells the Planner these are manuscript files.

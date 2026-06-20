@@ -55,6 +55,17 @@ def _build_simple_system_prompt(base_text: str = "") -> str:
     return system_prompt
 
 
+def _is_blocked(filepath: str, ignored: set) -> bool:
+    """Check if a file is blocked — either directly or via its folder's manifest."""
+    folder = filepath.split('/')[0]
+    manifest_path = f"{folder}/{folder.upper()}.md"
+    if manifest_path in ignored:
+        return True
+    if filepath in ignored:
+        return True
+    return False
+
+
 def _inject_pinned_ref_files(system_parts: list, already_seen: set) -> list:
     """Append pinned ref file contents to the system prompt parts list."""
     s = storage.get_settings()
@@ -66,7 +77,7 @@ def _inject_pinned_ref_files(system_parts: list, already_seen: set) -> list:
     for pp in pinned:
         if pp in already_seen:
             continue
-        if pp in ignored:
+        if _is_blocked(pp, ignored):
             continue
         if pp not in available:
             continue
@@ -356,10 +367,13 @@ def run_planner(
         user_prompt_lines.append(f"{history_str}\n")
     
     manifest_sections = []
+    ignored_manifests = set(s.get("ignored_ref_files") or [])
     try:
         for f in storage.workspace_dir.glob("*/*.md"):
             folder_name = f.parent.name
             if f.name == f"{folder_name.upper()}.md":
+                if _is_blocked(f"{folder_name}/{f.name}", ignored_manifests):
+                    continue
                 raw = f.read_text(encoding="utf-8")
                 if raw.strip():
                     manifest_sections.append(f"--- {folder_name.upper()} ---\n{raw.strip()}")
@@ -410,7 +424,7 @@ def build_generator_prompts(
     ignored_paths = set(s.get("ignored_ref_files") or [])
     
     for filepath in context_needed:
-        if filepath in ignored_paths:
+        if _is_blocked(filepath, ignored_paths):
             continue
         actual_path = filepath
         if actual_path not in available_paths:
@@ -425,7 +439,7 @@ def build_generator_prompts(
                         actual_path = p
                         break
         
-        if actual_path in ignored_paths:
+        if _is_blocked(actual_path, ignored_paths):
             continue
             
         context_injector.inject(filepath, actual_path, system_parts, available_paths, s)
