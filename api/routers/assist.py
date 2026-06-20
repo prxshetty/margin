@@ -120,6 +120,7 @@ class SimpleAssistRequest(BaseModel):
     cursor_paragraph_text: Optional[str] = None
     ref_files: Optional[List[Dict[str, Any]]] = None
     available_files: List[Dict[str, str]] = Field(default_factory=list)
+    active_filename: Optional[str] = None
 
 
 
@@ -255,7 +256,7 @@ def _build_chat_messages(
     filtered_logs = [
         log for log in logs
         if log.get("session_id") == session_id
-        and log.get("mode") == "chat"
+        and log.get("mode") in ("chat", "edit_write")
         and log.get("success", True)
     ]
     filtered_logs.sort(key=lambda x: x.get("timestamp", ""))
@@ -310,6 +311,7 @@ def _build_planner_history(session_id: Optional[str], settings: dict) -> str:
     for idx, log in enumerate(recent_logs):
         instruction = log.get("instruction", "")
         pl_out = log.get("planner_output")
+        refined_query = ""
         context_files = []
         if pl_out:
             try:
@@ -325,9 +327,10 @@ def _build_planner_history(session_id: Optional[str], settings: dict) -> str:
                 else:
                     pl_dict = pl_out
                 context_files = pl_dict.get("context_needed", [])
+                refined_query = pl_dict.get("refined_query", "")
             except Exception:
                 pass
-        lines.append(f"[Turn {idx + 1}] USER: \"{instruction}\" → FILES: {json.dumps(context_files)}")
+        lines.append(f"[Turn {idx + 1}] USER: \"{instruction}\" → REFINED: \"{refined_query}\" → FILES: {json.dumps(context_files)}")
     
     return "\n".join(lines)
 
@@ -627,7 +630,10 @@ async def simple_assist(payload: SimpleAssistRequest):
                 client = _resolve_simple_assist_client()
                 full_system = _build_simple_system_prompt(system_prompt)
                 if payload.content:
-                    full_system += f"\n\nHere is the user's document for context:\n{payload.content}"
+                    if payload.active_filename:
+                        full_system += f"\n\nHere is the file the user is currently viewing: {payload.active_filename}\n{payload.content}"
+                    else:
+                        full_system += f"\n\nHere is the user's document for context:\n{payload.content}"
 
                 user_message = message
                 if payload.selected_text:
