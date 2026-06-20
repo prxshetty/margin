@@ -673,6 +673,8 @@ export function SimpleAssist() {
         .replace(/\s+/g, ' ')
         .trim()
 
+      const activeFilename = currentFilePath ? currentFilePath.split('/').pop() : undefined
+
       const body: Record<string, unknown> = {
         content: fullContent,
         message: cleanMessage,
@@ -680,6 +682,7 @@ export function SimpleAssist() {
         session_id: currentSessionId,
         ref_files: currentRefFiles.map(f => ({ name: f.name, path: f.path })),
         available_files: openedFiles.map(f => ({ name: f.name, path: f.path })),
+        active_filename: activeFilename,
       }
 
       if (localHasSelection) {
@@ -854,13 +857,16 @@ export function SimpleAssist() {
     }
 
     try {
-      const mentionContext = buildMentionContext(currentRefFiles)
+      const currentRefFilesToInject = currentRefFiles.filter(f => f.path !== currentFilePath)
+      const mentionContext = buildMentionContext(currentRefFilesToInject)
       const fullContent = [content, mentionContext].filter(Boolean).join('\n\n')
 
       const cleanMessage = currentInstruction
         .replace(/\s*@selection\([^)]*\)\s*/g, ' ')
         .replace(/\s+/g, ' ')
         .trim()
+
+      const activeFilename = currentFilePath ? currentFilePath.split('/').pop() : undefined
 
       const body: Record<string, unknown> = {
         content: fullContent,
@@ -869,6 +875,7 @@ export function SimpleAssist() {
         session_id: currentSessionId,
         ref_files: currentRefFiles.map(f => ({ name: f.name, path: f.path })),
         available_files: openedFiles.map(f => ({ name: f.name, path: f.path })),
+        active_filename: activeFilename,
       }
 
       if (localHasSelection) {
