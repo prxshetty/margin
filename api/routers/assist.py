@@ -267,7 +267,7 @@ def _build_chat_messages(
     filtered_logs = [
         log for log in logs
         if log.get("session_id") == session_id
-        and log.get("mode") in ("chat", "edit_write")
+        and log.get("mode") == "chat"
         and log.get("success", True)
     ]
     filtered_logs.sort(key=lambda x: x.get("timestamp", ""))
@@ -645,6 +645,12 @@ async def simple_assist(payload: SimpleAssistRequest):
                 system_prompt = _load_simple_prompt("simple-chat.md")
                 client = _resolve_simple_assist_client()
                 full_system = _build_simple_system_prompt(system_prompt)
+                
+                settings = storage.get_settings()
+                history_str = _build_planner_history(payload.session_id, settings)
+                if history_str:
+                    full_system += f"\n\n{history_str}"
+                    
                 if payload.content:
                     if payload.active_filename:
                         full_system += f"\n\nHere is the file the user is currently viewing: {payload.active_filename}\n{payload.content}"
