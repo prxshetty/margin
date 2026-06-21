@@ -135,6 +135,15 @@ def delete_session_logs(session_id: str):
     storage.delete_simple_ai_logs_by_session(session_id)
     return {"status": "ok"}
 
+_active_stop_events: Dict[str, threading.Event] = {}
+
+@router.post("/simple/stop/{session_id}")
+def stop_simple_generation(session_id: str):
+    event = _active_stop_events.get(session_id)
+    if event:
+        event.set()
+    return {"status": "ok"}
+
 
 def _log_simple_assist(
     mode: str,
