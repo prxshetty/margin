@@ -653,7 +653,9 @@ async def simple_assist(payload: SimpleAssistRequest):
 
                 user_message = message
                 if payload.selected_text:
-                    user_message = f"[{len(payload.selected_text)} Ch]: \"{payload.selected_text[:120]}...\"\n\n{user_message}"
+                    user_message = f"SELECTED_TEXT:\n{payload.selected_text}\n\nUSER_MESSAGE:\n{user_message}"
+                elif payload.cursor_paragraph_text:
+                    user_message = f"ANCHOR_PARAGRAPH_TEXT:\n{payload.cursor_paragraph_text}\n\nUSER_MESSAGE:\n{user_message}"
 
                 settings = storage.get_settings()
                 messages = _build_chat_messages(payload.session_id, full_system, user_message, settings)
