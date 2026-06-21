@@ -42,6 +42,7 @@ class LLMClient:
         stream: bool = True,
         temperature: float = None,
         max_tokens: int = None,
+        stop_event=None,
     ) -> str:
         """Generate text with the LLM. Use streaming=True for real-time output."""
         url = f"{self.base_url}/chat/completions"
@@ -65,7 +66,7 @@ class LLMClient:
             payload["max_tokens"] = max_tokens
 
         if stream:
-            return self._stream_generate(url, headers, payload)
+            return self._stream_generate(url, headers, payload, stop_event=stop_event)
         else:
             return self._blocking_generate(url, headers, payload)
 
@@ -83,7 +84,7 @@ class LLMClient:
         content = data["choices"][0]["message"]["content"]
         return self._clean_reasoning(content)
 
-    def _stream_generate(self, url: str, headers: dict, payload: dict) -> Generator[tuple[str, str], None, None]:
+    def _stream_generate(self, url: str, headers: dict, payload: dict, stop_event=None) -> Generator[tuple[str, str], None, None]:
         """Streaming generation — yields content as it arrives.
 
         Handles both DeepSeek <|channel|> and Granite/standard <think>...</think>
@@ -116,6 +117,9 @@ class LLMClient:
             response.raise_for_status()
 
             for chunk in response.iter_lines():
+                if stop_event and stop_event.is_set():
+                    response.close()
+                    return
                 if chunk:
                     chunk_str = chunk.decode("utf-8")
                     if chunk_str.startswith("data: "):
@@ -279,6 +283,7 @@ class LLMClient:
         messages: list[dict],
         temperature: float = None,
         max_tokens: int = None,
+        stop_event=None,
     ):
         """Streaming generation with pre-built history."""
         url = f"{self.base_url}/chat/completions"
@@ -296,7 +301,7 @@ class LLMClient:
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
         
-        return self._stream_generate(url, headers, payload)
+        return self._stream_generate(url, headers, payload, stop_event=stop_event)
 
     def _clean_reasoning(self, text: str) -> str:
         if not self.is_thinking:

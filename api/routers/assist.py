@@ -3,6 +3,7 @@ import re
 import uuid
 import asyncio
 import difflib
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -427,8 +428,6 @@ def build_generator_prompts(
     ignored_paths = set(s.get("ignored_ref_files") or [])
     
     for filepath in context_needed:
-        if _is_blocked(filepath, ignored_paths):
-            continue
         actual_path = filepath
         if actual_path not in available_paths:
             matches = difflib.get_close_matches(filepath, available_paths, n=1, cutoff=0.5)
@@ -477,6 +476,10 @@ async def simple_assist(payload: SimpleAssistRequest):
         system_prompt = ""
         user_prompt = ""
         edit_mode = "replace" if payload.selected_text else "insert"
+        stop_event = threading.Event()
+        
+        if payload.session_id:
+            _active_stop_events[payload.session_id] = stop_event
 
         try:
             if mode == "edit":
@@ -544,9 +547,12 @@ async def simple_assist(payload: SimpleAssistRequest):
                             user_prompt=user_prompt,
                             stream=True,
                             temperature=0.7,
-                            max_tokens=max_toks
+                            max_tokens=max_toks,
+                            stop_event=stop_event
                         )
                         for chunk_type, chunk_text in gen:
+                            if stop_event.is_set():
+                                break
                             loop.call_soon_threadsafe(queue.put_nowait, (chunk_type, chunk_text))
                         loop.call_soon_threadsafe(queue.put_nowait, ("done", None))
                     except Exception as e:
@@ -661,8 +667,11 @@ async def simple_assist(payload: SimpleAssistRequest):
                             messages=messages,
                             temperature=0.7,
                             max_tokens=_pick_writer_max_tokens(),
+                            stop_event=stop_event
                         )
                         for chunk_type, chunk_text in gen:
+                            if stop_event.is_set():
+                                break
                             loop.call_soon_threadsafe(queue.put_nowait, (chunk_type, chunk_text))
                         loop.call_soon_threadsafe(queue.put_nowait, ("done", None))
                     except Exception as e:
@@ -748,6 +757,9 @@ async def simple_assist(payload: SimpleAssistRequest):
                 "status": "error",
                 "detail": str(e)
             })}
+        finally:
+            if payload.session_id and payload.session_id in _active_stop_events:
+                del _active_stop_events[payload.session_id]
 
     return EventSourceResponse(event_generator())
 
