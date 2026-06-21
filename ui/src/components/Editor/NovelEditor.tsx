@@ -40,9 +40,9 @@ export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: bool
         editor.commands.clearAiHighlight()
         isProgrammaticUpdateRef.current = false
       }
-
-      if ((editor.storage as any)?.markdown) {
-        const newMarkdown = (editor.storage as any).markdown.getMarkdown()
+      const markdownStorage = editor.storage.markdown as { getMarkdown: () => string }
+      if (markdownStorage) {
+        const newMarkdown = markdownStorage.getMarkdown()
         lastContentRef.current = newMarkdown
         setContent(newMarkdown)
       }
@@ -58,9 +58,6 @@ export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: bool
         setSelectedText(text)
         setSelectionRange({ from, to })
       }
-    },
-    onFocus: ({ editor }) => {
-      setEditor(editor)
     },
     editorProps: {
       attributes: {
