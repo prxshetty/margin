@@ -113,8 +113,8 @@ export const AiDiffHighlightExtension = Extension.create<AiDiffHighlightOptions>
                     e.preventDefault()
                     const state = useEditorStore.getState()
                     const previous = state.aiPendingEdit?.previousContent
-                    if (previous) {
-                      state.editor?.commands.clearAiHighlight()
+                    state.editor?.commands.clearAiHighlight()
+                    if (previous !== undefined) {
                       state.editor?.commands.setContent(previous)
                       state.setContent(previous)
                       if (state.currentFilePath) {

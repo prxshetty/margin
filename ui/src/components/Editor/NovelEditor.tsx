@@ -5,6 +5,7 @@ import { useEffect, useRef } from 'react'
 import { Markdown } from 'tiptap-markdown'
 import { SimpleAssistSelectionPopup } from './SimpleAssistSelectionPopup'
 import { AiDiffHighlightExtension } from './AiDiffHighlightExtension'
+import { EditorState } from '@tiptap/pm/state'
 
 export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: boolean }) {
   const content = useEditorStore(state => state.content)
@@ -82,7 +83,17 @@ export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: bool
         lastContentRef.current = content
         isProgrammaticUpdateRef.current = true
         editor.commands.setContent(content || '')
-        // ProseMirror dispatches synchronously so we reset immediately.
+        // prosemirror-history does not export clearHistory.
+        // Rebuild a fresh EditorState with the same doc + plugins so every
+        // plugin's state (including history) is reset to its initial value,
+        // preventing Cmd+Z from time-travelling into prior file content.
+        editor.view.updateState(
+          EditorState.create({
+            doc: editor.state.doc,
+            schema: editor.state.schema,
+            plugins: editor.state.plugins,
+          })
+        )
         isProgrammaticUpdateRef.current = false
       }
     }
