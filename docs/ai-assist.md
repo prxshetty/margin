@@ -42,7 +42,9 @@ The backend identifies the paragraph containing your cursor and sends the same t
 Use Chat mode for brainstorming, asking questions, or discussing your content with the AI.
 
 - The AI has access to your full **conversation history** within the session.
-- If you have text selected when you send a message, the AI can see what you've highlighted.
+- If you have text selected when you send a message, the AI can see what you've highlighted. If no text is selected, the AI sees the paragraph your cursor is on.
+- Prior **edit history** (RECENT_EDITS) is carried into chat context, so the AI is aware of what's been previously planned or edited.
+- The AI also receives the full **active document** as context.
 - Chat mode **does not modify your document** -- it only responds conversationally.
 - You can switch between Edit and Chat modes freely without losing session context.
 
@@ -57,6 +59,28 @@ In Edit mode, the AI always receives exactly three paragraphs of surrounding con
 ```
 
 This keeps token usage low and focused, which is especially important for smaller local models. The Writer agent is instructed to never echo or reproduce the surrounding paragraphs -- only to produce new text for the target.
+
+## How Context Works
+
+The AI Assist panel uses different context strategies depending on the mode:
+
+### Input Bar Context
+
+The `@filename` chips and selection tag in the input area serve as a user reference visible in history logs. File content is resolved independently by each agent.
+
+### Edit Mode (Planner + Writer)
+
+The **Planner** scans available workspace manifests and document structure to determine which context files are relevant. It receives the document outline (optional), selected or cursor-anchored text, and prior edit history.
+
+The **Writer** is stateless -- each edit request is processed independently. It receives only the three-paragraph window around your cursor plus the files resolved by the Planner.
+
+### Chat Mode
+
+The **Chat** agent receives the full active document, any selected text or cursor-anchored paragraph, and prior edit history (RECENT_EDITS) from the session. It maintains its own conversation history using only chat-mode logs.
+
+### User Preferences
+
+Additional Context (set in Settings > Context) is prepended to the Writer and Chat agents. The Planner intentionally does not receive it, keeping its context selection instruction-neutral.
 
 ## Reasoning & Thinking
 

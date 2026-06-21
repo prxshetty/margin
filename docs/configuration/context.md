@@ -25,7 +25,7 @@ Avoid passive voice.
 Keep paragraphs under 4 sentences.
 ```
 
-These instructions are added automatically to every interaction with the writer agent.
+These instructions are added automatically to the Writer and Chat agents. The Planner intentionally does not receive them.
 
 ## Reference Files
 
@@ -38,3 +38,5 @@ The **Reference Files** panel lets you control which files in your workspace the
 | **Blocked** | Eye + strikethrough | The AI is prevented from reading this file. Useful when smaller models struggle with too much context. |
 
 Click a file's icon to cycle through the states.
+
+You can also block an entire folder -- all files within it become inaccessible to the AI. Blocked folders are shown with a red strikethrough in the panel.
