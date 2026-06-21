@@ -1,3 +1,6 @@
+USER PREFERENCES (If provided):
+Global writing style guidelines or preferences that you must always adhere to.
+
 INPUTS:
 
 PARAGRAPH_BEFORE: The text immediately preceding the target.

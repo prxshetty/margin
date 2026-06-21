@@ -45,13 +45,14 @@ def _resolve_simple_assist_client() -> llm.LLMClient:
     return llm.LLMClient(is_thinking=is_thinking)
 
 
-def _build_simple_system_prompt(base_text: str = "") -> str:
+def _build_simple_system_prompt(base_text: str = "", include_additional_context: bool = True) -> str:
     """Prepend additional_context to a system prompt if it's non-empty."""
-    s = storage.get_settings()
-    ctx = (s.get("additional_context") or "").strip()
     system_prompt = base_text
-    if ctx:
-        system_prompt = f"\n\n--- USER CONTEXT ---\n{ctx}\n--- END USER CONTEXT ---\n\n{system_prompt}"
+    if include_additional_context:
+        s = storage.get_settings()
+        ctx = (s.get("additional_context") or "").strip()
+        if ctx:
+            system_prompt = f"\n\n--- USER PREFERENCES ---\n{ctx}\n--- END USER PREFERENCES ---\n\n{system_prompt}"
                 
     return system_prompt
 
@@ -396,7 +397,7 @@ def run_planner(
         user_prompt_lines.append("AVAILABLE_CONTEXT:\n" + "\n\n".join(manifest_sections))
     
     user = "\n".join(user_prompt_lines)
-    system = _build_simple_system_prompt(system)
+    system = _build_simple_system_prompt(system, include_additional_context=False)
     
     client = _resolve_simple_assist_client()
     raw = client.generate_to_completion(

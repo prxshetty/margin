@@ -482,7 +482,7 @@ function ContextSettings({
 
       <section>
         <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Additional Context</h3>
-        <p className="text-[12px] text-[var(--text-secondary)] mb-3">Instructions prepended to every AI interaction.</p>
+        <p className="text-[12px] text-[var(--text-secondary)] mb-3">Instructions prepended to the Chat and Writer agents.</p>
         <textarea
           value={settings.additional_context || ''}
           onChange={(e) => updateSettings({ additional_context: e.target.value })}
