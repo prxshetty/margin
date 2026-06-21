@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { NovelEditor } from '../components/Editor/NovelEditor'
 import { SimpleAssist } from '../components/SimpleAssist'
 import { FileSidebar } from '../components/FileSidebar'
@@ -30,33 +30,29 @@ export default function SimpleEditor() {
   const wordCount = content.trim() ? content.trim().split(/\s+/).length : 0
   const charCount = content.length
 
-  const headings = (() => {
-    if (!content) return []
-    const lines = content.split('\n')
+  const headings = useMemo(() => {
+    if (!editor) return []
     const list: { level: number; text: string; index: number }[] = []
     let headingIndex = 0
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i]
-      const match = line.match(/^(#{1,6})\s+(.+)$/)
-      if (match) {
-        const text = match[2].replace(/\s+#+$/, '').trim()
+    editor.state.doc.forEach(node => {
+      if (node.type.name === 'heading') {
         list.push({
-          level: match[1].length,
-          text,
+          level: node.attrs.level,
+          text: node.textContent,
           index: headingIndex++
         })
       }
-    }
+    })
     return list
-  })()
+  }, [editor, content])
 
-  const scrollToHeading = (index: number) => {
+  const scrollToHeading = useCallback((index: number) => {
     if (!editor) return
     const headingElements = editor.view.dom.querySelectorAll('h1, h2, h3, h4, h5, h6')
     if (headingElements[index]) {
       headingElements[index].scrollIntoView({ behavior: 'smooth', block: 'center' })
     }
-  }
+  }, [editor])
 
   useEffect(() => {
     if (!settings?.theme) return
@@ -91,6 +87,16 @@ export default function SimpleEditor() {
   const [filesPanelWidth, setFilesPanelWidth] = useState(() => getStoredWidth('simple-files-panel-width', PANEL_DEFAULT_WIDTH))
   const filesDraggingRef = useRef(false)
   const [isResizing, setIsResizing] = useState(false)
+  const filesPanelWidthRef = useRef(filesPanelWidth)
+  const panelWidthRef = useRef(panelWidth)
+
+  useEffect(() => {
+    filesPanelWidthRef.current = filesPanelWidth
+  }, [filesPanelWidth])
+
+  useEffect(() => {
+    panelWidthRef.current = panelWidth
+  }, [panelWidth])
 
   const editorContainerRef = useRef<HTMLDivElement>(null)
 
@@ -136,7 +142,6 @@ export default function SimpleEditor() {
       return
     }
 
-    if (!currentFilePath) return
     try {
       const store = useEditorStore.getState()
       const fileContent = store.aiPendingEdit ? store.aiPendingEdit.previousContent : store.content
@@ -177,11 +182,11 @@ export default function SimpleEditor() {
     const handleMouseUp = () => {
       if (filesDraggingRef.current) {
         filesDraggingRef.current = false
-        localStorage.setItem('simple-files-panel-width', String(filesPanelWidth))
+        localStorage.setItem('simple-files-panel-width', String(filesPanelWidthRef.current))
       }
       if (aiDraggingRef.current) {
         aiDraggingRef.current = false
-        localStorage.setItem('simple-ai-panel-width', String(panelWidth))
+        localStorage.setItem('simple-ai-panel-width', String(panelWidthRef.current))
       }
       setIsResizing(false)
       document.body.style.cursor = ''
@@ -193,7 +198,7 @@ export default function SimpleEditor() {
       window.removeEventListener('mousemove', handleMouseMove)
       window.removeEventListener('mouseup', handleMouseUp)
     }
-  }, [filesPanelWidth, panelWidth])
+  }, [])
 
   return (
     <div className="h-screen flex bg-[var(--bg-editor)] p-2 overflow-hidden select-none">
@@ -204,8 +209,7 @@ export default function SimpleEditor() {
           width: filesPanelOpen ? filesPanelWidth + 8 : 0,
           opacity: filesPanelOpen ? 1 : 0,
           transform: filesPanelOpen ? 'translateX(0)' : 'translateX(-16px)',
-          marginRight: filesPanelOpen ? '0px' : '0px',
-          transition: isResizing ? 'none' : 'width 350ms cubic-bezier(0.16, 1, 0.3, 1), transform 350ms cubic-bezier(0.16, 1, 0.3, 1), opacity 350ms cubic-bezier(0.16, 1, 0.3, 1), margin-right 350ms cubic-bezier(0.16, 1, 0.3, 1)',
+          transition: isResizing ? 'none' : 'width 350ms cubic-bezier(0.16, 1, 0.3, 1), transform 350ms cubic-bezier(0.16, 1, 0.3, 1), opacity 350ms cubic-bezier(0.16, 1, 0.3, 1)',
         }}
       >
         <div style={{ width: filesPanelWidth }} className="h-full bg-transparent overflow-y-auto min-w-0">
@@ -302,8 +306,7 @@ export default function SimpleEditor() {
           width: panelOpen ? panelWidth + 8 : 0,
           opacity: panelOpen ? 1 : 0,
           transform: panelOpen ? 'translateX(0)' : 'translateX(16px)',
-          marginLeft: panelOpen ? '0px' : '0px',
-          transition: isResizing ? 'none' : 'width 350ms cubic-bezier(0.16, 1, 0.3, 1), transform 350ms cubic-bezier(0.16, 1, 0.3, 1), opacity 350ms cubic-bezier(0.16, 1, 0.3, 1), marginLeft 350ms cubic-bezier(0.16, 1, 0.3, 1)',
+          transition: isResizing ? 'none' : 'width 350ms cubic-bezier(0.16, 1, 0.3, 1), transform 350ms cubic-bezier(0.16, 1, 0.3, 1), opacity 350ms cubic-bezier(0.16, 1, 0.3, 1)',
         }}
       >
         <div
