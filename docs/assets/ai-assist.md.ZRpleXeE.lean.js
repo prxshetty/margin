@@ -1,0 +1,1 @@
+import{_ as t,o,c as n,a0 as a}from"./chunks/framework.BWpMpcZ2.js";const u=JSON.parse('{"title":"AI Assist","description":"","frontmatter":{},"headers":[],"relativePath":"ai-assist.md","filePath":"ai-assist.md"}'),r={name:"ai-assist.md"};function s(i,e,l,h,d,c){return o(),n("div",null,[...e[0]||(e[0]=[a("",48)])])}const g=t(r,[["render",s]]);export{u as __pageData,g as default};
