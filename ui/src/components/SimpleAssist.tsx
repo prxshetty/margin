@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { AtSign, Code2, MousePointer2, RefreshCw, Settings, Trash2 } from 'lucide-react'
+import { AtSign, Code2, MousePointer2, Settings, Trash2 } from 'lucide-react'
 import { useEditorStore } from '../stores/editorStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { API_BASE } from '../lib/api'
@@ -33,13 +33,6 @@ interface MarkdownStorage {
   markdown: { getMarkdown: () => string }
 }
 
-function buildMentionContext(files: FileEntry[]): string {
-  if (files.length === 0) return ''
-  const parts = files.map(
-    (f) => `--- ${f.name} ---\n${f.content}`
-  )
-  return `\n\nReferenced files:\n${parts.join('\n\n')}`
-}
 
 function cleanUserPrompt(log: SimpleLogEntry): string {
   let text = ''
@@ -426,8 +419,7 @@ export function SimpleAssist() {
   const [activeInstruction, setActiveInstruction] = useState('')
   const [activeRefFiles, setActiveRefFiles] = useState<FileEntry[]>([])
   const [errorText, setErrorText] = useState('')
-  const [currentSessionId, setCurrentSessionId] = useState(() => Date.now().toString(36))
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
+  const [activeSessionId, setActiveSessionId] = useState<string>(() => crypto.randomUUID())
   const [showHistoryDropdown, setShowHistoryDropdown] = useState(false)
   const [sessionLoadCount, setSessionLoadCount] = useState(3)
   const [mode, setMode] = useState<'chat' | 'edit'>('edit')
@@ -452,6 +444,22 @@ export function SimpleAssist() {
   const inputRef = useRef<HTMLDivElement>(null)
   const outputRef = useRef<HTMLDivElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const abortRef = useRef<AbortController | null>(null)
+  const wasAbortedRef = useRef(false)
+
+  const handleStop = async () => {
+    if (abortRef.current) {
+      abortRef.current.abort()
+      abortRef.current = null
+    }
+    if (activeSessionId) {
+      try {
+        await fetch(`${API_BASE}/api/assist/simple/stop/${activeSessionId}`, { method: 'POST' })
+      } catch (err) {
+        console.error('Failed to call stop endpoint', err)
+      }
+    }
+  }
 
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -488,9 +496,10 @@ export function SimpleAssist() {
       .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
   }, [historyLogs])
 
-  const filteredLogs = activeSessionId
-    ? historyLogs.filter(l => l.session_id === activeSessionId)
-    : historyLogs
+  const filteredLogs = useMemo(() =>
+    historyLogs.filter(l => l.session_id === activeSessionId),
+    [historyLogs, activeSessionId]
+  )
 
   const displayLogs = useMemo(() =>
     filteredLogs.filter(l => l.mode !== 'edit_plan'),
@@ -531,6 +540,16 @@ export function SimpleAssist() {
   useEffect(() => {
     fetchLogs()
   }, [])
+
+  // Reset all session state when the workspace directory changes
+  const workspaceDir = useEditorStore((s) => s.workspaceDir)
+  useEffect(() => {
+    setHistoryLogs([])
+    setActiveSessionId(crypto.randomUUID())
+    setPlannerContextFiles([])
+    setStreamingThinkingText('')
+    setStreamingChatText('')
+  }, [workspaceDir])
 
   useEffect(() => {
     if (historyLogs.length > 0 || isWorking || errorText) {
@@ -664,10 +683,14 @@ export function SimpleAssist() {
       setInstructionText('')
     }
 
-    try {
-      const mentionContext = buildMentionContext(currentRefFiles)
-      const fullContent = [content, mentionContext].filter(Boolean).join('\n\n')
+    wasAbortedRef.current = false
+    abortRef.current?.abort()
+    abortRef.current = new AbortController()
 
+    try {
+      // Do NOT append mentionContext to content — the backend injects ref files
+      // via ref_files + context_needed resolution. Polluting `content` with file
+      // headers breaks cursor paragraph detection in extract_anchor_context().
       const cleanMessage = currentInstruction
         .replace(/\s*@selection\([^)]*\)\s*/g, ' ')
         .replace(/\s+/g, ' ')
@@ -676,10 +699,10 @@ export function SimpleAssist() {
       const activeFilename = currentFilePath ? currentFilePath.split('/').pop() : undefined
 
       const body: Record<string, unknown> = {
-        content: fullContent,
+        content: content,
         message: cleanMessage,
         mode: 'edit',
-        session_id: currentSessionId,
+        session_id: activeSessionId,
         ref_files: currentRefFiles.map(f => ({ name: f.name, path: f.path })),
         available_files: openedFiles.map(f => ({ name: f.name, path: f.path })),
         active_filename: activeFilename,
@@ -708,6 +731,7 @@ export function SimpleAssist() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        signal: abortRef.current.signal,
       })
       if (!res.ok) {
         throw new Error('Edit failed')
@@ -814,17 +838,24 @@ export function SimpleAssist() {
       }
       await fetchLogs()
     } catch (err) {
-      console.error(err)
-      setErrorText('Error: ' + (err as Error).message)
+      if ((err as Error).name === 'AbortError') {
+        wasAbortedRef.current = true
+        // User cancelled — keep partial output visible, don't show error
+      } else {
+        console.error(err)
+        setErrorText('Error: ' + (err as Error).message)
+      }
     } finally {
       setIsWorking(false)
       setIsPlanning(false)
       setIsGenerating(false)
       setPlannerContextFiles([])
-      setStreamingThinkingText('')
-      setStreamingChatText('')
-      setActiveInstruction('')
-      setActiveRefFiles([])
+      if (!wasAbortedRef.current) {
+        setStreamingThinkingText('')
+        setStreamingChatText('')
+        setActiveInstruction('')
+        setActiveRefFiles([])
+      }
     }
   }
 
@@ -856,11 +887,11 @@ export function SimpleAssist() {
       setInstructionText('')
     }
 
-    try {
-      const currentRefFilesToInject = currentRefFiles.filter(f => f.path !== currentFilePath)
-      const mentionContext = buildMentionContext(currentRefFilesToInject)
-      const fullContent = [content, mentionContext].filter(Boolean).join('\n\n')
+    wasAbortedRef.current = false
+    abortRef.current?.abort()
+    abortRef.current = new AbortController()
 
+    try {
       const cleanMessage = currentInstruction
         .replace(/\s*@selection\([^)]*\)\s*/g, ' ')
         .replace(/\s+/g, ' ')
@@ -869,10 +900,10 @@ export function SimpleAssist() {
       const activeFilename = currentFilePath ? currentFilePath.split('/').pop() : undefined
 
       const body: Record<string, unknown> = {
-        content: fullContent,
+        content: content,
         message: cleanMessage,
         mode: 'chat',
-        session_id: currentSessionId,
+        session_id: activeSessionId,
         ref_files: currentRefFiles.map(f => ({ name: f.name, path: f.path })),
         available_files: openedFiles.map(f => ({ name: f.name, path: f.path })),
         active_filename: activeFilename,
@@ -886,6 +917,7 @@ export function SimpleAssist() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        signal: abortRef.current.signal,
       })
       if (!res.ok) {
         throw new Error('Chat failed')
@@ -938,17 +970,24 @@ export function SimpleAssist() {
       }
       await fetchLogs()
     } catch (err) {
-      console.error(err)
-      setErrorText('Error: ' + (err as Error).message)
+      if ((err as Error).name === 'AbortError') {
+        wasAbortedRef.current = true
+        // User cancelled — keep partial output visible, don't show error
+      } else {
+        console.error(err)
+        setErrorText('Error: ' + (err as Error).message)
+      }
     } finally {
       setIsWorking(false)
       setIsPlanning(false)
       setIsGenerating(false)
       setPlannerContextFiles([])
-      setStreamingThinkingText('')
-      setStreamingChatText('')
-      setActiveInstruction('')
-      setActiveRefFiles([])
+      if (!wasAbortedRef.current) {
+        setStreamingThinkingText('')
+        setStreamingChatText('')
+        setActiveInstruction('')
+        setActiveRefFiles([])
+      }
     }
   }
 
@@ -1206,17 +1245,31 @@ export function SimpleAssist() {
             </div>
           </div>
 
-          {/* Action Button: Solid circular button with up arrow */}
+          {/* Action Button: Stop when working, Send/Submit otherwise */}
           <button
-            onClick={mode === 'chat' ? handleChat : handleEdit}
-            disabled={!instructionText || isWorking}
-            className="
-              flex items-center justify-center transition-[background-color,transform,opacity] duration-150 cursor-pointer select-none border rounded-full w-6 h-6 shrink-0 active:scale-[0.9] bg-[var(--accent-brown)] hover:bg-[var(--accent-brown-hover)] text-[var(--text-inverse)] disabled:bg-[var(--bg-disabled)] disabled:text-[var(--text-disabled)] disabled:border-transparent border-transparent
-            "
-            title={mode === 'chat' ? 'Send Message' : hasSelection ? 'Replace Selection' : 'Insert Content'}
+            onClick={() => {
+              if (isWorking) {
+                handleStop()
+              } else if (mode === 'chat') {
+                handleChat()
+              } else {
+                handleEdit()
+              }
+            }}
+            disabled={!isWorking && !instructionText}
+            className={`
+              flex items-center justify-center transition-[background-color,transform,opacity] duration-150 cursor-pointer select-none border rounded-full w-6 h-6 shrink-0 active:scale-[0.9] 
+              ${isWorking
+                ? 'bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--danger)] hover:bg-[var(--danger-bg)] border-[var(--border-subtle)] hover:border-[var(--danger-muted)]'
+                : 'bg-[var(--accent-brown)] hover:bg-[var(--accent-brown-hover)] text-[var(--text-inverse)] disabled:bg-[var(--bg-disabled)] disabled:text-[var(--text-disabled)] disabled:border-transparent border-transparent'
+              }
+            `}
+            title={isWorking ? 'Stop generation' : mode === 'chat' ? 'Send Message' : hasSelection ? 'Replace Selection' : 'Insert Content'}
           >
             {isWorking ? (
-              <RefreshCw className="w-3 h-3 animate-spin" />
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor">
+                <rect x="4" y="4" width="16" height="16" rx="2" />
+              </svg>
             ) : (
               <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="12" y1="19" x2="12" y2="5" />
@@ -1240,8 +1293,7 @@ export function SimpleAssist() {
         <div className="flex items-center gap-1.5">
           <button
             onClick={() => {
-              const newId = Date.now().toString(36)
-              setCurrentSessionId(newId)
+              const newId = crypto.randomUUID()
               setActiveSessionId(newId)
             }}
             className="flex items-center justify-center w-7 h-7 text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 bg-[var(--bg-icon)]/20 rounded-[6px] transition-all cursor-pointer active:scale-[0.95]"
@@ -1288,7 +1340,9 @@ export function SimpleAssist() {
                               } catch (e) {
                                 console.error('Failed to delete session:', e)
                               }
-                              if (activeSessionId === session.id) setActiveSessionId(null)
+                              if (activeSessionId === session.id) {
+                                setActiveSessionId(crypto.randomUUID())
+                              }
                               await fetchLogs()
                             }}
                             className="flex items-center justify-center w-5 h-5 text-[var(--text-secondary)]/60 hover:text-red-500 hover:bg-[var(--border-sidebar)]/60 rounded-[4px] transition-all cursor-pointer active:scale-[0.9] opacity-0 group-hover:opacity-100"
@@ -1448,8 +1502,13 @@ export function SimpleAssist() {
                     {/* Always-visible context rows — ref files + planner context + selection */}
                     {((log.ref_files && log.ref_files.length > 0) || log.selected_text || plannerContextFiles.length > 0) && (() => {
                       const uniqueFiles = new Map<string, string>()
-                      log.ref_files?.forEach(f => uniqueFiles.set(f.path, f.name))
-                      plannerContextFiles.forEach(f => uniqueFiles.set(f, f))
+                      log.ref_files?.forEach(f => uniqueFiles.set(f.name, f.name))
+                      // Only add planner files not already shown as user-tagged chips
+                      const refFileNames = new Set((log.ref_files || []).map(f => f.name))
+                      plannerContextFiles.forEach(f => {
+                        const name = f.split('/').pop() || f
+                        if (!refFileNames.has(name)) uniqueFiles.set(name, name)
+                      })
 
                       return (
                         <div className="flex flex-col gap-1 mt-1 select-none">
@@ -1499,18 +1558,24 @@ export function SimpleAssist() {
                     <span>Reading {file.name}</span>
                   </div>
                 ))}
-                {plannerContextFiles.map((filepath) => {
-                  const name = filepath.split('/').pop() || filepath
-                  return (
-                    <div key={filepath} className="flex items-center gap-1.5 text-[11px] text-[var(--text-secondary)] font-sans select-none ml-1">
-                      <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 text-[var(--text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0z" />
-                        <circle cx="12" cy="12" r="3" />
-                      </svg>
-                      <span>Reading {name}</span>
-                    </div>
-                  )
-                })}
+                {/* Planner context files — only show ones the user didn't already tag */}
+                {plannerContextFiles
+                  .filter(filepath => {
+                    const name = filepath.split('/').pop() || filepath
+                    return !activeRefFiles.some(f => f.name === name)
+                  })
+                  .map((filepath) => {
+                    const name = filepath.split('/').pop() || filepath
+                    return (
+                      <div key={filepath} className="flex items-center gap-1.5 text-[11px] text-[var(--text-secondary)] font-sans select-none ml-1">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 text-[var(--text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0z" />
+                          <circle cx="12" cy="12" r="3" />
+                        </svg>
+                        <span>Reading {name}</span>
+                      </div>
+                    )
+                  })}
 
                 {streamingThinkingText && (
                   <div className="self-start w-full">
