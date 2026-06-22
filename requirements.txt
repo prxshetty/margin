@@ -5,3 +5,4 @@ sqlmodel>=0.0.14
 pydantic>=2.0.0
 python-multipart>=0.0.6
 sse-starlette>=1.6.1
+platformdirs>=4.0.0          

@@ -8,13 +8,13 @@ A **workspace** is a folder on your computer that contains your content project.
 
 margin comes with a `sample-workspace` that has example files to help you get started. To use your own:
 
-1. **Type** the absolute path to your folder (e.g., `/Users/name/my-project`), or
+1. **Type** the absolute path to your folder (e.g., `/Users/name/my-project` on macOS, `C:\Users\name\my-project` on Windows), or
 2. Click **Browse...** to pick a folder using your system's file picker, then
 3. Click **Link Path**.
 
 To reset to the default sample workspace, click **Reset to default fallback workspace**.
 
-::: tip Your workspace path is stored in `settings.json` and never sent anywhere. It's only used to locate your files.
+::: tip Your workspace path is stored in your platform's config directory (`~/.config/slm-writing-engine/settings.json` on Linux, `~/Library/Application Support/slm-writing-engine/settings.json` on macOS, `%APPDATA%\slm-writing-engine\settings.json` on Windows) and never sent anywhere.
 :::
 
 ## Default Mode

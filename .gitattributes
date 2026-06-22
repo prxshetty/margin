@@ -1,0 +1,28 @@
+# .gitattributes
+# Force LF line endings in the repo for all text files.
+# This prevents Windows users from committing CRLF into .md files,
+# which would break splitlines(), regex patterns, and diffs.
+
+*           text=auto eol=lf
+
+# Explicitly binary — never mangle these
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.gif       binary
+*.ico       binary
+*.woff      binary
+*.woff2     binary
+*.ttf       binary
+*.eot       binary
+*.otf       binary
+*.pdf       binary
+*.zip       binary
+*.tar.gz    binary
+
+# Shell scripts — must be LF even on Windows
+*.sh        text eol=lf
+
+# Windows-only scripts — keep CRLF so cmd.exe / PowerShell are happy
+*.bat       text eol=crlf
+*.ps1       text eol=crlf

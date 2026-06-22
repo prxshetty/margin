@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "dev"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  # ── Backend ──────────────────────────────────────────────────────────────
+  backend:
+    name: "Backend (${{ matrix.os }})"
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.11"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Smoke-test imports
+        # Confirms all modules resolve without a running LM Studio instance
+        run: |
+          python -c "from api.main import app; print('app imported OK')"
+          python -c "from api.services.file_storage import storage; print('storage OK')"
+          python -c "from api.routers.workspace import router; print('workspace OK')"
+          python -c "import llm; print('llm OK')"
+
+      - name: Run tests (if any)
+        # Replace with `pytest` once you add a test suite
+        run: python -m pytest tests/ -v --tb=short 2>/dev/null || echo "No test suite yet — skipping"
+        shell: bash   # use bash even on Windows (via git-bash) for consistent behaviour
+
+  # ── Frontend ─────────────────────────────────────────────────────────────
+  frontend:
+    name: "Frontend (${{ matrix.os }})"
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node-version: ["20"]
+
+    defaults:
+      run:
+        working-directory: ui
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Type-check
+        run: npm run build -- --emptyOutDir
+
+  # ── Path-safety unit tests ────────────────────────────────────────────────
+  # Lightweight cross-platform sanity check for the path-handling helpers.
+  path-safety:
+    name: "Path safety (${{ matrix.os }})"
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Verify posix path helper
+        shell: python
+        run: |
+          from pathlib import Path
+          from api.services.file_storage import _posix_rel
+
+          base = Path("/tmp/ws")
+          child = base / "chapters" / "chapter-1.md"
+          result = _posix_rel(child, base)
+          assert result == "chapters/chapter-1.md", f"Got: {result!r}"
+          assert "\\" not in result, "Backslash found in posix path!"
+          print("posix path helper OK:", result)

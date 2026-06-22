@@ -48,7 +48,7 @@ margin has **no external telemetry**. There are no analytics, no tracking script
 The only "telemetry" is local:
 
 - **AI logs** stored in `outputs/ai_logs/` for debugging your own requests
-- **Settings** saved in `settings.json` at the project root
+- **Settings** saved in your platform's config directory — `~/.config/slm-writing-engine/settings.json` on Linux, `~/Library/Application Support/slm-writing-engine/settings.json` on macOS, `%APPDATA%\slm-writing-engine\settings.json` on Windows
 - **No crash reports, no usage stats, no pings home**
 
 Everything stays on your machine.

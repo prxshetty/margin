@@ -7,17 +7,22 @@ margin has two parts: a **backend** (AI engine) and a **frontend** (editor inter
 ### Backend (Python)
 
 - Python 3.10 or newer
+
   ```bash
-  python --version
+  python --version      # macOS / Linux
+  python --version      # Windows (or python3 if using the Windows store alias)
   ```
+
   If you don't have Python, download it from [python.org](https://python.org).
 
 ### Frontend (Node.js)
 
 - Node.js 18 or newer
+
   ```bash
   node --version
   ```
+
   Download from [nodejs.org](https://nodejs.org) if needed.
 
 ### AI Provider (pick one)
@@ -42,7 +47,7 @@ Use an online provider. Your content is sent to their servers for processing.
 - [Groq](https://console.groq.com/keys)
 - Any OpenAI-compatible cloud provider
 
-> All cloud providers require an API key. margin stores it securely in your local `settings.json` file.
+> All cloud providers require an API key. margin stores it securely in your local settings file.
 
 ::: tip You don't need to edit `.env` files -- everything is configured inside margin's settings UI.
 :::
@@ -58,22 +63,56 @@ cd margin
 
 ### Step 2: Set up the backend
 
-```bash
+margin includes startup scripts that handle everything automatically. Pick the right one for your OS:
+
+::: code-group
+
+```bash [macOS / Linux]
+./start.sh
+```
+
+```powershell [Windows]
+start.bat          # double-click, or run in cmd
+powershell -ExecutionPolicy Bypass -File start.ps1
+```
+
+:::
+
+The script will:
+1. Create a Python virtual environment (if one doesn't exist)
+2. Install Python dependencies
+3. Install frontend dependencies
+4. Launch both the API server and the editor UI in parallel
+
+#### Manual setup (optional)
+
+If you prefer to run things step by step:
+
+::: code-group
+
+```bash [macOS / Linux]
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
+uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Start the backend server:
-
-```bash
-uvicorn api.main:app --reload
+```powershell [Windows]
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+copy .env.example .env
+uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
 ```
+
+:::
 
 The backend will be available at `http://localhost:8000`.
 
 ### Step 3: Set up the frontend
 
-Open a **new terminal window**, navigate to the UI folder:
+If you used the startup script, this is already done. Otherwise, open a **new terminal window** and run:
 
 ```bash
 cd ui
