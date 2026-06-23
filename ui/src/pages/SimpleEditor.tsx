@@ -25,34 +25,9 @@ function getStoredWidth(key: string, fallback: number): number {
 export default function SimpleEditor() {
   const { markFileClean, currentFilePath, content, editor } = useEditorStore()
   const { showSettings, setShowSettings, settings } = useSettingsStore()
-  const showOutline = settings?.show_outline !== false
 
   const wordCount = content.trim() ? content.trim().split(/\s+/).length : 0
   const charCount = content.length
-
-  const headings = useMemo(() => {
-    if (!editor) return []
-    const list: { level: number; text: string; index: number }[] = []
-    let headingIndex = 0
-    editor.state.doc.forEach(node => {
-      if (node.type.name === 'heading') {
-        list.push({
-          level: node.attrs.level,
-          text: node.textContent,
-          index: headingIndex++
-        })
-      }
-    })
-    return list
-  }, [editor, content])
-
-  const scrollToHeading = useCallback((index: number) => {
-    if (!editor) return
-    const headingElements = editor.view.dom.querySelectorAll('h1, h2, h3, h4, h5, h6')
-    if (headingElements[index]) {
-      headingElements[index].scrollIntoView({ behavior: 'smooth', block: 'center' })
-    }
-  }, [editor])
 
   useEffect(() => {
     if (!settings?.theme) return
@@ -251,36 +226,6 @@ export default function SimpleEditor() {
               </svg>
             </button>
           )}
-        </div>
-
-        {/* Left: Outline Ruler Panel */}
-        <div
-          className="border-r border-[var(--border-subtle)]/40 bg-[var(--bg-elevated)]/30 overflow-y-auto flex flex-col pt-16 pb-6 select-none shrink-0"
-          style={{
-            width: showOutline && headings.length > 0 ? '180px' : '0px',
-            opacity: showOutline && headings.length > 0 ? 1 : 0,
-            borderRightWidth: showOutline && headings.length > 0 ? '1px' : '0px',
-            transition: 'width 250ms cubic-bezier(0.16, 1, 0.3, 1), opacity 200ms ease, border-width 250ms cubic-bezier(0.16, 1, 0.3, 1)'
-          }}
-        >
-          <div className="w-[180px] px-4 flex flex-col gap-2">
-            <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--text-secondary)]/70 mb-1">Outline</p>
-            <div className="flex flex-col gap-1">
-              {headings.map((h) => (
-                <button
-                  key={h.index}
-                  onClick={() => scrollToHeading(h.index)}
-                  className="text-left text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--bg-hover)]/40 px-2 py-1.5 rounded-[4px] transition-colors truncate cursor-pointer font-sans"
-                  style={{
-                    paddingLeft: `${Math.max(8, h.level * 8)}px`
-                  }}
-                  title={h.text}
-                >
-                  {h.text}
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
 
         {/* Right: Scrolling Editor area */}
