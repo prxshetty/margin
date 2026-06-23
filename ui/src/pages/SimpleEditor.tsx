@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { NovelEditor } from '../components/Editor/NovelEditor'
 import { SimpleAssist } from '../components/SimpleAssist'
 import { FileSidebar } from '../components/FileSidebar'
@@ -23,7 +23,7 @@ function getStoredWidth(key: string, fallback: number): number {
   return fallback
 }
 export default function SimpleEditor() {
-  const { markFileClean, currentFilePath, content, editor } = useEditorStore()
+  const { markFileClean, currentFilePath, content } = useEditorStore()
   const { showSettings, setShowSettings, settings } = useSettingsStore()
 
   const wordCount = content.trim() ? content.trim().split(/\s+/).length : 0

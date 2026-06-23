@@ -40,7 +40,7 @@ export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: bool
         editor.commands.clearAiHighlight()
         isProgrammaticUpdateRef.current = false
       }
-      const markdownStorage = editor.storage.markdown as { getMarkdown: () => string }
+      const markdownStorage = (editor.storage as any).markdown as { getMarkdown: () => string }
       if (markdownStorage) {
         const newMarkdown = markdownStorage.getMarkdown()
         lastContentRef.current = newMarkdown
