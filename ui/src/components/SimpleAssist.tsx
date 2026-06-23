@@ -573,8 +573,8 @@ export function SimpleAssist() {
 
 
   const filteredFiles = openedFiles.filter((f) =>
-    fileQuery === '' || f.name.toLowerCase().startsWith(fileQuery.toLowerCase())
-  ).slice(0, 5)
+    fileQuery === '' || f.name.toLowerCase().includes(fileQuery.toLowerCase())
+  )
 
 
   const handleInput = () => {
