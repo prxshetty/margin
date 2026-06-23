@@ -94,6 +94,8 @@ jobs:
 
       - name: Verify posix path helper
         shell: python
+        env:
+          PYTHONPATH: .
         run: |
           from pathlib import Path
           from api.services.file_storage import _posix_rel
