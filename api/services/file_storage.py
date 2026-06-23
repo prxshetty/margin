@@ -80,7 +80,6 @@ class FileStorageService:
             "theme_family": "sand",
             "text_style": "system",
             "editor_stats": "both",
-            "show_outline": True,
             "planner_include_outline": False,
             "history_turns": 5
         }

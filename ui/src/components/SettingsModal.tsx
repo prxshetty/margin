@@ -370,20 +370,6 @@ function AppearanceSettings({ settings, updateSettings }: { settings: AppSetting
         <h3 className="text-[14px] font-medium text-[var(--text-heading)] tracking-tight border-b border-[var(--border-subtle)] pb-2 mb-4">Layout & Details</h3>
         <div className="flex flex-col gap-6">
           <section>
-            <h4 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Document Outline</h4>
-            <p className="text-[12px] text-[var(--text-secondary)] mb-3">Show an interactive structure outline / ruler on the left side of the editor.</p>
-            <label className="flex items-center gap-2 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={settings.show_outline !== false}
-                onChange={(e) => updateSettings({ show_outline: e.target.checked })}
-                className="accent-[var(--accent-brown)]"
-              />
-              <span className="text-[13px] text-[var(--text-secondary)] font-medium">Show Outline Ruler</span>
-            </label>
-          </section>
-
-          <section>
             <h4 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Editor Statistics</h4>
             <p className="text-[12px] text-[var(--text-secondary)] mb-3">Display word and/or character counts in the editor.</p>
             <select
