@@ -46,6 +46,10 @@ HARNESS_DESCRIPTORS: Dict[str, HarnessDescriptor] = {
         # (text/reasoning/tool_use/step_finish).
         "stream": "opencode",
         "format_args": ["--format", "json"],
+        # Non-interactive `run` auto-rejects every permission.asked event
+        # (bash/edit) unless --auto is passed — stdin is DEVNULL so nothing
+        # can ever be approved. Explicit deny rules still hold.
+        "extra_args": ["--auto"],
     },
     "claude-code": {
         "name": "Claude Code",
