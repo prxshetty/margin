@@ -324,6 +324,69 @@ class FileStorageService:
                 logs_path.unlink()
             except Exception:
                 pass
+        # A deleted Margin session must not resume a stale harness
+        # conversation: drop the mapping too.
+        self.clear_harness_session(session_id)
+
+    def _harness_sessions_path(self):
+        return self.outputs_dir / "harness_sessions.json"
+
+    def _load_harness_sessions(self) -> dict:
+        path = self._harness_sessions_path()
+        if not path.exists():
+            return {}
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    def get_harness_session(self, session_id: str, harness_id: str) -> Optional[str]:
+        """Harness-side conversation id for a Margin session, if resuming."""
+        if not session_id:
+            return None
+        entry = self._load_harness_sessions().get(session_id) or {}
+        val = entry.get(harness_id)
+        return str(val) if val else None
+
+    def set_harness_session(self, session_id: str, harness_id: str, harness_session_id: str) -> None:
+        """Remember which harness conversation continues this Margin session."""
+        if not session_id or not harness_session_id:
+            return
+        try:
+            self.outputs_dir.mkdir(parents=True, exist_ok=True)
+            data = self._load_harness_sessions()
+            entry = data.get(session_id) or {}
+            entry[harness_id] = harness_session_id
+            data[session_id] = entry
+            with open(self._harness_sessions_path(), "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            print(f"Failed to save harness session mapping: {e}")
+
+    def clear_harness_session(self, session_id: str, harness_id: Optional[str] = None) -> None:
+        """Drop the resume mapping: next run starts a fresh conversation.
+
+        Used when a resumed run fails (stale harness session) and when the
+        Margin session is deleted.
+        """
+        if not session_id:
+            return
+        try:
+            data = self._load_harness_sessions()
+            if session_id not in data:
+                return
+            if harness_id:
+                data[session_id].pop(harness_id, None)
+                if not data[session_id]:
+                    data.pop(session_id, None)
+            else:
+                data.pop(session_id, None)
+            with open(self._harness_sessions_path(), "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            print(f"Failed to clear harness session mapping: {e}")
 
 
 # Global singleton

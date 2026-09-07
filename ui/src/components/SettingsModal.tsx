@@ -422,7 +422,7 @@ function ContextSettings({
       <section className="border-b border-[var(--border-subtle)] pb-6">
         <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Session Memory</h3>
         <p className="text-[12px] text-[var(--text-secondary)] mb-3">
-          How much past history travels with each request — prior chat turns and recent edits for endpoints, past conversation and recent edits for harnesses.
+          How much past history travels with each endpoint request — prior chat turns and recent edits. Harnesses keep their own conversation per session and continue it automatically, so this setting doesn't apply to them.
         </p>
         <div className="flex flex-col gap-4">
           <div className="flex items-center gap-2">

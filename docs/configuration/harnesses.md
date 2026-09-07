@@ -43,6 +43,15 @@ The input bar always shows session token totals. All four helpers report real us
 - When it finishes, its changes are highlighted in your document. Conflicts (you edited the same paragraph) keep your version and are flagged.
 - **Accept** keeps the merged result; **Reject** removes the helper's changes but preserves yours.
 
+## Sessions
+
+One Margin session maps to one helper conversation. The first request starts it; every follow-up in the same session continues it — the helper remembers prior turns, file reads, and tool results, so "try again" retries the real previous attempt and files aren't re-read from cold.
+
+- **New Chat** starts a fresh helper conversation.
+- Deleting a session also drops the link to its helper conversation.
+- If a run fails, the next attempt starts fresh rather than resuming the broken conversation.
+- Switching between an endpoint and a helper mid-session doesn't transfer history — each side only remembers its own turns. Session Memory settings don't apply to helpers.
+
 ## If something goes wrong
 
 | What you see | What to do |

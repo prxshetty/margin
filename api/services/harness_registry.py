@@ -21,6 +21,15 @@ class HarnessDescriptor(TypedDict, total=False):
     agent_flag: str
     mode_agents: dict
     extra_args: List[str]
+    # Resume: continue a previous conversation instead of starting cold.
+    # Most CLIs take a flag (opencode --session, claude --resume,
+    # agy --conversation); codex takes a subcommand (exec resume <id>).
+    # Verified by spike 2026-09-07: opencode + agy resumed end-to-end
+    # (same session id, follow-up knew prior files); claude/codex auth
+    # was unavailable in this environment so their resume shape follows
+    # official docs and is untested live.
+    resume_flag: str
+    resume_subcommand: str
     # Stream format: which line parser normalizes this CLI's stdout into
     # queue items (chunk/thinking/tool/usage/error_text). "text" = raw
     # human output, no structured events. format_args enables the stream.
@@ -50,6 +59,9 @@ HARNESS_DESCRIPTORS: Dict[str, HarnessDescriptor] = {
         # (bash/edit) unless --auto is passed — stdin is DEVNULL so nothing
         # can ever be approved. Explicit deny rules still hold.
         "extra_args": ["--auto"],
+        # Every `run --format json` event carries a top-level sessionID;
+        # `run --session <id>` continues it with full context.
+        "resume_flag": "--session",
     },
     "claude-code": {
         "name": "Claude Code",
@@ -72,6 +84,9 @@ HARNESS_DESCRIPTORS: Dict[str, HarnessDescriptor] = {
         # Headless default permission mode denies Edit/Write outright;
         # acceptEdits auto-approves file edits under the run cwd.
         "extra_args": ["--permission-mode", "acceptEdits"],
+        # session_id arrives in init + result frames; -p --resume <id>
+        # continues with full history including tool calls/results.
+        "resume_flag": "--resume",
     },
     "codex": {
         "name": "Codex",
@@ -96,6 +111,9 @@ HARNESS_DESCRIPTORS: Dict[str, HarnessDescriptor] = {
         # exec's default sandbox is read-only; workspace-write is the
         # documented non-interactive mode that allows file edits.
         "extra_args": ["-s", "workspace-write"],
+        # thread_id arrives in the thread.started event; exec resume <id>
+        # reopens with full conversational context (reads, tools, reasoning).
+        "resume_subcommand": "resume",
     },
     "agy": {
         "name": "Antigravity",
@@ -117,6 +135,9 @@ HARNESS_DESCRIPTORS: Dict[str, HarnessDescriptor] = {
         # is silently eaten as the prompt).
         "stream": "agy",
         "format_args": ["--output-format", "stream-json"],
+        # conversation_id arrives in init + result frames; --print
+        # --conversation <id> resumes with prior context, no re-reads.
+        "resume_flag": "--conversation",
     },
 }
 

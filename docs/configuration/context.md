@@ -12,7 +12,7 @@ Edit the instructions each agent runs on (Writer, Planner, Chat, Harness Edit). 
 
 margin remembers your recent conversation turns (questions and AI responses) to keep the discussion coherent.
 
-- **Max History Depth**: Set between 1 and 10 turns. A higher number gives the AI more context but uses more tokens. The default of 5 works well for most conversations. Applies to endpoint chat turns and planner history, and to harness runs (past conversation + recent edits travel in the harness prompt).
+- **Max History Depth**: Set between 1 and 10 turns. A higher number gives the AI more context but uses more tokens. The default of 5 works well for most conversations. Applies to endpoint chat turns and planner history only — harnesses keep their own conversation per session and continue it automatically (see [Harnesses](./harnesses.md)).
 
 ## Reference Files
 
