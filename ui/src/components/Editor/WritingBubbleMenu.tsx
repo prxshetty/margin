@@ -210,7 +210,7 @@ export function WritingBubbleMenu() {
             let outputText = ''
             let streamError: string | null = null
             let harnessDone = false
-            let harnessPromise: Promise<{ conflicts: number }> | null = null
+            let harnessPromise: Promise<{ conflicts: number; deleted: boolean }> | null = null
             const baseContent = useEditorStore.getState().content
             await streamSSE(
                 `${API_BASE}/api/assist/simple`,

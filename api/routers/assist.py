@@ -129,14 +129,27 @@ def _queue_tool(tool: str, inp: dict):
 
 _READ_TOOLS = {"read", "glob", "grep"}
 
+# Shell verbs that mutate the workspace: deletions (and moves/copies) arrive
+# as path-less `bash` tool events, so the detail string is the only signal.
+_MUTATING_SHELL_RE = re.compile(
+    r"(^|[;&|]\s*|\bsudo\s+)(rm|mv|cp|mkdir|rmdir|touch|unlink|ln|tee)\b",
+    re.IGNORECASE,
+)
 
-def _is_write_tool(tool: str, path: Optional[str]) -> bool:
+
+def _is_write_tool(tool: str, path: Optional[str], detail: str = "") -> bool:
     """True when a tool event modified (or created) a file.
 
-    Reads/globs/greps and path-less calls (bash, mcp) don't count: a run
-    that only read files but emitted error text failed to deliver.
+    Reads/globs/greps and path-less non-mutating calls (mcp, plain bash)
+    don't count: a run that only read files but emitted error text failed
+    to deliver.
     """
-    return bool(path) and str(tool).lower() not in _READ_TOOLS
+    t = str(tool).lower()
+    if path and t not in _READ_TOOLS:
+        return True
+    if t in ("bash", "shell", "command", "command_execution"):
+        return bool(_MUTATING_SHELL_RE.search(detail or ""))
+    return False
 
 
 def _harness_run_ok(saw_error_text: bool, did_write: bool) -> bool:
@@ -1038,7 +1051,7 @@ async def simple_assist(payload: SimpleAssistRequest):
                                         yield {"data": json.dumps({"status": "thinking_chunk", "chunk": qval})}
                                     elif qtype == "tool":
                                         tool_calls.append(qval)
-                                        if _is_write_tool(qval["tool"], qval.get("path")):
+                                        if _is_write_tool(qval["tool"], qval.get("path"), qval.get("detail") or ""):
                                             did_write = True
                                         tool_evt = {"status": "tool", "tool": qval["tool"], "detail": qval["detail"]}
                                         if qval.get("path"):

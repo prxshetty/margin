@@ -840,15 +840,17 @@ export function SimpleAssist() {
             setActiveToolRows(prev => [...prev, { tool: String(data.tool || 'tool'), detail: String(data.detail || '') }])
             // Write/edit tool landed on disk → refresh the sidebar tree
             // (reads/globs are noise; the open document stays on the
-            // merge-at-done path, this only adds new files to the tree).
+            // merge-at-done path, this syncs added and deleted files).
             if (data.path && !['read', 'glob', 'grep'].includes(String(data.tool).toLowerCase())) scheduleFileRefresh()
           } else if (status === 'harness_done') {
             setIsPlanning(false)
             setIsGenerating(false)
             scheduleFileRefresh(0)
             applyHarnessResult(harnessBaseRef.current, harness)
-              .then(({ conflicts }) => {
-                if (conflicts > 0) {
+              .then(({ conflicts, deleted }) => {
+                if (deleted) {
+                  setNoticeText(`The open file was deleted by ${harnessLabel(harness)}.`)
+                } else if (conflicts > 0) {
                   setNoticeText(`${conflicts} paragraph${conflicts > 1 ? 's were' : ' was'} changed by both you and ${harnessLabel(harness)} — kept your version.`)
                 }
                 setPendingEditSelection(null)
@@ -1006,7 +1008,7 @@ export function SimpleAssist() {
             setActiveToolRows(prev => [...prev, { tool: String(data.tool || 'tool'), detail: String(data.detail || '') }])
             // Write/edit tool landed on disk → refresh the sidebar tree
             // (reads/globs are noise; the open document stays on the
-            // merge-at-done path, this only adds new files to the tree).
+            // merge-at-done path, this syncs added and deleted files).
             if (data.path && !['read', 'glob', 'grep'].includes(String(data.tool).toLowerCase())) scheduleFileRefresh()
           } else if (status === 'chat') {
             if (data.model_used) {
@@ -1017,8 +1019,10 @@ export function SimpleAssist() {
             setIsGenerating(false)
             scheduleFileRefresh(0)
             applyHarnessResult(harnessBaseRef.current, harness)
-              .then(({ conflicts }) => {
-                if (conflicts > 0) {
+              .then(({ conflicts, deleted }) => {
+                if (deleted) {
+                  setNoticeText(`The open file was deleted by ${harnessLabel(harness)}.`)
+                } else if (conflicts > 0) {
                   setNoticeText(`${conflicts} paragraph${conflicts > 1 ? 's were' : ' was'} changed by both you and ${harnessLabel(harness)} — kept your version.`)
                 }
               })

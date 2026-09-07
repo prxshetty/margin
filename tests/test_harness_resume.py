@@ -94,6 +94,18 @@ class TestRunOutcome(unittest.TestCase):
         self.assertFalse(assist._is_write_tool("bash", None))
         self.assertFalse(assist._is_write_tool("mcp", None))
 
+    def test_mutating_shell_counts_as_write(self):
+        self.assertTrue(assist._is_write_tool(
+            "bash", None, "rm chapters/chapter-3.md"))
+        self.assertTrue(assist._is_write_tool(
+            "bash", None, "git status; rm -f tmp.md"))
+        self.assertTrue(assist._is_write_tool(
+            "bash", None, "mv a.md b.md"))
+        self.assertFalse(assist._is_write_tool(
+            "bash", None, "git status; ls -la"))
+        self.assertFalse(assist._is_write_tool(
+            "bash", None, "echo hello"))
+
     def test_error_without_writes_fails(self):
         self.assertFalse(assist._harness_run_ok(True, False))
 

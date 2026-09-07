@@ -160,11 +160,24 @@ export function reapplyHarnessHighlight(editor: Editor): void {
 
 // Called on `harness_done`. Never overwrites the user's newer edits:
 // merges AI disk changes with current editor content (3-way, base = snapshot).
-export async function applyHarnessResult(baseContent: string, harness: string): Promise<{ conflicts: number }> {
+export async function applyHarnessResult(baseContent: string, harness: string): Promise<{ conflicts: number; deleted: boolean }> {
   const s = useEditorStore.getState()
-  if (!s.currentFilePath) return { conflicts: 0 }
-  const res = await fetch(`${API_BASE}/api/workspace/files/${encodeURIComponent(s.currentFilePath)}`)
-  if (!res.ok) throw new Error(`Failed to reload ${s.currentFilePath}: ${res.status}`)
+  if (!s.currentFilePath) return { conflicts: 0, deleted: false }
+  const deletedPath = s.currentFilePath
+  const res = await fetch(`${API_BASE}/api/workspace/files/${encodeURIComponent(deletedPath)}`)
+  if (res.status === 404) {
+    // The agent deleted the open file: drop it from the sidebar, blank the
+    // editor, and report back instead of erroring — there is nothing to merge.
+    const st = useEditorStore.getState()
+    st.removeFile(deletedPath)
+    st.setCurrentFilePath(null)
+    st.setContent('')
+    st.setAiPendingEdit(null)
+    st.editor?.commands.setContent('')
+    st.editor?.commands.clearAiHighlight()
+    return { conflicts: 0, deleted: true }
+  }
+  if (!res.ok) throw new Error(`Failed to reload ${deletedPath}: ${res.status}`)
   const { content: aiContent } = await res.json()
 
   const base = splitParas(baseContent)
@@ -186,7 +199,7 @@ export async function applyHarnessResult(baseContent: string, harness: string): 
   // Highlight AI-owned ranges (single span min→max; limitation documented)
   const editor = useEditorStore.getState().editor
   if (editor) reapplyHarnessHighlight(editor)
-  return { conflicts }
+  return { conflicts, deleted: false }
 }
 
 // Accept / Reject for harness runs. Returns true if handled (harness pending
