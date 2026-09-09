@@ -14,7 +14,11 @@
   Now supports [OpenCode](docs/configuration/harnesses.md) · [Claude Code](docs/configuration/harnesses.md) · [Codex](docs/configuration/harnesses.md) · [Antigravity](docs/configuration/harnesses.md)
 </div>
 
-<a href="https://github.com/prxshetty/margin/blob/main/assets/githubreadme.mp4"><img src="assets/gh-cover.png" alt="margin demo video — click to play" width="100%"></a>
+
+
+https://github.com/user-attachments/assets/b75c80a8-786b-4a49-a6d5-4596829d1798
+
+
 
 Think of it as SillyTavern for writing: a customizable environment where writers can collaborate with context-aware AI agents, swap models, manage prompts, and build their own creative workflows—all while keeping their work on their own machine.
 
