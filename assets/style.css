@@ -383,6 +383,37 @@ section {
 
 
 
+/* Demo video */
+.demo-section {
+  max-width: 72rem;
+  padding: 5rem 2rem 5rem;
+  text-align: center;
+}
+.demo-title {
+  font-family: var(--font-serif);
+  font-size: 2.5rem;
+  color: var(--text-heading);
+  margin-bottom: 0.5rem;
+  font-weight: 400;
+}
+.demo-sub {
+  color: var(--text-muted);
+  margin-bottom: 2.5rem;
+}
+.demo-window {
+  max-width: 72rem;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 12px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.18);
+}
+.demo-video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+}
+
 /* Problem Statement */
 .problem-section {
   max-width: 54rem;
@@ -1277,6 +1308,7 @@ section {
 .footer-links {
   display: flex;
   align-items: center;
+  gap: 0.6rem;
 }
 
 .footer-credit {
@@ -1294,6 +1326,17 @@ section {
 
 .footer-link:hover {
   color: var(--accent-brown-hover);
+}
+
+.footer-x-link {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-secondary);
+  transition: color 0.2s;
+}
+
+.footer-x-link:hover {
+  color: var(--text-heading);
 }
 
 .social-popover {

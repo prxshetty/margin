@@ -271,6 +271,25 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
+// ── Demo video: autoplay when in view, pause when out ──
+document.addEventListener('DOMContentLoaded', () => {
+  const video = document.querySelector('.demo-video');
+  if (!video) return;
+  video.muted = true; // required for autoplay
+  const tryPlay = () => video.play().catch(() => {});
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) tryPlay();
+      else video.pause();
+    });
+  }, { threshold: 0.3 });
+  observer.observe(video);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) video.pause();
+    else tryPlay();
+  });
+});
+
 // ── FAQ Accordion (single-open) ──
 document.addEventListener('DOMContentLoaded', () => {
   const items = document.querySelectorAll('.faq-item');
