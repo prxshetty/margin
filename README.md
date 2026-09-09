@@ -14,6 +14,8 @@
   Now supports [OpenCode](docs/configuration/harnesses.md) · [Claude Code](docs/configuration/harnesses.md) · [Codex](docs/configuration/harnesses.md) · [Antigravity](docs/configuration/harnesses.md)
 </div>
 
+<video src="assets/githubreadme.mp4" controls muted loop playsinline width="100%"></video>
+
 Think of it as SillyTavern for writing: a customizable environment where writers can collaborate with context-aware AI agents, swap models, manage prompts, and build their own creative workflows—all while keeping their work on their own machine.
 
 Instead of treating AI as a chat window, Margin integrates it directly into the writing process. Draft scenes, brainstorm plots, maintain world lore, rewrite passages, and iterate on ideas inside a distraction-free editor designed for long-form writing.

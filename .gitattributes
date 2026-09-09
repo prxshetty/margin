@@ -17,6 +17,9 @@
 *.eot       binary
 *.otf       binary
 *.pdf       binary
+*.mp4       binary
+*.mov       binary
+*.webm      binary
 *.zip       binary
 *.tar.gz    binary
 
