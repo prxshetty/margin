@@ -13,4 +13,6 @@ settings.json
 .agents/
 .superpowers/
 .worktrees/
+worktrees/
+.venv/
 .opencode
