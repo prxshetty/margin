@@ -1,5 +1,4 @@
 import json
-import subprocess
 import uuid
 import asyncio
 import difflib
@@ -395,58 +394,28 @@ def _parse_codex_line(line: str, state: dict):
     return items
 
 
-def _run_harness_sync(argv: list, cwd: str, stop_event: threading.Event, queue: asyncio.Queue,
-                       loop: asyncio.AbstractEventLoop):
-    try:
-        proc = subprocess.Popen(
-            argv,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            stdin=subprocess.DEVNULL,
-            cwd=cwd,
-            env=harness_env.normalized_env(),
-            bufsize=0,
-        )
-    except Exception as e:
-        loop.call_soon_threadsafe(queue.put_nowait, ("error", e))
-        return
-
-    def _watch_stop():
-        while proc.poll() is None:
-            if stop_event.wait(timeout=0.2):
-                try:
-                    proc.terminate()
-                except Exception:
-                    pass
-                break
-
-    watcher = threading.Thread(target=_watch_stop, daemon=True)
-    watcher.start()
-
+async def run_harness(argv: list, cwd: str, stop_event: threading.Event, queue: asyncio.Queue):
+    proc = await asyncio.create_subprocess_exec(*argv, stdout=asyncio.subprocess.PIPE,
+                                                stderr=asyncio.subprocess.STDOUT, cwd=cwd,
+                                                stdin=asyncio.subprocess.DEVNULL,
+                                                env=harness_env.normalized_env(),
+                                                )
     try:
         while True:
             if stop_event.is_set():
+                proc.terminate()
                 break
-            chunk = proc.stdout.read(4096)
+            try:
+                chunk = await asyncio.wait_for(proc.stdout.read(4096), timeout=0.5)
+            except asyncio.TimeoutError:
+                continue
             if not chunk:
                 break
-            text = _strip_ansi(chunk.decode("utf-8", errors="replace"))
-            loop.call_soon_threadsafe(queue.put_nowait, ("chunk", text))
-        proc.wait()
-        loop.call_soon_threadsafe(queue.put_nowait, ("done", proc.returncode))
+            queue.put_nowait(("chunk", _strip_ansi(chunk.decode("utf-8", errors="replace"))))
+        await proc.wait()
+        queue.put_nowait(("done", proc.returncode))
     except Exception as e:
-        loop.call_soon_threadsafe(queue.put_nowait, ("error", e))
-    finally:
-        try:
-            if proc.stdout:
-                proc.stdout.close()
-        except Exception:
-            pass
-
-
-async def run_harness(argv: list, cwd: str, stop_event: threading.Event, queue: asyncio.Queue):
-    loop = asyncio.get_running_loop()
-    await asyncio.to_thread(_run_harness_sync, argv, cwd, stop_event, queue, loop)
+        queue.put_nowait(("error", e))
 
 def _resolve_simple_assist_client() -> llm.LLMClient:
     """Return an LLMClient configured with the active endpoint from settings,

@@ -8,7 +8,6 @@ detection or subprocess launch.
 
 import os
 import shutil
-
 import sys
 
 _EXTRA_BIN_DIRS = [
