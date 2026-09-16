@@ -1,5 +1,8 @@
 inputs/
 outputs/
+# Local image-upload test artifacts (workspace/assets/ is user content,
+# not reviewable source — populated at runtime via /api/workspace/media)
+sample-workspace/assets/
 .DS_Store
 __pycache__/
 .env

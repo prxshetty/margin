@@ -14,6 +14,9 @@
     "@floating-ui/dom": "^1.7.6",
     "@tailwindcss/vite": "^4.3.0",
     "@tanstack/react-query": "^5.100.13",
+    "@tiptap/extension-image": "^3.23.6",
+    "@tiptap/extension-link": "^3.23.6",
+    "@tiptap/extension-table": "^3.23.6",
     "@tiptap/pm": "^3.23.6",
     "@tiptap/react": "^3.23.6",
     "@tiptap/starter-kit": "^3.23.6",
@@ -42,9 +45,9 @@
   "optionalDependencies": {
     "@rolldown/binding-darwin-arm64": "^1.0.2",
     "@rolldown/binding-darwin-x64": "^1.0.2",
-    "@rolldown/binding-linux-x64-gnu": "^1.0.2",
     "@rolldown/binding-linux-arm64-gnu": "^1.0.2",
-    "@rolldown/binding-win32-x64-msvc": "^1.0.2",
-    "@rolldown/binding-win32-arm64-msvc": "^1.0.2"
+    "@rolldown/binding-linux-x64-gnu": "^1.0.2",
+    "@rolldown/binding-win32-arm64-msvc": "^1.0.2",
+    "@rolldown/binding-win32-x64-msvc": "^1.0.2"
   }
 }

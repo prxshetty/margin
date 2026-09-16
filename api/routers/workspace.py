@@ -1,10 +1,12 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi.responses import FileResponse
 from typing import List, Dict, Any
 from pydantic import BaseModel
 import urllib.parse
+import urllib.request
 import sys
 import subprocess
-from api.services.file_storage import storage
+from api.services.file_storage import storage, ALLOWED_IMAGE_EXTS
 
 router = APIRouter(prefix="/api/workspace", tags=["workspace"])
 
@@ -21,6 +23,11 @@ class RenameFileRequest(BaseModel):
 
 class UpdateFileRequest(BaseModel):
     content: str
+
+
+class MediaFromUrlRequest(BaseModel):
+    url: str
+    name: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -180,3 +187,72 @@ def get_styles():
         return styles
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Image assets (workspace/assets/) — first-class resources, not LLM payloads
+# ---------------------------------------------------------------------------
+
+def _media_error(e: Exception) -> HTTPException:
+    msg = str(e)
+    if isinstance(e, FileNotFoundError) or "not found" in msg.lower():
+        return HTTPException(status_code=404, detail=msg)
+    if "Access denied" in msg:
+        return HTTPException(status_code=403, detail=msg)
+    return HTTPException(status_code=400, detail=msg)
+
+
+@router.post("/media")
+async def upload_media(file: UploadFile = File(...)):
+    """Persist an uploaded image to workspace/assets/. Streams to memory in
+    chunks (no app-level size cap — local-first, user's own disk)."""
+    try:
+        chunks = []
+        while True:
+            chunk = await file.read(1024 * 1024)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        data = b"".join(chunks)
+        return storage.save_media_bytes(
+            data, file.filename or "", file.content_type or "")
+    except Exception as e:
+        raise _media_error(e)
+
+
+@router.post("/media/from-url")
+def upload_media_from_url(req: MediaFromUrlRequest):
+    """Fetch a remote image and store it locally so documents never depend
+    on external hosts. On failure: 400, and the editor inserts nothing."""
+    url = (req.url or "").strip()
+    if not url.lower().startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail="URL must be http(s)")
+    try:
+        request = urllib.request.Request(
+            url, headers={"User-Agent": "margin-writing-app/1.0"})
+        with urllib.request.urlopen(request, timeout=20) as resp:  # noqa: S310
+            content_type = resp.headers.get("Content-Type", "")
+            chunks = []
+            while True:
+                chunk = resp.read(1024 * 1024)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+            data = b"".join(chunks)
+        # Derive a display name from the URL path for slug purposes only.
+        path_part = urllib.parse.urlparse(url).path.rsplit("/", 1)[-1]
+        return storage.save_media_bytes(data, req.name or path_part, content_type)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not fetch image: {e}")
+
+
+@router.get("/media/{path:path}")
+def read_media(path: str):
+    try:
+        decoded_path = urllib.parse.unquote(path)
+        full, media_type = storage.read_media(decoded_path)
+        return FileResponse(str(full), media_type=media_type)
+    except Exception as e:
+        raise _media_error(e)
