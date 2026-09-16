@@ -1,1 +1,0 @@
-import{_ as t,o as i,c as r,a0 as a}from"./chunks/framework.BWpMpcZ2.js";const u=JSON.parse('{"title":"margin","description":"","frontmatter":{},"headers":[],"relativePath":"index.md","filePath":"index.md"}'),n={name:"index.md"};function o(s,e,l,d,g,c){return i(),r("div",null,[...e[0]||(e[0]=[a("",10)])])}const m=t(n,[["render",o]]);export{u as __pageData,m as default};

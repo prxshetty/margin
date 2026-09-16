@@ -1,0 +1,1 @@
+import{_ as t,o,c as a,a0 as i}from"./chunks/framework.BWpMpcZ2.js";const p=JSON.parse('{"title":"Debugging","description":"","frontmatter":{},"headers":[],"relativePath":"debugging.md","filePath":"debugging.md"}'),r={name:"debugging.md"};function n(s,e,l,d,c,g){return o(),a("div",null,[...e[0]||(e[0]=[i("",33)])])}const m=t(r,[["render",n]]);export{p as __pageData,m as default};
