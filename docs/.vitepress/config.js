@@ -18,18 +18,18 @@ export default {
                         text: 'Configuration',
                         collapsed: true,
                         items: [
+                            { text: 'Images', link: '/writing-guide#images' },
                             { text: 'General', link: '/configuration/general' },
                             { text: 'Appearance', link: '/configuration/appearance' },
                             { text: 'Editor', link: '/configuration/editor' },
                             { text: 'Context', link: '/configuration/context' },
                             { text: 'Endpoints', link: '/configuration/endpoints' },
                             { text: 'Harnesses', link: '/configuration/harnesses' },
-                            { text: 'Prompts', link: '/configuration/prompts' },
-                            { text: 'Debugging', link: '/configuration/debugging' }
+                            { text: 'Prompts', link: '/configuration/prompts' }
                         ]
                     },
                     { text: 'Writing Guide', link: '/writing-guide' },
-                    { text: 'Image Assets', link: '/images' }
+                    { text: 'Debugging', link: '/debugging' }
                 ]
             }
         ]

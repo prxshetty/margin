@@ -129,3 +129,34 @@ Custom folders don't need manifests -- the Planner auto-indexes any folder conte
 ## Chapters
 
 Your chapter or manuscript files go in a folder of your choice (commonly `chapters/`). The folder name is arbitrary — what matters is the `CHAPTERS.md` manifest that tells the Planner these are manuscript files.
+
+## Images
+
+Chapters can include images — maps, mood boards, character sketches, scene references. **Paste** an image or an image URL, or **drag and drop** a file into the editor, and margin files it into your workspace's `assets/` folder — no separate upload step, and no upload size limit.
+
+Pasted image URLs stay in your document as text, and margin saves a local copy into `assets/` for the actual image — your document never depends on the remote server afterwards.
+
+Images in margin are Markdown with a file behind it:
+
+```markdown
+![A cat](assets/cat.png "A cute cat")
+```
+
+| Part               | Meaning                       |
+| ------------------ | ----------------------------- |
+| `![...]`           | image description / alt text  |
+| `assets/cat.png` | workspace-relative image file |
+| `"..."`        | optional visible caption      |
+
+Image files live in your workspace's `assets/` folder and travel with it — into git, offline, anywhere.
+
+Interact with an image by selecting it:
+
+- **Resize** by dragging the edge dots; the size is remembered with the document.
+- **Align** left, center, or right, or **reset** to natural size from the small toolbar.
+- **Caption** it with the italic line underneath — captions travel with the image.
+- **Edit the source** (`![alt](assets/... "caption")`) directly if you prefer writing Markdown by hand.
+
+Underneath, an image is just Markdown text, so it behaves like everything else you write: it survives copy/paste, undo, and git, and the AI reads the same reference you see.
+
+If an image breaks (renamed, moved, or deleted file), margin shows a placeholder and leaves your text untouched — see [Debugging](./debugging.md#image-issues) for common fixes.

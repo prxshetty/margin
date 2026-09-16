@@ -129,4 +129,4 @@ Each AI request and response is logged locally. Click the **telemetry / book ico
 
 Use this to understand why the AI responded a certain way, debug quality issues, or inspect what prompts were used.
 
-> See [Debugging](./configuration/debugging.md) for more details on logs, prompt templates, and local telemetry.
+> See [Debugging](./debugging.md) for more details on logs, prompt templates, and local telemetry.

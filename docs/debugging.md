@@ -52,3 +52,28 @@ The only "telemetry" is local:
 - **No crash reports, no usage stats, no pings home**
 
 Everything stays on your machine.
+
+## Image Issues
+
+Images are plain Markdown references (`![alt](assets/foo.png)`), so most problems come down to a mismatch between the text and the file. Your Markdown is never auto-deleted or rewritten — fix the underlying cause and the image comes back.
+
+### Broken image placeholder
+
+The referenced asset file is missing — it was renamed, moved, or deleted. Check that the file exists under your workspace's `assets/` folder and that the path in the Markdown matches exactly (including case). Editing the source line to the correct path restores the image.
+
+### Pasted image doesn't appear
+
+- If an upload alert appeared, the file wasn't a supported image (PNG, JPG, WebP, GIF) — the pasted text itself is untouched.
+- If a pasted image URL produced no image, the download failed (bad link, offline host, or a non-image response). Your pasted URL text stays in the document; try the URL in a browser to check it.
+
+### Wrong size after editing dimensions
+
+Only positive integers count: `![alt|0](x.png)` or `![alt|-5](x.png)` fall back to natural size. A `|` followed by non-digits (e.g. `![a|b](x.png)`) is treated as literal alt text, not a size. An `{align=...}` value other than `left`, `center`, or `right` is left as visible text — correct the spelling to apply it.
+
+### Remote image never becomes local
+
+Only explicitly pasted/imported image URLs are downloaded into `assets/`. An image URL you typed by hand into Markdown stays remote by design — paste the URL as document content if you want margin to import a local copy.
+
+### Image looks too large after import
+
+New images render at natural size bounded by the editor width. Select the image and drag a handle (or reset) to persist a smaller width.
