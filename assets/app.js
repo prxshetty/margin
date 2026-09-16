@@ -391,3 +391,66 @@ document.addEventListener('DOMContentLoaded', () => {
   mediaQuery.addEventListener('change', updateFavicon);
   updateFavicon();
 });
+
+// ── Dynamic Public Stats Counter ──
+document.addEventListener('DOMContentLoaded', () => {
+  const pillEl = document.getElementById('stat-pill');
+  const dividerEl = document.getElementById('stat-divider');
+  const countEl = document.getElementById('stat-downloads-count');
+  const labelEl = document.getElementById('stat-downloads-label');
+
+  if (!pillEl || !countEl) return;
+
+  const formatMetricCount = (count) => {
+    if (count >= 1000000) {
+      const val = (count / 1000000).toFixed(1);
+      return (val.endsWith('.0') ? String(parseInt(val, 10)) : val) + 'M';
+    }
+    if (count >= 1000) {
+      const val = (count / 1000).toFixed(1);
+      return (val.endsWith('.0') ? String(parseInt(val, 10)) : val) + 'K';
+    }
+    return String(count);
+  };
+
+  const tryFetchStats = async () => {
+    // Try ./stats.json (production gh-pages deploy) then fall back to stats/history.json (local dev)
+    const endpoints = ['./stats.json', 'stats/history.json'];
+    for (const url of endpoints) {
+      try {
+        const res = await fetch(url, { cache: 'no-cache' });
+        if (res.ok) {
+          return await res.json();
+        }
+      } catch {
+        // Proceed to next fallback
+      }
+    }
+    return null;
+  };
+
+  tryFetchStats().then(data => {
+    const totalClones = data?.clones?.total ?? data?.summary?.count;
+    if (typeof totalClones === 'number' && totalClones > 0) {
+      countEl.textContent = formatMetricCount(totalClones);
+      if (labelEl) {
+        labelEl.textContent = 'downloads';
+      }
+      pillEl.classList.remove('pill-hidden');
+      if (dividerEl) {
+        dividerEl.classList.remove('pill-hidden');
+      }
+    } else {
+      pillEl.classList.add('pill-hidden');
+      if (dividerEl) {
+        dividerEl.classList.add('pill-hidden');
+      }
+    }
+  }).catch(() => {
+    pillEl.classList.add('pill-hidden');
+    if (dividerEl) {
+      dividerEl.classList.add('pill-hidden');
+    }
+  });
+});
+

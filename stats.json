@@ -1,0 +1,65 @@
+{
+  "clones": {
+    "total": 307,
+    "unique": 115
+  },
+  "days": {
+    "2026-09-01": {
+      "clones": 0,
+      "unique_cloners": 0
+    },
+    "2026-09-02": {
+      "clones": 0,
+      "unique_cloners": 0
+    },
+    "2026-09-03": {
+      "clones": 9,
+      "unique_cloners": 1
+    },
+    "2026-09-04": {
+      "clones": 22,
+      "unique_cloners": 3
+    },
+    "2026-09-05": {
+      "clones": 63,
+      "unique_cloners": 14
+    },
+    "2026-09-06": {
+      "clones": 1,
+      "unique_cloners": 1
+    },
+    "2026-09-07": {
+      "clones": 41,
+      "unique_cloners": 14
+    },
+    "2026-09-08": {
+      "clones": 1,
+      "unique_cloners": 1
+    },
+    "2026-09-09": {
+      "clones": 66,
+      "unique_cloners": 20
+    },
+    "2026-09-10": {
+      "clones": 20,
+      "unique_cloners": 19
+    },
+    "2026-09-11": {
+      "clones": 7,
+      "unique_cloners": 6
+    },
+    "2026-09-12": {
+      "clones": 18,
+      "unique_cloners": 12
+    },
+    "2026-09-13": {
+      "clones": 50,
+      "unique_cloners": 18
+    },
+    "2026-09-14": {
+      "clones": 9,
+      "unique_cloners": 6
+    }
+  },
+  "updated_at": "2026-09-16T00:13:07Z"
+}
