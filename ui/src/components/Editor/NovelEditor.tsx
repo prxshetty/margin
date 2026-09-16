@@ -1,11 +1,15 @@
 import { EditorContent, useEditor } from '@tiptap/react'
 import type { Editor } from '@tiptap/core'
+import { createPortal } from 'react-dom'
+import { autoUpdate, computePosition, flip, offset, shift, size } from '@floating-ui/dom'
 import StarterKit from '@tiptap/starter-kit'
 import { useEditorStore } from '../../stores/editorStore'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Markdown } from 'tiptap-markdown'
 import { WritingBubbleMenu } from './WritingBubbleMenu'
 import { MarginImage } from './MarginImage'
+import { SlashMenuView, computeSlash } from './SlashMenu'
+import type { SlashMenuHandle } from './SlashMenu'
 import { AiDiffHighlightExtension } from './AiDiffHighlightExtension'
 import { reapplyHarnessHighlight } from '../../lib/applyHarnessResult'
 import {
@@ -17,6 +21,11 @@ import {
   uploadImageFile,
 } from '../../lib/media'
 import { EditorState } from '@tiptap/pm/state'
+
+interface SlashState {
+  query: string
+  range: { from: number; to: number }
+}
 
 // Upload pasted/dropped image files, inserting each stored asset in turn.
 async function handleImageFiles(editor: Editor, files: File[]): Promise<void> {
@@ -75,6 +84,28 @@ export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: bool
   // doesn't echo the change back into Zustand and cause an infinite loop.
   const isProgrammaticUpdateRef = useRef(false)
   const editorRef = useRef<Editor | null>(null)
+  const slashRef = useRef<SlashMenuHandle>(null)
+  const [slash, setSlash] = useState<SlashState | null>(null)
+  const slashElRef = useRef<HTMLDivElement | null>(null)
+
+  const refreshSlash = (editor: Editor) => {
+    const found = computeSlash(editor)
+    if (!found) {
+      setSlash((prev) => (prev === null ? prev : null))
+      return
+    }
+    setSlash((prev) => {
+      if (
+        prev &&
+        prev.query === found.query &&
+        prev.range.from === found.range.from &&
+        prev.range.to === found.range.to
+      ) {
+        return prev
+      }
+      return found
+    })
+  }
 
   const editor = useEditor({
     extensions: [
@@ -102,6 +133,7 @@ export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: bool
         lastContentRef.current = newMarkdown
         setContent(newMarkdown)
       }
+      refreshSlash(editor)
     },
     onSelectionUpdate: ({ editor }) => {
       const { from, to, empty } = editor.state.selection
@@ -114,10 +146,15 @@ export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: bool
         setSelectedText(text)
         setSelectionRange({ from, to })
       }
+      refreshSlash(editor)
     },
     editorProps: {
       attributes: {
         class: 'prose prose-slate relative max-w-none focus:outline-none min-h-[500px] px-8 py-6',
+      },
+      handleKeyDown: (_view, event) => {
+        if (slashRef.current?.onKeyDown(event)) return true
+        return false
       },
       handlePaste: (_view, event) => {
         const editor = editorRef.current
@@ -185,10 +222,70 @@ export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: bool
     }
   }, [content, editor])
 
+  // Floating-UI positioning for the slash menu: flips above the cursor near
+  // the viewport bottom, shifts inside horizontal edges, constrains height
+  // to available space, and repositions on scroll/resize via autoUpdate.
+  // Coordinates are re-read from the live cursor on every update (not cached
+  // in state) so the menu tracks while the query is typed.
+  useEffect(() => {
+    if (!editor || !slash) return
+    const el = slashElRef.current
+    if (!el) return
+    const anchor = {
+      getBoundingClientRect: () => {
+        try {
+          const c = editor.view.coordsAtPos(slash.range.to)
+          return {
+            x: c.left, y: c.bottom, width: 0, height: 0,
+            top: c.bottom, left: c.left, bottom: c.bottom, right: c.left,
+            toJSON: () => ({}),
+          } as DOMRect
+        } catch {
+          return new DOMRect(-9999, -9999, 0, 0)
+        }
+      },
+    }
+    const update = () => {
+      void computePosition(anchor, el, {
+        placement: 'bottom-start',
+        middleware: [
+          offset(6),
+          flip({ padding: 8 }),
+          shift({ padding: 8 }),
+          size({
+            padding: 8,
+            apply({ availableHeight, elements }) {
+              elements.floating.style.maxHeight = `${Math.max(160, Math.min(320, availableHeight))}px`
+            },
+          }),
+        ],
+      }).then(({ x, y }) => {
+        el.style.left = `${x}px`
+        el.style.top = `${y}px`
+      })
+    }
+    update()
+    return autoUpdate(anchor, el, update)
+  }, [editor, slash])
+
   return (
     <div className="bg-[var(--bg)] relative">
       <EditorContent editor={editor} />
       {showInlinePopup && <WritingBubbleMenu />}
+      {editor && slash && createPortal(
+        <div
+          ref={slashElRef}
+          className="fixed left-0 top-0 z-[10001]"
+        >
+          <SlashMenuView
+            ref={slashRef}
+            editor={editor}
+            query={slash.query}
+            range={slash.range}
+          />
+        </div>,
+        document.body,
+      )}
     </div>
   )
 }
