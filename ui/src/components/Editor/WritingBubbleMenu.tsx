@@ -2,11 +2,10 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { BubbleMenu } from '@tiptap/react/menus'
 import type { Editor } from '@tiptap/core'
 import { NodeSelection } from '@tiptap/pm/state'
-import { ChevronDown, Check, TextIcon, Heading1, Heading2, Heading3, Link2, Unlink } from 'lucide-react'
+import { ChevronDown, Check, TextIcon, Heading1, Heading2, Heading3 } from 'lucide-react'
 import { useEditorStore } from '../../stores/editorStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { API_BASE } from '../../lib/api'
-import { normalizeHref } from '../../lib/link'
 import { streamSSE } from '../../lib/stream-sse'
 import { applyHarnessResult } from '../../lib/applyHarnessResult'
 
@@ -167,12 +166,10 @@ export function WritingBubbleMenu() {
         useEditorStore()
     const harness = useSettingsStore((s) => s.settings?.default_harness) || 'none'
 
-    const [mode, setMode] = useState<'default' | 'rewrite' | 'link'>('default')
+    const [mode, setMode] = useState<'default' | 'rewrite'>('default')
     const [instruction, setInstruction] = useState('')
-    const [linkUrl, setLinkUrl] = useState('')
     const [isStreaming, setIsStreaming] = useState(false)
     const inputRef = useRef<HTMLInputElement>(null)
-    const linkInputRef = useRef<HTMLInputElement>(null)
 
     // ── Add to Margin ─────────────────────────────────────────────────────────
     const handleAddToMargin = useCallback(() => {
@@ -192,48 +189,11 @@ export function WritingBubbleMenu() {
         setTimeout(() => inputRef.current?.focus(), 30)
     }, [])
 
-    // ── Cancel rewrite/link mode ────────────────────────────────────────────
+    // ── Cancel rewrite mode ───────────────────────────────────────────────────
     const handleCancel = useCallback(() => {
         setMode('default')
         setInstruction('')
-        setLinkUrl('')
     }, [])
-
-    // ── Link the current selection ──────────────────────────────────────────
-    const handleLinkClick = useCallback(() => {
-        setMode('link')
-        setLinkUrl((editor?.getAttributes('link').href as string) || '')
-        setTimeout(() => linkInputRef.current?.focus(), 30)
-    }, [editor])
-
-    const handleLinkApply = useCallback(() => {
-        if (!editor || !selectionRange || isStreaming) return
-        const href = normalizeHref(linkUrl)
-        if (!href) {
-            // Empty URL on a linked selection removes the link.
-            if (editor.isActive('link')) {
-                editor.chain().focus().setTextSelection(selectionRange).unsetLink().run()
-            }
-            setMode('default')
-            setLinkUrl('')
-            return
-        }
-        editor.chain().focus().setTextSelection(selectionRange).setLink({ href }).run()
-        setMode('default')
-        setLinkUrl('')
-    }, [editor, selectionRange, isStreaming, linkUrl])
-
-    const handleLinkRemove = useCallback(() => {
-        if (!editor || !selectionRange) return
-        editor.chain().focus().setTextSelection(selectionRange).unsetLink().run()
-        setMode('default')
-        setLinkUrl('')
-    }, [editor, selectionRange])
-
-    const handleLinkKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-        if (e.key === 'Enter') { e.preventDefault(); handleLinkApply() }
-        if (e.key === 'Escape') { handleCancel() }
-    }
 
     // ── Fire rewrite ──────────────────────────────────────────────────────────
     const handleRewriteSubmit = useCallback(async () => {
@@ -334,20 +294,6 @@ export function WritingBubbleMenu() {
                     <FormatButtons editor={editor} />
                     <Divider />
 
-                    {/* Link selection — same visual weight as other buttons */}
-                    <button
-                        onMouseDown={(e) => { e.preventDefault(); handleLinkClick() }}
-                        title="Add or edit link"
-                        className={`flex items-center justify-center w-7 h-7 rounded-[5px] cursor-pointer transition-colors ${editor.isActive('link')
-                            ? 'text-[var(--accent-brown)] bg-[var(--bg-hover)]'
-                            : 'text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--bg-hover)]'
-                            }`}
-                    >
-                        <Link2 className="w-3.5 h-3.5" />
-                    </button>
-
-                    <Divider />
-
                     {/* Add to Margin — same visual weight as other buttons */}
                     <button
                         onMouseDown={(e) => { e.preventDefault(); handleAddToMargin() }}
@@ -365,43 +311,6 @@ export function WritingBubbleMenu() {
                         className="px-2 py-1 text-[11.5px] font-medium text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--bg-hover)] rounded-[5px] transition-colors cursor-pointer leading-none whitespace-nowrap"
                     >
                         Rewrite
-                    </button>
-                </>
-            ) : mode === 'link' ? (
-                // ── Link input state (morphed) ─────────────────────────────────
-                <>
-                    {/* URL input */}
-                    <input
-                        ref={linkInputRef}
-                        type="text"
-                        value={linkUrl}
-                        onChange={(e) => setLinkUrl(e.target.value)}
-                        onKeyDown={handleLinkKeyDown}
-                        placeholder="https://example.com"
-                        spellCheck={false}
-                        className="flex-1 bg-transparent text-[11.5px] text-[var(--text-heading)] placeholder:text-[var(--text-muted)] outline-none px-1 min-w-0"
-                    />
-
-                    {/* Remove (only when the selection is already linked) */}
-                    {editor.isActive('link') && (
-                        <button
-                            onMouseDown={(e) => { e.preventDefault(); handleLinkRemove() }}
-                            title="Remove link"
-                            className="flex items-center justify-center w-6 h-6 text-[var(--text-secondary)] hover:text-red-500 hover:bg-[var(--bg-hover)] rounded-[5px] transition-colors cursor-pointer shrink-0"
-                        >
-                            <Unlink className="w-3.5 h-3.5" />
-                        </button>
-                    )}
-
-                    {/* Apply */}
-                    <button
-                        onMouseDown={(e) => { e.preventDefault(); handleLinkApply() }}
-                        title="Apply link"
-                        className="flex items-center justify-center w-6 h-6 text-[var(--accent-brown)] hover:text-[var(--accent-brown-hover)] hover:bg-[var(--bg-hover)] rounded-[5px] transition-colors cursor-pointer shrink-0"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M5 12h14M12 5l7 7-7 7" />
-                        </svg>
                     </button>
                 </>
             ) : (

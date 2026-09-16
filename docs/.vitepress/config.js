@@ -28,7 +28,8 @@ export default {
                             { text: 'Debugging', link: '/configuration/debugging' }
                         ]
                     },
-                    { text: 'Writing Guide', link: '/writing-guide' }
+                    { text: 'Writing Guide', link: '/writing-guide' },
+                    { text: 'Image Assets', link: '/images' }
                 ]
             }
         ]

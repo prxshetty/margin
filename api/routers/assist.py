@@ -484,35 +484,6 @@ def _is_blocked(filepath: str, ignored: set) -> bool:
     return False
 
 
-_IMAGE_MD_RE = re.compile(
-    r'!\[(?P<alt>[^\]]*)\]\((?P<src>[^)\s]+)(?:\s+"(?P<caption>[^"]*)")?\)'
-)
-
-
-def strip_images(markdown: Optional[str]) -> str:
-    """Text-only representation of images for endpoint (non-vision) models.
-
-    `![alt](assets/foo.png "caption")` → `[image: alt — caption]`, with
-    sensible fallbacks when alt/caption is missing. Image bytes never enter
-    the endpoint contract; the workspace keeps the asset.
-    """
-    if not markdown:
-        return markdown or ""
-
-    def _repl(m: re.Match) -> str:
-        alt = (m.group("alt") or "").strip()
-        caption = (m.group("caption") or "").strip()
-        if alt and caption:
-            return f"[image: {alt} \u2014 {caption}]"
-        if caption:
-            return f"[image: {caption}]"
-        if alt:
-            return f"[image: {alt}]"
-        return "[image]"
-
-    return _IMAGE_MD_RE.sub(_repl, markdown)
-
-
 def _workspace_index_line() -> str:
     """One-line pointer to the workspace's manifest indexes, for harness prompts.
 
@@ -786,12 +757,6 @@ def run_planner(
     cursor_paragraph_text: Optional[str] = None,
     session_id: Optional[str] = None,
 ) -> tuple[dict, str, str, str, Optional[dict], str]:
-    # Text-only models: images become their textual representation.
-    content = strip_images(content)
-    if selected_text:
-        selected_text = strip_images(selected_text)
-    if cursor_paragraph_text:
-        cursor_paragraph_text = strip_images(cursor_paragraph_text)
     system = _load_simple_prompt("simple-planner.md")
     
     user_prompt_lines = [f"USER_INSTRUCTION:\n{message}\n"]
@@ -864,10 +829,6 @@ def build_generator_prompts(
     context_needed: List[str],
     available_files: List[Dict[str, str]] = None,
 ) -> tuple[str, str]:
-    # Text-only writer contract: image references as text, never bytes.
-    paragraph_before = strip_images(paragraph_before)
-    target_paragraph = strip_images(target_paragraph)
-    paragraph_after = strip_images(paragraph_after)
     system_parts = [_load_simple_prompt("simple-writer.md")]
     
     available = available_files if available_files is not None else []
@@ -953,18 +914,9 @@ def _compose_chat_prompts(payload: SimpleAssistRequest, message: str,
     resumed harness conversation, so assembled history would only duplicate
     (and bloat) what the agent already remembers.
     """
-    # Endpoint chat is text-only: represent images as text. Harness chat
-    # keeps raw references — the agent resolves workspace/assets/ itself.
-    endpoint_path = include_history
     content = payload.content
     selected_text = payload.selected_text
     cursor_paragraph_text = payload.cursor_paragraph_text
-    if endpoint_path:
-        content = strip_images(content)
-        if selected_text:
-            selected_text = strip_images(selected_text)
-        if cursor_paragraph_text:
-            cursor_paragraph_text = strip_images(cursor_paragraph_text)
     full_system = _load_simple_prompt("simple-chat.md")
 
     settings = storage.get_settings()

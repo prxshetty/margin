@@ -2,6 +2,7 @@ import os
 import json
 import re
 import shutil
+import tempfile
 import time
 import warnings
 from pathlib import Path, PurePosixPath
@@ -328,26 +329,54 @@ class FileStorageService:
         return full
 
     def save_media_bytes(self, data: bytes, original_name: str = "",
-                         content_type: str = "") -> Dict[str, str]:
+                           content_type: str = "") -> Dict[str, str]:
         """Validate + persist image bytes. Returns {"name","path"} (posix rel)."""
         if not data:
             raise ValueError("Empty file")
-        ext = (original_name.rsplit(".", 1)[-1].lower()
-               if "." in (original_name or "") else "")
-        sniffed = _sniff_image_ext(data[:12])
-        if sniffed is None:
-            raise ValueError("Not a supported image (png, jpg, webp, gif)")
-        # Trust magic bytes over the claimed name/type; normalize jpeg->jpg.
-        ext = "jpg" if sniffed in ("jpg", "jpeg") else sniffed
-        if content_type:
-            main = content_type.split(";")[0].strip().lower()
-            if main.startswith("image/") and main != EXT_TO_MIME[ext]:
-                # Claimed type disagrees with bytes — bytes win, still fine.
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".margin-upload")
+        try:
+            tmp.write(data)
+            tmp.close()
+            return self.save_media_file(tmp.name, original_name, content_type)
+        finally:
+            try:
+                os.unlink(tmp.name)
+            except OSError:
                 pass
-        fname = f"{_slugify_media_name(original_name)}-{int(time.time())}.{ext}"
-        target = self._media_dir() / fname
-        target.write_bytes(data)
-        return {"name": fname, "path": f"assets/{fname}"}
+
+    def save_media_file(self, path: str, original_name: str = "",
+                        content_type: str = "") -> Dict[str, str]:
+        """Validate + persist an image staged at `path`. Takes ownership:
+        moves it into assets/ on success, removes it on validation failure.
+        Lets callers stream arbitrarily large uploads to disk (bounded
+        memory) with no user-facing size cap — local-first, user's own disk.
+        """
+        src = Path(path)
+        try:
+            if not src.exists() or src.stat().st_size == 0:
+                raise ValueError("Empty file")
+            with open(src, "rb") as f:
+                head = f.read(12)
+            sniffed = _sniff_image_ext(head)
+            if sniffed is None:
+                raise ValueError("Not a supported image (png, jpg, webp, gif)")
+            # Trust magic bytes over the claimed name/type; normalize jpeg->jpg.
+            ext = "jpg" if sniffed in ("jpg", "jpeg") else sniffed
+            if content_type:
+                main = content_type.split(";")[0].strip().lower()
+                if main.startswith("image/") and main != EXT_TO_MIME[ext]:
+                    # Claimed type disagrees with bytes — bytes win, still fine.
+                    pass
+            fname = f"{_slugify_media_name(original_name)}-{int(time.time())}.{ext}"
+            target = self._media_dir() / fname
+            shutil.move(str(src), str(target))
+            return {"name": fname, "path": f"assets/{fname}"}
+        except Exception:
+            try:
+                src.unlink()
+            except OSError:
+                pass
+            raise
 
     def read_media(self, rel_path: str) -> Tuple[Path, str]:
         full = self._media_resolve(rel_path)

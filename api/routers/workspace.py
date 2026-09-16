@@ -2,6 +2,8 @@ from fastapi import APIRouter, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse
 from typing import List, Dict, Any
 from pydantic import BaseModel
+import os
+import tempfile
 import urllib.parse
 import urllib.request
 import sys
@@ -204,48 +206,59 @@ def _media_error(e: Exception) -> HTTPException:
 
 @router.post("/media")
 async def upload_media(file: UploadFile = File(...)):
-    """Persist an uploaded image to workspace/assets/. Streams to memory in
-    chunks (no app-level size cap — local-first, user's own disk)."""
+    """Persist an uploaded image to workspace/assets/. Streams to a temp
+    file (bounded memory, no app-level size cap — local-first)."""
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".margin-upload")
     try:
-        chunks = []
         while True:
             chunk = await file.read(1024 * 1024)
             if not chunk:
                 break
-            chunks.append(chunk)
-        data = b"".join(chunks)
-        return storage.save_media_bytes(
-            data, file.filename or "", file.content_type or "")
+            tmp.write(chunk)
+        tmp.close()
+        return storage.save_media_file(
+            tmp.name, file.filename or "", file.content_type or "")
     except Exception as e:
         raise _media_error(e)
+    finally:
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
 
 
 @router.post("/media/from-url")
 def upload_media_from_url(req: MediaFromUrlRequest):
     """Fetch a remote image and store it locally so documents never depend
-    on external hosts. On failure: 400, and the editor inserts nothing."""
+    on external hosts. Streams to a temp file; on failure: 400, and the
+    editor inserts nothing."""
     url = (req.url or "").strip()
     if not url.lower().startswith(("http://", "https://")):
         raise HTTPException(status_code=400, detail="URL must be http(s)")
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".margin-upload")
     try:
         request = urllib.request.Request(
             url, headers={"User-Agent": "margin-writing-app/1.0"})
         with urllib.request.urlopen(request, timeout=20) as resp:  # noqa: S310
             content_type = resp.headers.get("Content-Type", "")
-            chunks = []
             while True:
                 chunk = resp.read(1024 * 1024)
                 if not chunk:
                     break
-                chunks.append(chunk)
-            data = b"".join(chunks)
+                tmp.write(chunk)
+        tmp.close()
         # Derive a display name from the URL path for slug purposes only.
         path_part = urllib.parse.urlparse(url).path.rsplit("/", 1)[-1]
-        return storage.save_media_bytes(data, req.name or path_part, content_type)
+        return storage.save_media_file(tmp.name, req.name or path_part, content_type)
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Could not fetch image: {e}")
+    finally:
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
 
 
 @router.get("/media/{path:path}")

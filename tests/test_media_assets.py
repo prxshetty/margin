@@ -1,9 +1,8 @@
-"""Margin image assets: storage validation, traversal guards, endpoint stripping."""
+"""Margin image assets: storage validation, traversal guards."""
 import tempfile
 import unittest
 from pathlib import Path
 
-from api.routers.assist import strip_images
 from api.services.file_storage import FileStorageService
 
 PNG = bytes.fromhex("89504e470d0a1a0a") + b"\x00" * 64
@@ -63,25 +62,45 @@ class TestSaveMedia(unittest.TestCase):
         self.assertTrue(r["path"].endswith(".png"))
 
 
-class TestStripImages(unittest.TestCase):
-    def test_alt_and_caption(self):
-        self.assertEqual(
-            strip_images('See ![city map](assets/map.png "Kaelen\\\'s sketch") below.'),
-            "See [image: city map \u2014 Kaelen\\'s sketch] below.",
-        )
+class TestSaveMediaFile(unittest.TestCase):
+    """Staged-file path used by the endpoints: stream to disk first so
+    arbitrarily large uploads never sit fully buffered in memory."""
 
-    def test_alt_only(self):
-        self.assertEqual(
-            strip_images("![cover](assets/cover.png)"), "[image: cover]")
+    def _stage(self, data: bytes) -> str:
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".margin-upload")
+        try:
+            tmp.write(data)
+            tmp.close()
+            return tmp.name
+        except Exception:
+            try:
+                Path(tmp.name).unlink()
+            except OSError:
+                pass
+            raise
 
-    def test_bare(self):
-        self.assertEqual(strip_images("![](assets/x.png)"), "[image]")
+    def test_valid_file_moved_into_assets(self):
+        svc = _storage()
+        staged = self._stage(PNG)
+        r = svc.save_media_file(staged, "cover.png", "image/png")
+        self.assertTrue(r["path"].startswith("assets/"))
+        self.assertFalse(Path(staged).exists())  # moved, not copied
+        full, mime = svc.read_media(r["path"])
+        self.assertTrue(full.exists())
+        self.assertEqual(mime, "image/png")
 
-    def test_remote_and_plain_text_untouched(self):
-        self.assertEqual(strip_images("![a](http://x/y.png)"), "[image: a]")
-        self.assertEqual(strip_images("no images here"), "no images here")
-        self.assertEqual(strip_images(""), "")
-        self.assertEqual(strip_images(None), "")
+    def test_invalid_file_rejected_and_cleaned_up(self):
+        svc = _storage()
+        staged = self._stage(b"hello world, not an image")
+        with self.assertRaises(ValueError):
+            svc.save_media_file(staged, "x.png", "image/png")
+        self.assertFalse(Path(staged).exists())
+
+    def test_empty_file_rejected(self):
+        svc = _storage()
+        staged = self._stage(b"")
+        with self.assertRaises(ValueError):
+            svc.save_media_file(staged, "x.png", "image/png")
 
 
 if __name__ == "__main__":

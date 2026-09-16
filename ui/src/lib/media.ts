@@ -71,102 +71,21 @@ export function insertStoredImage(editor: Editor, path: string, alt = ''): void 
 }
 
 /**
- * Capture the selection end of the *next* dispatched transaction.
- * Used for paste: `handlePaste` runs before the native paste transaction is
- * dispatched, so the live selection is still pre-paste. Resolves null on
- * timeout (caller should no-op — inserting blindly is worse than dropping).
- */
-export function captureAnchorAfterDispatch(editor: Editor, timeoutMs = 5000): Promise<number | null> {
-  return new Promise((resolve) => {
-    let done = false
-    const timer = window.setTimeout(() => {
-      if (done) return
-      done = true
-      editor.off('transaction', handler)
-      resolve(null)
-    }, timeoutMs)
-    const handler = () => {
-      if (done) return
-      done = true
-      window.clearTimeout(timer)
-      editor.off('transaction', handler)
-      // Tiptap updates view state before emitting 'transaction', so this is
-      // already the post-dispatch (post-paste) selection.
-      resolve(editor.state.selection.to)
-    }
-    editor.on('transaction', handler)
-  })
-}
-
-export interface PositionTracker {
-  /** Mapped anchor, or null once stopped. */
-  get: () => number | null
-  stop: () => void
-}
-
-/**
- * Track a document position forward through every subsequent transaction.
- * Each paste gets its own tracker (closure state), so concurrent pastes keep
- * distinct anchors and ProseMirror mapping preserves their relative order.
- * Callers must `stop()` on settle — see the registry in `NovelEditor`.
- */
-export function createPositionTracker(editor: Editor, start: number): PositionTracker {
-  let pos: number | null = start
-  const handler = ({ transaction }: { transaction: { mapping: { map: (p: number) => number } } }) => {
-    if (pos == null) return
-    pos = transaction.mapping.map(pos)
-  }
-  editor.on('transaction', handler)
-  return {
-    get: () => pos,
-    stop: () => {
-      pos = null
-      editor.off('transaction', handler)
-    },
-  }
-}
-
-/**
  * Insert a stored image at an explicit document position: split the block,
  * drop the image on its own paragraph, open a fresh paragraph below.
- * Runs as one chained call (single transaction) with no `.focus()` — the
- * caller's selection is restored via ProseMirror's own mapping rather than
- * hand-rolled size math:
- * - selection fully outside the inserted span → restored (mapped),
- * - selection inside the span → left below the image (natural continuation).
+ * Single chained transaction, no focus stealing — ProseMirror leaves the
+ * selection below the image so the user keeps writing there.
+ * Callers must have already verified this is still the right document
+ * (see the file guard in `NovelEditor.handleBareImageUrl`).
  */
 export function insertStoredImageAt(editor: Editor, pos: number, path: string, alt = ''): void {
   const size = editor.state.doc.content.size
   const at = Math.max(0, Math.min(pos, size))
-  const prevFrom = editor.state.selection.from
-  const prevTo = editor.state.selection.to
-
-  // Box (not a closure-narrowed `let`): TS keeps `null` narrowing on lets
-  // assigned only inside callbacks, which would make `captured` `never`.
-  const box: { tr: { mapping: { map: (p: number) => number } } | null } = { tr: null }
-  const handler = ({ transaction }: { transaction: { mapping: { map: (p: number) => number } } }) => {
-    box.tr = transaction
-  }
-  editor.on('transaction', handler)
-  try {
-    editor
-      .chain()
-      .setTextSelection(at)
-      .splitBlock()
-      .setImage({ src: path, alt })
-      .splitBlock()
-      .run()
-  } finally {
-    editor.off('transaction', handler)
-  }
-  const captured = box.tr
-  if (!captured) return
-
-  const spanEnd = at + (editor.state.doc.content.size - size)
-  const mappedFrom = captured.mapping.map(prevFrom)
-  const mappedTo = captured.mapping.map(prevTo)
-  const disturbed = mappedFrom < spanEnd && mappedTo > at
-  if (!disturbed) {
-    editor.commands.setTextSelection({ from: mappedFrom, to: mappedTo })
-  }
+  editor
+    .chain()
+    .setTextSelection(at)
+    .splitBlock()
+    .setImage({ src: path, alt })
+    .splitBlock()
+    .run()
 }

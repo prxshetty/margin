@@ -20,6 +20,7 @@ Instead of treating AI as a chat window, Margin integrates it directly into the 
 - [Getting Started](./getting-started.md) -- System requirements, installation, and first launch.
 - [Configuration](./configuration/general.md) -- All settings explained: workspace, appearance, context, endpoints.
 - [Writing Guide](./writing-guide.md) -- How AI assist works, character profiles, style guides, manifests, and custom prompts.
+- [Image Assets](./images.md) -- Local `workspace/assets/` images: Markdown syntax, importing, editing, and AI access.
 
 ### Quick Links
 
