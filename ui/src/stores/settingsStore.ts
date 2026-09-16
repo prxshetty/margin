@@ -24,6 +24,8 @@ export interface AppSettings {
   theme_family?: 'sand' | 'notion' | 'sage' | 'blue' | 'rose'
   text_style?: 'system' | 'editorial' | 'manuscript' | 'technical' | 'warm'
   editor_stats?: 'words' | 'characters' | 'both' | 'none'
+  show_additions?: boolean
+  show_deletions?: boolean
   planner_include_outline?: boolean
   linked_workspace_dir?: string | null
   history_turns?: number

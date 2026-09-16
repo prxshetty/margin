@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { AtSign, ChevronDown, Code2, MousePointer2, Settings, Trash2 } from 'lucide-react'
+import { AtSign, ChevronDown, Code2, MousePointer2, Settings, Trash2, Activity, RotateCcw } from 'lucide-react'
 import { useEditorStore } from '../stores/editorStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { API_BASE } from '../lib/api'
@@ -7,36 +7,14 @@ import { streamSSE } from '../lib/stream-sse'
 import { applyHarnessResult } from '../lib/applyHarnessResult'
 import { scheduleFileRefresh } from '../lib/refreshFiles'
 import { HarnessIcon } from './HarnessIcon'
+import { saveCurrentFile } from '../lib/saveFile'
 import type { FileEntry } from '../stores/editorStore'
+import { AssistTelemetryModal, type AssistLogEntry } from './AssistTelemetryModal'
 
-interface SimpleLogEntry {
-  id: string
-  timestamp: string
-  mode: 'chat' | 'edit_plan' | 'edit_write'
-  session_id?: string
-  system_prompt: string
-  user_prompt: string
-  output: string
-  instruction?: string
-  selected_text?: string
-  text_before?: string
-  text_after?: string
-  ref_files?: Array<{ name: string, path: string }>
-  success?: boolean
-  thinking_output?: string
-  planner_system_prompt?: string
-  planner_user_prompt?: string
-  planner_output?: string
-  prompt_tokens?: number
-  completion_tokens?: number
-  total_tokens?: number
-  tool_calls?: Array<{ tool: string; detail: string }>
-}
+type SimpleLogEntry = AssistLogEntry
 
 
-interface MarkdownStorage {
-  markdown: { getMarkdown: () => string }
-}
+
 
 
 function cleanUserPrompt(log: SimpleLogEntry): string {
@@ -163,6 +141,17 @@ function appendSelectionChipText(chip: HTMLElement, length: number) {
   chip.appendChild(removeButton)
 }
 
+function removeChipWithTrailingSpace(chip: HTMLElement) {
+  const next = chip.nextSibling
+  if (next && next.nodeType === Node.TEXT_NODE && next.textContent) {
+    next.textContent = next.textContent.replace(/^[\u200B\s]+/, '')
+    if (next.textContent.length === 0) {
+      next.remove()
+    }
+  }
+  chip.remove()
+}
+
 function PlanModeIcon() {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -225,6 +214,7 @@ function getTextBeforeCaret(el: HTMLElement): string {
 
 function getInputData(el: HTMLElement): {
   text: string
+  rawText: string
   refPaths: string[]
   selection: { text: string; from: number; to: number } | null
 } {
@@ -243,6 +233,13 @@ function getInputData(el: HTMLElement): {
     }
   }
 
+  // Raw user-typed text with all chips stripped
+  const rawClone = el.cloneNode(true) as HTMLElement
+  rawClone.querySelectorAll<HTMLElement>('.inline-chip').forEach((chip) => {
+    chip.remove()
+  })
+  const rawText = rawClone.textContent?.replace(/[\u200B\s]/g, '').trim() ?? ''
+
   const clone = el.cloneNode(true) as HTMLElement
   clone.querySelectorAll<HTMLElement>('.inline-chip').forEach((chip) => {
     if (chip.dataset.role === 'selection') {
@@ -256,7 +253,7 @@ function getInputData(el: HTMLElement): {
       chip.remove()
     }
   })
-  return { text: clone.textContent?.trim() ?? '', refPaths, selection }
+  return { text: clone.textContent?.trim() ?? '', rawText, refPaths, selection }
 }
 
 function renderMarkdown(text: string): React.ReactNode[] {
@@ -411,14 +408,13 @@ function ThinkingDropdown({ text, defaultOpen = false }: { text: string; default
 
 export function SimpleAssist() {
   const {
-    content, setContent, editor,
-    anchorPosition,
+    content, editor,
+    anchorPosition, selectedText,
     pendingEditSelection, setPendingEditSelection,
   } = useEditorStore()
 
   const openedFiles = useEditorStore((s) => s.openedFiles)
   const currentFilePath = useEditorStore((s) => s.currentFilePath)
-  const updateFileContent = useEditorStore((s) => s.updateFileContent)
   const [isWorking, setIsWorking] = useState(false)
   const [isPlanning, setIsPlanning] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
@@ -426,8 +422,9 @@ export function SimpleAssist() {
   const [streamingThinkingText, setStreamingThinkingText] = useState('')
   const [streamingChatText, setStreamingChatText] = useState('')
   const [instructionText, setInstructionText] = useState('')
+  const [rawInstructionText, setRawInstructionText] = useState('')
   const [historyLogs, setHistoryLogs] = useState<SimpleLogEntry[]>([])
-  const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({})
+  const [selectedTelemetryLog, setSelectedTelemetryLog] = useState<AssistLogEntry | null>(null)
   const [copiedId, setCopiedId] = useState<string | null>(null)
 
   const handleCopyPrompt = async (log: SimpleLogEntry) => {
@@ -444,10 +441,34 @@ export function SimpleAssist() {
   const [activeInstruction, setActiveInstruction] = useState('')
   const [activeRefFiles, setActiveRefFiles] = useState<FileEntry[]>([])
   const [errorText, setErrorText] = useState('')
-  const [activeSessionId, setActiveSessionId] = useState<string>(() => crypto.randomUUID())
+  const [activeSessionId, setActiveSessionId] = useState<string>(() => {
+    try {
+      return localStorage.getItem('margin-session-id') || crypto.randomUUID()
+    } catch {
+      return crypto.randomUUID()
+    }
+  })
   const [showHistoryDropdown, setShowHistoryDropdown] = useState(false)
   const [sessionLoadCount, setSessionLoadCount] = useState(3)
-  const [mode, setMode] = useState<'chat' | 'edit'>('edit')
+  const [mode, setMode] = useState<'chat' | 'edit'>(() => {
+    try {
+      const saved = localStorage.getItem('margin-prompt-mode')
+      if (saved === 'chat' || saved === 'edit') return saved
+    } catch { /* ignore */ }
+    return 'edit'
+  })
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('margin-session-id', activeSessionId)
+    } catch { /* ignore */ }
+  }, [activeSessionId])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('margin-prompt-mode', mode)
+    } catch { /* ignore */ }
+  }, [mode])
   const [activeHarness, setActiveHarness] = useState('none')
   const [harnessList, setHarnessList] = useState<Array<{ id: string; name: string; installed: boolean; version: string | null }>>([])
   const [noticeText, setNoticeText] = useState('')
@@ -469,10 +490,50 @@ export function SimpleAssist() {
   }, [])
 
   useEffect(() => {
-    if (settings?.default_mode) {
+    if (settings?.default_mode && !localStorage.getItem('margin-prompt-mode')) {
       setMode(settings.default_mode as 'chat' | 'edit')
     }
   }, [settings?.default_mode])
+
+  // Restore draft prompt input HTML on mount
+  useEffect(() => {
+    try {
+      const savedHtml = localStorage.getItem('margin-prompt-input-html')
+      if (savedHtml && inputRef.current) {
+        inputRef.current.innerHTML = savedHtml
+        handleInput()
+      }
+    } catch { /* ignore */ }
+  }, [])
+
+  // Check and recover in-flight rewrite / harness runs that finished while sleeping
+  useEffect(() => {
+    const checkInFlight = async () => {
+      try {
+        const raw = localStorage.getItem('margin-in-flight-request')
+        if (!raw) return
+        const req = JSON.parse(raw)
+        if (Date.now() - (req.timestamp || 0) > 15 * 60 * 1000) {
+          localStorage.removeItem('margin-in-flight-request')
+          return
+        }
+        const res = await fetch(`${API_BASE}/api/assist/simple/logs`)
+        if (res.ok) {
+          const logs: AssistLogEntry[] = await res.json()
+          const matched = logs.find(l => l.session_id === req.sessionId)
+          if (matched) {
+            if (req.harness && req.harness !== 'none' && req.baseContent) {
+              await applyHarnessResult(req.baseContent, req.harness)
+            }
+            localStorage.removeItem('margin-in-flight-request')
+          }
+        }
+      } catch (e) {
+        console.error('Failed to check in-flight request on mount:', e)
+      }
+    }
+    checkInFlight()
+  }, [])
 
   const [showFileDropdown, setShowFileDropdown] = useState(false)
   const [fileQuery, setFileQuery] = useState('')
@@ -591,17 +652,27 @@ export function SimpleAssist() {
       .catch(err => console.error('Failed to fetch harnesses:', err))
   }, [])
 
-  // Reset all session state when the workspace directory changes
+  // Reset all session state only when the workspace directory genuinely changes
   const workspaceDir = useEditorStore((s) => s.workspaceDir)
+  const prevWorkspaceDirRef = useRef<string | null>(null)
   useEffect(() => {
-    setHistoryLogs([])
-    setActiveSessionId(crypto.randomUUID())
-    setPlannerContextFiles([])
-    setStreamingThinkingText('')
-    setStreamingChatText('')
-    setActiveToolRows([])
-    setActiveHarness('none')
-    setNoticeText('')
+    if (prevWorkspaceDirRef.current && workspaceDir && prevWorkspaceDirRef.current !== workspaceDir) {
+      setHistoryLogs([])
+      const newSid = crypto.randomUUID()
+      setActiveSessionId(newSid)
+      try {
+        localStorage.setItem('margin-session-id', newSid)
+      } catch { /* ignore */ }
+      setPlannerContextFiles([])
+      setStreamingThinkingText('')
+      setStreamingChatText('')
+      setActiveToolRows([])
+      setActiveHarness('none')
+      setNoticeText('')
+    }
+    if (workspaceDir) {
+      prevWorkspaceDirRef.current = workspaceDir
+    }
   }, [workspaceDir])
 
   useEffect(() => {
@@ -637,9 +708,14 @@ export function SimpleAssist() {
     const el = inputRef.current
     if (!el) return
 
+    try {
+      localStorage.setItem('margin-prompt-input-html', el.innerHTML)
+    } catch { /* ignore */ }
+
     const textBefore = getTextBeforeCaret(el)
-    const { text, selection: domSelection } = getInputData(el)
+    const { text, rawText, selection: domSelection } = getInputData(el)
     setInstructionText(text)
+    setRawInstructionText(rawText)
 
     if (!domSelection && pendingEditSelection) {
       setPendingEditSelection(null)
@@ -708,6 +784,7 @@ export function SimpleAssist() {
         currentSel.addRange(rangeAfter)
       }
       div.focus()
+      handleInput()
     }, 0)
   }, [inputRef, setShowFileDropdown])
 
@@ -717,6 +794,9 @@ export function SimpleAssist() {
     const inputEl = inputRef.current!
     const { text: currentInstruction, refPaths, selection: domSelection } = getInputData(inputEl)
     if (!currentInstruction) return
+
+    // 4. Pre-AI Assist / Pre-Harness Execution Trigger
+    await saveCurrentFile({ force: true })
 
     const selectionInfo = domSelection
     const localHasSelection = !!selectionInfo
@@ -740,9 +820,23 @@ export function SimpleAssist() {
     setActiveHarness(harness)
 
     if (inputRef.current) {
-      inputRef.current.textContent = ''
+      inputRef.current.innerHTML = ''
       setInstructionText('')
+      setRawInstructionText('')
+      try {
+        localStorage.removeItem('margin-prompt-input-html')
+      } catch { /* ignore */ }
     }
+
+    try {
+      localStorage.setItem('margin-in-flight-request', JSON.stringify({
+        sessionId: activeSessionId,
+        filePath: currentFilePath,
+        baseContent: harnessBaseRef.current,
+        harness,
+        timestamp: Date.now()
+      }))
+    } catch { /* ignore */ }
 
     wasAbortedRef.current = false
     abortRef.current?.abort()
@@ -791,6 +885,7 @@ export function SimpleAssist() {
 
       const startPos = localHasSelection && selectionInfo ? selectionInfo.from : anchorPosition
       let currentEndPos = localHasSelection && selectionInfo ? selectionInfo.to : anchorPosition
+      const selectedTextForDiff = localHasSelection && selectionInfo ? selectionInfo.text : undefined
       let isStreaming = false
       const previousContent = useEditorStore.getState().content
 
@@ -829,7 +924,7 @@ export function SimpleAssist() {
               }
               liveEditor.view.dispatch(tr)
               currentEndPos = tr.mapping.map(currentEndPos)
-              liveEditor.commands.setAiHighlight(startPos, currentEndPos)
+              liveEditor.commands.setAiHighlight(startPos, currentEndPos, selectedTextForDiff)
               liveEditor.commands.setTextSelection(currentEndPos)
             }
             }
@@ -867,11 +962,7 @@ export function SimpleAssist() {
               const setAiPendingEdit = useEditorStore.getState().setAiPendingEdit
               const beforeSize = liveEditor.state.doc.content.size
 
-              setAiPendingEdit({
-                previousContent,
-                selectionRange: localHasSelection && selectionInfo ? { from: selectionInfo.from, to: selectionInfo.to } : null,
-                highlightFrom: startPos
-              })
+              const selectedTextForDiff = localHasSelection && selectionInfo ? selectionInfo.text : undefined
 
               let chain = liveEditor.chain()
               chain = chain.deleteRange({ from: startPos, to: currentEndPos })
@@ -879,21 +970,36 @@ export function SimpleAssist() {
               chain.run()
 
               const afterSize = liveEditor.state.doc.content.size
-              const endPos = currentEndPos + (afterSize - beforeSize)
+              const diffSize = afterSize - beforeSize
+              const actualEndPos = currentEndPos + diffSize
 
-              if (endPos > startPos) {
-                liveEditor.commands.setAiHighlight(startPos, endPos)
-                liveEditor.commands.setTextSelection(endPos)
-              }
+              const mdStorage = (liveEditor.storage as any).markdown as { getMarkdown: () => string } | undefined
+              const currentEditorMarkdown = mdStorage ? mdStorage.getMarkdown() : liveEditor.state.doc.textContent
 
-              const storage = liveEditor.storage as unknown as MarkdownStorage
-              if (storage.markdown) {
-                const md = storage.markdown.getMarkdown()
-                setContent(md)
-                if (currentFilePath) updateFileContent(currentFilePath, md)
-              }
+              setAiPendingEdit({
+                filePath: currentFilePath || undefined,
+                previousContent,
+                editorContent: currentEditorMarkdown,
+                selectionRange: localHasSelection && selectionInfo ? { from: selectionInfo.from, to: selectionInfo.to } : null,
+                highlightFrom: startPos,
+                originalSelectedText: selectedTextForDiff,
+                replacementText: output,
+              })
+
+              liveEditor.commands.setAiHighlight(startPos, actualEndPos, selectedTextForDiff)
+              liveEditor.commands.setTextSelection(actualEndPos)
+              setPendingEditSelection(null)
             }
-            setPendingEditSelection(null)
+          } else if (status === 'chat') {
+            if (data.model_used) {
+              useEditorStore.getState().setActiveModel(data.model_used as string)
+            }
+          } else if (status === 'notice') {
+            setNoticeText(data.message as string)
+          } else if (status === 'error') {
+            setIsPlanning(false)
+            setIsGenerating(false)
+            setErrorText('Error: ' + (data.message as string))
           }
         },
         abortRef.current.signal
@@ -908,6 +1014,9 @@ export function SimpleAssist() {
         setErrorText('Error: ' + (err as Error).message)
       }
     } finally {
+      try {
+        localStorage.removeItem('margin-in-flight-request')
+      } catch { /* ignore */ }
       setIsWorking(false)
       setIsPlanning(false)
       setIsGenerating(false)
@@ -927,6 +1036,9 @@ export function SimpleAssist() {
     const inputEl = inputRef.current!
     const { text: currentInstruction, refPaths, selection: domSelection } = getInputData(inputEl)
     if (!currentInstruction) return
+
+    // 4. Pre-AI Assist / Pre-Harness Execution Trigger
+    await saveCurrentFile({ force: true })
 
     const selectionInfo = domSelection
     const localHasSelection = !!selectionInfo
@@ -950,8 +1062,12 @@ export function SimpleAssist() {
     setActiveHarness(harness)
 
     if (inputRef.current) {
-      inputRef.current.textContent = ''
+      inputRef.current.innerHTML = ''
       setInstructionText('')
+      setRawInstructionText('')
+      try {
+        localStorage.removeItem('margin-prompt-input-html')
+      } catch { /* ignore */ }
     }
 
     wasAbortedRef.current = false
@@ -1058,7 +1174,18 @@ export function SimpleAssist() {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Backspace' && !inputRef.current?.textContent?.trim() && pendingEditSelection) {
       e.preventDefault()
+      userClearedSelectionRef.current = true
       setPendingEditSelection(null)
+      if (inputRef.current) {
+        const existingSelectionChip = inputRef.current.querySelector<HTMLElement>('[data-role="selection"]')
+        if (existingSelectionChip) {
+          removeChipWithTrailingSpace(existingSelectionChip)
+        }
+        inputRef.current.innerHTML = ''
+      }
+      const liveEditor = useEditorStore.getState().editor || editor
+      liveEditor?.commands.clearPromptSelectionHighlight()
+      handleInput()
       return
     }
     if (showFileDropdown && filteredFiles.length > 0) {
@@ -1105,20 +1232,89 @@ export function SimpleAssist() {
     document.execCommand('insertText', false, text)
   }
 
+  const userClearedSelectionRef = useRef(false)
+
+  // Reset userClearedSelectionRef whenever the user changes cursor or selection in the document
+  useEffect(() => {
+    userClearedSelectionRef.current = false
+  }, [anchorPosition, selectedText])
+
   const handleContentMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement
-    if (target.classList.contains('chip-remove')) {
+    if (target.classList.contains('chip-remove') || target.closest('.chip-remove')) {
       e.preventDefault()
+      e.stopPropagation()
       const chip = target.closest('.inline-chip') as HTMLElement
       if (chip) {
         const isSelection = chip.dataset.role === 'selection'
-        chip.remove()
+        removeChipWithTrailingSpace(chip)
         if (isSelection) {
+          userClearedSelectionRef.current = true
           setPendingEditSelection(null)
+          const liveEditor = useEditorStore.getState().editor || editor
+          liveEditor?.commands.clearPromptSelectionHighlight()
+        }
+        if (!inputRef.current?.textContent?.trim() && !inputRef.current?.querySelector('.inline-chip')) {
+          if (inputRef.current) inputRef.current.innerHTML = ''
         }
         handleInput()
       }
     }
+  }
+
+  const handlePromptFocus = () => {
+    if (userClearedSelectionRef.current) return
+    if (useEditorStore.getState().pendingEditSelection) return
+    const liveEditor = useEditorStore.getState().editor || editor
+    if (!liveEditor || liveEditor.isDestroyed || !liveEditor.state) return
+
+    const { doc, selection } = liveEditor.state
+    const { from, to, empty } = selection
+
+    // 1. If an active selection already exists in the document:
+    if (!empty) {
+      const text = doc.textBetween(from, to, ' ')
+      if (text.trim().length > 0) {
+        setPendingEditSelection({ from, to, text })
+        liveEditor.commands.setPromptSelectionHighlight(from, to)
+        return
+      }
+    }
+
+    // 2. If no active selection, auto-select the paragraph containing the cursor
+    const pos = from > 0 ? from : (anchorPosition || 0)
+    if (pos >= 0 && pos <= doc.content.size) {
+      const $pos = doc.resolve(pos)
+      let textblockNode = $pos.parent.isTextblock ? $pos.parent : null
+      let depth = $pos.depth
+
+      if (!textblockNode) {
+        for (let d = $pos.depth; d > 0; d--) {
+          if ($pos.node(d).isTextblock) {
+            textblockNode = $pos.node(d)
+            depth = d
+            break
+          }
+        }
+      }
+
+      if (textblockNode) {
+        const text = textblockNode.textContent
+        if (text.trim().length > 0) {
+          const start = $pos.start(depth)
+          const end = $pos.end(depth)
+          if (end > start) {
+            const blockText = doc.textBetween(start, end, ' ')
+            setPendingEditSelection({ from: start, to: end, text: blockText })
+            liveEditor.commands.setPromptSelectionHighlight(start, end)
+            return
+          }
+        }
+      }
+    }
+
+    setPendingEditSelection(null)
+    liveEditor.commands.clearPromptSelectionHighlight()
   }
 
   // Handle sync of pendingEditSelection into inline tag chips and autofocus
@@ -1128,9 +1324,14 @@ export function SimpleAssist() {
 
     if (pendingEditSelection) {
       // Find and remove any existing selection chip first to avoid duplicates
-      const existingSelectionChip = div.querySelector('[data-role="selection"]')
+      const existingSelectionChip = div.querySelector<HTMLElement>('[data-role="selection"]')
       if (existingSelectionChip) {
-        existingSelectionChip.remove()
+        removeChipWithTrailingSpace(existingSelectionChip)
+      }
+
+      // If the input is empty or only whitespace/zwsp/br, reset it so no phantom space remains
+      if (!div.textContent?.trim() && !div.querySelector('.inline-chip')) {
+        div.innerHTML = ''
       }
 
       // Create the new selection tag/chip
@@ -1145,28 +1346,22 @@ export function SimpleAssist() {
       const len = pendingEditSelection.text.length
       appendSelectionChipText(chip, len)
 
-      // Insert it at current selection/caret of input, or at the end if not inside
-      const sel = window.getSelection()
-      let range: Range | null = null
-      if (sel && sel.rangeCount > 0) {
-        const potentialRange = sel.getRangeAt(0)
-        if (div.contains(potentialRange.startContainer)) {
-          range = potentialRange
-        }
-      }
-
-      if (!range) {
-        range = document.createRange()
-        range.selectNodeContents(div)
-        range.collapse(false)
-      }
-
-      // Add a space after the selection tag.
+      // Add trailing space after the selection tag.
       const zwsp = document.createTextNode('\u200B ')
       const fragment = document.createDocumentFragment()
       fragment.appendChild(chip)
       fragment.appendChild(zwsp)
-      range.insertNode(fragment)
+
+      // Always insert at the start of the input without any leading spaces
+      if (div.firstChild) {
+        div.insertBefore(fragment, div.firstChild)
+      } else {
+        div.appendChild(fragment)
+      }
+
+      // Set prompt selection highlight in editor
+      const liveEditor = useEditorStore.getState().editor || editor
+      liveEditor?.commands.setPromptSelectionHighlight(pendingEditSelection.from, pendingEditSelection.to)
 
       // Focus and move caret after the space
       setTimeout(() => {
@@ -1183,11 +1378,16 @@ export function SimpleAssist() {
       }, 0)
     } else {
       // When pendingEditSelection is null, clean up the selection chip if it exists in DOM
-      const existingSelectionChip = div.querySelector('[data-role="selection"]')
+      const existingSelectionChip = div.querySelector<HTMLElement>('[data-role="selection"]')
       if (existingSelectionChip) {
-        existingSelectionChip.remove()
+        removeChipWithTrailingSpace(existingSelectionChip)
+        if (!div.textContent?.trim() && !div.querySelector('.inline-chip')) {
+          div.innerHTML = ''
+        }
         handleInput()
       }
+      const liveEditor = useEditorStore.getState().editor || editor
+      liveEditor?.commands.clearPromptSelectionHighlight()
     }
   }, [pendingEditSelection])
 
@@ -1201,12 +1401,22 @@ export function SimpleAssist() {
           contentEditable
           role="textbox"
           aria-multiline="true"
+          onFocus={handlePromptFocus}
           onInput={handleInput}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          onMouseDown={handleContentMouseDown}
+          onMouseDown={(e) => {
+            const target = e.target as HTMLElement
+            if (target.classList.contains('chip-remove') || target.closest('.chip-remove')) {
+              handleContentMouseDown(e)
+              return
+            }
+            handleContentMouseDown(e)
+            handlePromptFocus()
+          }}
           data-placeholder={mode === 'chat' ? 'Ask a question...' : 'Describe changes...'}
-          className="flex-1 min-w-0 bg-transparent border-0 p-0 text-xs focus:ring-0 focus:outline-none resize-none text-[var(--text)] min-h-[44px] font-sans leading-relaxed whitespace-pre-wrap empty:before:content-[attr(data-placeholder)] empty:before:text-[var(--text-muted)]"
+          data-show-placeholder={!rawInstructionText.trim() ? 'true' : undefined}
+          className="prompt-input flex-1 min-w-0 bg-transparent border-0 p-0 text-xs focus:ring-0 focus:outline-none resize-none text-[var(--text)] min-h-[44px] font-sans leading-relaxed whitespace-pre-wrap"
         />
       </div>
 
@@ -1492,8 +1702,6 @@ export function SimpleAssist() {
         <>
           <div className="flex-1 overflow-y-auto flex flex-col gap-4 pr-1 pt-2 min-h-0 select-text">
             {displayLogs.map((log) => {
-              const isExpanded = !!expandedIds[log.id]
-
               const plannerContextFiles: string[] = (() => {
                 if (!log.planner_output) return []
                 try {
@@ -1536,79 +1744,21 @@ export function SimpleAssist() {
 
                   {/* AI Assistant Plain Text Response */}
                   <div className="flex flex-col gap-1.5 self-start w-full select-text max-w-full py-1 animate-scale-in">
-                    <div className="flex items-center gap-2.5 select-none text-[var(--text-muted)]">
+                    <div className="flex items-center gap-2 select-none text-[var(--text-muted)]">
                       <button
-                        onClick={() => setExpandedIds(prev => ({ ...prev, [log.id]: !prev[log.id] }))}
-                        className="flex items-center gap-0.5 text-[10px] text-[var(--text-secondary)] hover:text-[var(--text-heading)] transition-colors cursor-pointer"
-                        title="Toggle prompt details"
+                        onClick={() => setSelectedTelemetryLog(log as AssistLogEntry)}
+                        className="flex items-center gap-1.5 px-2 py-0.5 rounded-[4px] bg-[var(--bg-elevated)] hover:bg-[var(--bg-hover)] border border-[var(--border-subtle)] text-[10px] text-[var(--text-secondary)] hover:text-[var(--text-heading)] transition-colors cursor-pointer shadow-2xs"
+                        title="Open detailed telemetry and context breakdown"
                       >
+                        <Activity className="w-3 h-3 text-[var(--accent-brown)]" />
                         <span>Telemetry</span>
-                        <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`w-2.5 h-2.5 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}>
-                          <path d="m9 18 6-6-6-6" />
-                        </svg>
+                        {(log.total_tokens || log.prompt_tokens) ? (
+                          <span className="font-mono text-[9px] text-[var(--text-muted)]">
+                            · {(log.total_tokens || ((log.prompt_tokens || 0) + (log.completion_tokens || 0))).toLocaleString()} toks
+                          </span>
+                        ) : null}
                       </button>
                     </div>
-                    {isExpanded && (
-                      <div className="text-[10px] font-mono text-[var(--text-secondary)] leading-normal select-text whitespace-pre-wrap mt-1 p-2 bg-[var(--bg-expanded)]/50 border border-[var(--border)] rounded-[6px] animate-fade-in w-full flex flex-col gap-3">
-                        {((log.ref_files && log.ref_files.length > 0) || log.selected_text || plannerContextFiles.length > 0) && (
-                          <div className="flex flex-col gap-1 border-b border-[var(--border)] pb-2 mb-1 select-none">
-                            {log.ref_files?.map((file) => (
-                              <div key={file.path} className="flex items-center gap-1.5 text-[10.5px] text-[var(--text-secondary)] font-sans">
-                                <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 text-[var(--text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                                  <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0z" />
-                                  <circle cx="12" cy="12" r="3" />
-                                </svg>
-                                <span>Read {file.name}</span>
-                              </div>
-                            ))}
-                            {plannerContextFiles.map((filepath) => {
-                              return (
-                                <div key={filepath} className="flex items-center gap-1.5 text-[10.5px] text-[var(--text-secondary)] font-sans">
-                                  <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 text-[var(--text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                                    <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0z" />
-                                    <circle cx="12" cy="12" r="3" />
-                                  </svg>
-                                  <span>{filepath}</span>
-                                </div>
-                              )
-                            })}
-                            {log.selected_text && (
-                              <div className="flex items-center gap-1.5 text-[10.5px] text-[var(--text-secondary)] font-sans">
-                                <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 text-[var(--text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                                  <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0z" />
-                                  <circle cx="12" cy="12" r="3" />
-                                </svg>
-                                <span>Read editor selection ({log.selected_text.length} Ch)</span>
-                              </div>
-                            )}
-                            {log.tool_calls?.map((t, i) => (
-                              <div key={`tool-${i}`} className="flex items-center gap-1.5 text-[10.5px] text-[var(--text-secondary)] font-sans">
-                                <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 text-[var(--text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                                  <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
-                                </svg>
-                                <span>{t.tool}{t.detail ? ` ${t.detail}` : ''}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        {log.planner_system_prompt && (
-                          <div className="flex flex-col gap-1">
-                            <span className="text-[9px] uppercase tracking-widest font-sans text-[var(--text-muted)] font-semibold">① Planner</span>
-                            <div><strong>System:</strong> {log.planner_system_prompt}</div>
-                            <div className="mt-1"><strong>User:</strong> {log.planner_user_prompt}</div>
-                            <div className="mt-1"><strong>Output:</strong> {log.planner_output}</div>
-                          </div>
-                        )}
-                        {log.planner_system_prompt && (
-                          <div className="border-t border-[var(--border)] pt-2 mt-1" />
-                        )}
-                        <div className="flex flex-col gap-1">
-                          <span className="text-[9px] uppercase tracking-widest font-sans text-[var(--text-muted)] font-semibold">{log.planner_system_prompt ? '② Generator' : 'Prompt'}</span>
-                          <div><strong>System:</strong> {log.system_prompt}</div>
-                          <div className="mt-1"><strong>User:</strong> {log.user_prompt}</div>
-                        </div>
-                      </div>
-                    )}
                     {/* Thinking dropdown — visible when thinking output exists */}
                     {log.thinking_output && (
                       <div className="mt-0.5">
@@ -1694,15 +1844,27 @@ export function SimpleAssist() {
                     )
                   })}
 
-                {/* Harness tool calls (structured harnesses) */}
-                {activeToolRows.map((t, i) => (
-                  <div key={`htool-${i}`} className="flex items-center gap-1.5 text-[11px] text-[var(--text-secondary)] font-sans select-none ml-1">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 text-[var(--text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
-                    </svg>
-                    <span>{t.tool}{t.detail ? ` ${t.detail}` : ''}</span>
-                  </div>
-                ))}
+                {/* Harness tool calls & retries */}
+                {activeToolRows.map((t, i) => {
+                  const isRetry = t.tool.toLowerCase().includes('retry') || t.tool.toLowerCase().includes('warning')
+                  return (
+                    <div
+                      key={`htool-${i}`}
+                      className={`flex items-center gap-1.5 text-[11px] font-sans select-none ml-1 ${
+                        isRetry ? 'text-amber-500 font-medium' : 'text-[var(--text-secondary)]'
+                      }`}
+                    >
+                      {isRetry ? (
+                        <RotateCcw className="w-3.5 h-3.5 text-amber-500 animate-spin" />
+                      ) : (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 text-[var(--text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+                        </svg>
+                      )}
+                      <span>{isRetry ? `Server retry: ${t.detail}` : `${t.tool}${t.detail ? ` ${t.detail}` : ''}`}</span>
+                    </div>
+                  )
+                })}
 
                 {streamingThinkingText && (
                   <div className="self-start w-full">
@@ -1780,6 +1942,13 @@ export function SimpleAssist() {
       <div className="shrink-0 mt-auto pt-2">
         {renderInputCard()}
       </div>
+
+      {/* Assist Telemetry & Context Inspector Dialog */}
+      <AssistTelemetryModal
+        isOpen={Boolean(selectedTelemetryLog)}
+        onClose={() => setSelectedTelemetryLog(null)}
+        log={selectedTelemetryLog}
+      />
     </div>
   )
 }

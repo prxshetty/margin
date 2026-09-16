@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { X, Plus, Trash2, CheckCircle, Play, Edit, Brain, ChevronRight, ChevronDown, Folder, FolderOpen, Pin, EyeOff, Eye } from 'lucide-react'
+import { X, Plus, Trash2, CheckCircle, Play, Edit, Brain, ChevronRight, ChevronDown, Folder, FolderOpen, Pin, EyeOff, Eye, GitBranch, FolderPlus, Loader2 } from 'lucide-react'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useEditorStore } from '../stores/editorStore'
 import type { AppSettings } from '../stores/settingsStore'
@@ -151,14 +151,47 @@ function TabButton({ active, onClick, label }: { active: boolean, onClick: () =>
 
 function GeneralSettings({ settings, updateSettings }: { settings: AppSettings, updateSettings: (u: Partial<AppSettings>) => void }) {
   const [workspacePath, setWorkspacePath] = useState(settings.linked_workspace_dir || '')
-  const [isPicking, setIsPicking] = useState(false)
+  const [isPickingExisting, setIsPickingExisting] = useState(false)
+  const [linkStatus, setLinkStatus] = useState<string | null>(null)
+
+  // Create Workspace State
+  const [newWorkspacePath, setNewWorkspacePath] = useState('')
+  const [isPickingNew, setIsPickingNew] = useState(false)
+  const [initGit, setInitGit] = useState(true)
+  const [gitAvailable, setGitAvailable] = useState<boolean | null>(null)
+  const [gitVersion, setGitVersion] = useState<string | null>(null)
+  const [isCreating, setIsCreating] = useState(false)
+  const [createStatus, setCreateStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+
+  useEffect(() => {
+    setWorkspacePath(settings.linked_workspace_dir || '')
+  }, [settings.linked_workspace_dir])
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/workspace/git-status`)
+      .then(res => res.json())
+      .then(data => {
+        const avail = Boolean(data.available)
+        setGitAvailable(avail)
+        if (data.version) setGitVersion(data.version)
+        if (!avail) setInitGit(false)
+      })
+      .catch(() => {
+        setGitAvailable(false)
+        setInitGit(false)
+      })
+  }, [])
 
   const handleLink = () => {
-    updateSettings({ linked_workspace_dir: workspacePath.trim() || null })
+    const trimmed = workspacePath.trim()
+    updateSettings({ linked_workspace_dir: trimmed || null })
+    setLinkStatus(trimmed ? 'Workspace path linked.' : 'Reset to default fallback workspace.')
+    setTimeout(() => setLinkStatus(null), 3500)
   }
 
-  const handleBrowse = async () => {
-    setIsPicking(true)
+  const handleBrowseExisting = async () => {
+    setIsPickingExisting(true)
+    setLinkStatus(null)
     try {
       const res = await fetch(`${API_BASE}/api/workspace/pick-folder`)
       if (res.ok) {
@@ -166,65 +199,250 @@ function GeneralSettings({ settings, updateSettings }: { settings: AppSettings, 
         if (data.path) {
           setWorkspacePath(data.path)
           updateSettings({ linked_workspace_dir: data.path })
+          setLinkStatus('Workspace selected and linked.')
+          setTimeout(() => setLinkStatus(null), 3500)
+        }
+      }
+    } catch (err) {
+      console.error('Failed to pick folder', err)
+      setLinkStatus('Failed to open folder picker dialog.')
+    } finally {
+      setIsPickingExisting(false)
+    }
+  }
+
+  const handleBrowseNew = async () => {
+    setIsPickingNew(true)
+    setCreateStatus(null)
+    try {
+      const res = await fetch(`${API_BASE}/api/workspace/pick-folder`)
+      if (res.ok) {
+        const data = await res.json()
+        if (data.path) {
+          setNewWorkspacePath(data.path)
         }
       }
     } catch (err) {
       console.error('Failed to pick folder', err)
     } finally {
-      setIsPicking(false)
+      setIsPickingNew(false)
+    }
+  }
+
+  const handleCreateWorkspace = async () => {
+    const path = newWorkspacePath.trim()
+    if (!path) {
+      setCreateStatus({ type: 'error', message: 'Please specify a folder path for the new workspace.' })
+      return
+    }
+
+    setIsCreating(true)
+    setCreateStatus(null)
+    try {
+      const res = await fetch(`${API_BASE}/api/workspace/create`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          path,
+          init_git: initGit && gitAvailable === true,
+          set_as_active: true
+        })
+      })
+      const data = await res.json()
+      if (res.ok && data.success) {
+        updateSettings({ linked_workspace_dir: data.path })
+        setWorkspacePath(data.path)
+        let msg = `Created and linked workspace at ${data.path}.`
+        if (data.git?.initialized) {
+          msg += ' Git repository initialized.'
+        }
+        setCreateStatus({ type: 'success', message: msg })
+        setNewWorkspacePath('')
+      } else {
+        setCreateStatus({ type: 'error', message: data.detail || 'Failed to create workspace.' })
+      }
+    } catch (err: any) {
+      setCreateStatus({ type: 'error', message: err?.message || 'Error connecting to server.' })
+    } finally {
+      setIsCreating(false)
     }
   }
 
   const handleClear = () => {
     setWorkspacePath('')
     updateSettings({ linked_workspace_dir: null })
+    setLinkStatus('Reset to default fallback workspace.')
+    setTimeout(() => setLinkStatus(null), 3500)
   }
 
   return (
     <div className="flex flex-col gap-8">
+      {/* Active Workspace Banner */}
       <section>
-        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Workspace Directory</h3>
-        <p className="text-[12px] text-[var(--text-secondary)] mb-3">Link an absolute directory path on your system containing your novel project.</p>
+        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Active Workspace</h3>
+        <p className="text-[12px] text-[var(--text-secondary)] mb-2">The currently loaded project directory for your novel manuscripts, characters, and styles.</p>
+        <div className="p-3 rounded-[6px] border border-[var(--border-subtle)] bg-[var(--bg-elevated)]/50 flex items-center justify-between text-[12px] max-w-xl">
+          <div className="flex items-center gap-2 overflow-hidden">
+            <Folder size={15} className="text-[var(--text-secondary)] shrink-0" />
+            <span className="text-[var(--text-heading)] font-mono text-[12px] truncate">
+              {settings.linked_workspace_dir || 'sample-workspace (Default)'}
+            </span>
+          </div>
+          {settings.linked_workspace_dir && (
+            <button
+              type="button"
+              onClick={handleClear}
+              className="shrink-0 text-[11px] text-[var(--text-secondary)] hover:text-red-500 transition-colors cursor-pointer ml-2"
+            >
+              Reset to default
+            </button>
+          )}
+        </div>
+      </section>
+
+      {/* Create New Workspace */}
+      <section className="border-t border-[var(--border-subtle)] pt-6">
+        <div className="flex items-center gap-2 mb-1">
+          <FolderPlus size={15} className="text-[var(--accent-brown)]" />
+          <h3 className="text-[13px] font-medium text-[var(--text-heading)]">Create New Workspace</h3>
+        </div>
+        <p className="text-[12px] text-[var(--text-secondary)] mb-3">
+          Select or enter a folder location to initialize a new project outline with chapters, characters, styles, prompts, and story state.
+        </p>
+        <div className="flex flex-col gap-3 max-w-xl">
+          <div className="flex gap-2 w-full">
+            <input
+              type="text"
+              placeholder="e.g. C:\Users\name\my-new-novel"
+              value={newWorkspacePath}
+              onChange={(e) => setNewWorkspacePath(e.target.value)}
+              className="flex-1 border border-[var(--border-subtle)] rounded-[6px] px-3 py-1.5 text-[13px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)] transition-colors min-w-0"
+            />
+            <button
+              type="button"
+              onClick={handleBrowseNew}
+              disabled={isPickingNew}
+              className="shrink-0 px-3 py-1.5 rounded-[6px] text-[12px] border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[var(--text-heading)] hover:bg-[var(--bg-hover)] transition-colors font-medium cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+            >
+              {isPickingNew ? (
+                <>
+                  <Loader2 size={13} className="animate-spin" />
+                  <span>Browsing...</span>
+                </>
+              ) : (
+                <>
+                  <FolderOpen size={13} />
+                  <span>Browse...</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between py-1.5 bg-[var(--bg-elevated)]/40 px-3 rounded-[6px] border border-[var(--border-subtle)]">
+            <label className={`flex items-center gap-2 text-[12px] select-none ${gitAvailable === false ? 'opacity-50 cursor-not-allowed text-[var(--text-muted)]' : 'cursor-pointer text-[var(--text-heading)]'}`}>
+              <input
+                type="checkbox"
+                checked={initGit && gitAvailable === true}
+                onChange={(e) => setInitGit(e.target.checked)}
+                disabled={gitAvailable === false}
+                className="rounded border-[var(--border-subtle)] text-[var(--accent-brown)] focus:ring-0 cursor-pointer disabled:cursor-not-allowed"
+              />
+              <span className="flex items-center gap-1.5 font-medium">
+                <GitBranch size={13} />
+                <span>Initialize as Git repository</span>
+              </span>
+            </label>
+            {gitAvailable === false && (
+              <span className="text-[11px] text-[var(--text-muted)] italic">
+                (Git not found in PATH)
+              </span>
+            )}
+            {gitAvailable === true && gitVersion && (
+              <span className="text-[10px] text-[var(--text-muted)]">
+                {gitVersion.split(' ')[0]} {gitVersion.split(' ')[2] || ''}
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-3 mt-1">
+            <button
+              type="button"
+              onClick={handleCreateWorkspace}
+              disabled={isCreating || !newWorkspacePath.trim()}
+              className="px-4 py-1.5 rounded-[6px] text-[12px] bg-[var(--accent-brown)] text-[var(--text-inverse)] hover:bg-[var(--accent-brown)]/90 transition-colors font-medium cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+            >
+              {isCreating ? (
+                <>
+                  <Loader2 size={13} className="animate-spin" />
+                  <span>Creating Workspace...</span>
+                </>
+              ) : (
+                <>
+                  <Plus size={13} />
+                  <span>Create Workspace</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          {createStatus && (
+            <div className={`p-2.5 rounded-[6px] text-[12px] border ${createStatus.type === 'success' ? 'bg-green-500/10 border-green-500/30 text-green-700 dark:text-green-300' : 'bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-300'}`}>
+              {createStatus.message}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* Link Existing Workspace */}
+      <section className="border-t border-[var(--border-subtle)] pt-6">
+        <div className="flex items-center gap-2 mb-1">
+          <FolderOpen size={15} className="text-[var(--text-secondary)]" />
+          <h3 className="text-[13px] font-medium text-[var(--text-heading)]">Link Existing Workspace</h3>
+        </div>
+        <p className="text-[12px] text-[var(--text-secondary)] mb-3">Link an existing novel directory on your computer.</p>
         <div className="flex flex-col gap-2 max-w-xl">
           <div className="flex gap-2 w-full">
             <input
               type="text"
-              placeholder="e.g. /Users/username/my-novel"
+              placeholder="e.g. C:\Users\name\my-novel"
               value={workspacePath}
               onChange={(e) => setWorkspacePath(e.target.value)}
               className="flex-1 border border-[var(--border-subtle)] rounded-[6px] px-3 py-1.5 text-[13px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)] transition-colors min-w-0"
             />
             <button
-              onClick={handleBrowse}
-              disabled={isPicking}
-              className="shrink-0 px-3 py-1.5 rounded-[6px] text-[12px] border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[var(--text-heading)] hover:bg-[var(--bg-hover)] transition-colors font-medium cursor-pointer disabled:opacity-50"
+              type="button"
+              onClick={handleBrowseExisting}
+              disabled={isPickingExisting}
+              className="shrink-0 px-3 py-1.5 rounded-[6px] text-[12px] border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[var(--text-heading)] hover:bg-[var(--bg-hover)] transition-colors font-medium cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
             >
-              {isPicking ? 'Browsing...' : 'Browse...'}
+              {isPickingExisting ? (
+                <>
+                  <Loader2 size={13} className="animate-spin" />
+                  <span>Browsing...</span>
+                </>
+              ) : (
+                <>
+                  <FolderOpen size={13} />
+                  <span>Browse...</span>
+                </>
+              )}
             </button>
             <button
+              type="button"
               onClick={handleLink}
               className="shrink-0 px-3 py-1.5 rounded-[6px] text-[12px] bg-[var(--accent-brown)] text-[var(--text-inverse)] hover:bg-[var(--accent-brown)]/90 transition-colors font-medium cursor-pointer"
             >
               Link Path
             </button>
           </div>
-          {settings.linked_workspace_dir && (
-            <button
-              onClick={handleClear}
-              className="self-start text-[11px] text-[var(--text-secondary)] hover:text-red-500 transition-colors cursor-pointer"
-            >
-              Reset to default fallback workspace
-            </button>
+          {linkStatus && (
+            <p className="text-[11px] text-[var(--accent-brown)] font-medium">{linkStatus}</p>
           )}
         </div>
-        <p className="text-[11px] text-[var(--text-muted)] mt-1.5">
-          {settings.linked_workspace_dir 
-            ? `Active Workspace: ${settings.linked_workspace_dir}` 
-            : 'Using default sample workspace in the repository.'}
-        </p>
       </section>
 
-      <section>
+      {/* Default Mode */}
+      <section className="border-t border-[var(--border-subtle)] pt-6">
         <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Default Mode</h3>
         <p className="text-[12px] text-[var(--text-secondary)] mb-3">Choose the default interface mode for new sessions.</p>
         <div className="flex gap-2">
@@ -243,6 +461,7 @@ function GeneralSettings({ settings, updateSettings }: { settings: AppSettings, 
         </div>
       </section>
 
+      {/* Default Verbosity */}
       <section>
         <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Default Verbosity</h3>
         <p className="text-[12px] text-[var(--text-secondary)] mb-3">Control the target length of endpoint responses and edits. Endpoints only — harnesses manage their own output length.</p>
@@ -357,6 +576,38 @@ function AppearanceSettings({ settings, updateSettings }: { settings: AppSetting
             })}
           </div>
         </section>
+
+      <section>
+        <h4 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Change Highlighting</h4>
+        <p className="text-[12px] text-[var(--text-secondary)] mb-3">Display real-time diffs indicating insertions and deletions in the manuscript.</p>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="flex items-start gap-3 p-3 rounded-[8px] border border-[var(--border-subtle)] bg-[var(--bg)] hover:border-[var(--text-secondary)] cursor-pointer transition-colors">
+            <input
+              type="checkbox"
+              checked={settings.show_additions !== false}
+              onChange={(e) => updateSettings({ show_additions: e.target.checked })}
+              className="mt-0.5 rounded accent-[var(--accent-brown)]"
+            />
+            <div>
+              <div className="text-[13px] font-medium text-[var(--text-heading)]">Show Additions</div>
+              <div className="text-[11px] text-[var(--text-secondary)] mt-0.5">Highlight inserted text with an underline and theme accent color.</div>
+            </div>
+          </label>
+
+          <label className="flex items-start gap-3 p-3 rounded-[8px] border border-[var(--border-subtle)] bg-[var(--bg)] hover:border-[var(--text-secondary)] cursor-pointer transition-colors">
+            <input
+              type="checkbox"
+              checked={settings.show_deletions !== false}
+              onChange={(e) => updateSettings({ show_deletions: e.target.checked })}
+              className="mt-0.5 rounded accent-[var(--accent-brown)]"
+            />
+            <div>
+              <div className="text-[13px] font-medium text-[var(--text-heading)]">Show Deletions</div>
+              <div className="text-[11px] text-[var(--text-secondary)] mt-0.5">Display removed text with strikethrough and deletion color.</div>
+            </div>
+          </label>
+        </div>
+      </section>
 
       <section>
             <h4 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Editor Statistics</h4>
@@ -1105,6 +1356,8 @@ const PROMPT_ENTRIES = [
   { id: 'planner', file: 'simple-planner.md', label: 'Planner', description: 'Picks context files and refines the instruction for the Writer — endpoint path only.' },
   { id: 'chat', file: 'simple-chat.md', label: 'Chat', description: 'Converses and answers — makes no edits, for endpoints and harnesses.' },
   { id: 'harness-edit', file: 'harness-edit.md', label: 'Harness Edit', description: 'Standing instructions for agent harnesses in Edit mode (OpenCode, Claude Code, Codex, Antigravity) — including the rule that changes land in files, not in the reply.' },
+  { id: 'commit-message', file: 'commit-message.md', label: 'Commit Message', description: 'Generates conventional Git commit titles and narrative summaries describing document changes.' },
+  { id: 'manifest-summary', file: 'manifest-summary.md', label: 'Manifest Summary', description: 'Drafts concise, single-paragraph summaries of documents for folder manifest index files.' },
 ]
 
 function PromptsSettings() {

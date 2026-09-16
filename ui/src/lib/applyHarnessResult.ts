@@ -1,16 +1,29 @@
 import { API_BASE } from './api'
 import { useEditorStore } from '../stores/editorStore'
 import type { Editor } from '@tiptap/core'
+import { aiDiffHighlightPluginKey } from '../components/Editor/AiDiffHighlightExtension'
+import { refreshWorkspaceStatus } from './workspaceStatus'
 
 // ─── Paragraph three-way merge ───────────────────────────────────────────────
 // v1 scope: paragraph-oriented (blank-line separated), exact-match identity.
 // Maps cleanly onto the existing single-range AiDiffHighlight.
 
+import { isBlockEqual } from '../components/Editor/ChangeHighlightExtension'
+
 type Tag = 'equal' | 'replace' | 'delete' | 'insert'
 interface Opcode { tag: Tag; i1: number; i2: number; j1: number; j2: number }
 
+function isParasEqual(p1: string, p2: string): boolean {
+  if (p1 === p2) return true
+  return isBlockEqual(p1, p2)
+}
+
 export function splitParas(text: string): string[] {
-  return text.split(/\n\s*\n/).map(p => p.trim()).filter(p => p.length > 0)
+  return text
+    .replace(/\r\n/g, '\n')
+    .split(/\n\s*\n/)
+    .map(p => p.trim())
+    .filter(p => p.length > 0)
 }
 
 // LCS-based opcodes, difflib-style. Docs are small; O(n*m) is fine.
@@ -19,7 +32,7 @@ export function opcodes(a: string[], b: string[]): Opcode[] {
   const dp: number[][] = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0))
   for (let i = n - 1; i >= 0; i--) {
     for (let j = m - 1; j >= 0; j--) {
-      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1])
+      dp[i][j] = isParasEqual(a[i], b[j]) ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1])
     }
   }
   const ops: Opcode[] = []
@@ -33,9 +46,9 @@ export function opcodes(a: string[], b: string[]): Opcode[] {
     }
   }
   while (i < n && j < m) {
-    if (a[i] === b[j]) {
+    if (isParasEqual(a[i], b[j])) {
       const i1 = i, j1 = j
-      while (i < n && j < m && a[i] === b[j]) { i++; j++ }
+      while (i < n && j < m && isParasEqual(a[i], b[j])) { i++; j++ }
       push('equal', i1, i, j1, j)
     } else if (dp[i + 1][j] >= dp[i][j + 1]) {
       push('delete', i, i + 1, j, j); i++
@@ -141,20 +154,13 @@ function setEditorContent(content: string) {
   s.editor?.commands.setContent(content)
 }
 
-// (Re)apply the diff highlight for a pending harness review. Runs after the
-// merge AND after NovelEditor's content-sync rebuild: that rebuild replaces
-// EditorState (to reset undo history), which re-initializes plugin state and
-// wipes the decorations set moments earlier.
+// (Re)apply the diff highlight for a pending harness or endpoint review. Runs after the
+// merge AND after NovelEditor's content-sync rebuild.
 export function reapplyHarnessHighlight(editor: Editor): void {
   const pending = useEditorStore.getState().aiPendingEdit
-  if (!pending?.harness || !pending.aiChangedIdx?.length) return
-  const blocks: { from: number; to: number }[] = []
-  editor.state.doc.forEach((node, offset) => {
-    if (node.isBlock) blocks.push({ from: offset, to: offset + node.nodeSize })
-  })
-  const idx = pending.aiChangedIdx.filter(k => k < blocks.length)
-  if (idx.length > 0) {
-    editor.commands.setAiHighlight(blocks[Math.min(...idx)].from, blocks[Math.max(...idx)].to)
+  if (!pending) return
+  if (editor && !editor.isDestroyed && editor.view) {
+    editor.view.dispatch(editor.state.tr.setMeta(aiDiffHighlightPluginKey, { action: 'refresh' }))
   }
 }
 
@@ -184,19 +190,18 @@ export async function applyHarnessResult(baseContent: string, harness: string): 
   const ai = splitParas(aiContent)
   const current = splitParas(s.content)
   const { merged, conflicts, aiChangedIdx } = threeWayMerge(base, ai, current)
+  const mergedText = merged.join('\n\n')
 
-  setEditorContent(merged.join('\n\n'))
   useEditorStore.getState().setAiPendingEdit({
+    filePath: deletedPath,
     previousContent: baseContent,
     aiContent,
+    editorContent: mergedText,
     harness,
-    // Merged indices owned by AI-only changes. Reject drops exactly these.
-    // (Attribution can't be recomputed later: once AI text is in `current`,
-    // diffing base→current makes it look user-made.)
     aiChangedIdx: [...aiChangedIdx],
   })
+  setEditorContent(mergedText)
 
-  // Highlight AI-owned ranges (single span min→max; limitation documented)
   const editor = useEditorStore.getState().editor
   if (editor) reapplyHarnessHighlight(editor)
   return { conflicts, deleted: false }
@@ -214,15 +219,15 @@ export async function resolveHarnessReview(accept: boolean): Promise<boolean> {
     // persist it since disk still holds the AI-only version.
     await putFileContent(s.currentFilePath, s.content)
   } else {
-    // Reject = remove AI changes, keep user changes.
-    // Drop the merged indices recorded as AI-owned at apply time.
-    const dropped = new Set(pending.aiChangedIdx || [])
-    const current = splitParas(s.content)
-    const rejected = current.filter((_, i) => !dropped.has(i)).join('\n\n')
-    setEditorContent(rejected)
-    await putFileContent(s.currentFilePath, rejected)
+    // Reject = restore previousContent
+    const previous = pending.previousContent
+    if (previous !== undefined) {
+      setEditorContent(previous)
+      await putFileContent(s.currentFilePath, previous)
+    }
   }
   s.editor?.commands.clearAiHighlight()
   s.setAiPendingEdit(null)
+  refreshWorkspaceStatus()
   return true
 }

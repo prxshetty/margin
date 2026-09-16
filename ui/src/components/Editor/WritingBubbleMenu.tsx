@@ -7,6 +7,7 @@ import { useSettingsStore } from '../../stores/settingsStore'
 import { API_BASE } from '../../lib/api'
 import { streamSSE } from '../../lib/stream-sse'
 import { applyHarnessResult } from '../../lib/applyHarnessResult'
+import { saveCurrentFile } from '../../lib/saveFile'
 
 // ─── Node selector (paragraph / heading) ─────────────────────────────────────
 const NODE_ITEMS = [
@@ -170,15 +171,64 @@ export function WritingBubbleMenu() {
     const [isStreaming, setIsStreaming] = useState(false)
     const inputRef = useRef<HTMLInputElement>(null)
 
+    const lastRangeRef = useRef<{ from: number; to: number } | null>(null)
+
+    // ── Reset mode on selection change ───────────────────────────────────────
+    useEffect(() => {
+        const prev = lastRangeRef.current
+        const curr = selectionRange
+        if (!curr || !prev || curr.from !== prev.from || curr.to !== prev.to) {
+            setMode('default')
+            setInstruction('')
+        }
+        lastRangeRef.current = curr
+    }, [selectionRange])
+
+    // ── Click outside to exit rewrite mode ────────────────────────────────────
+    useEffect(() => {
+        if (mode !== 'rewrite') return
+        const handleClickOutside = (e: MouseEvent) => {
+            const target = e.target as HTMLElement
+            if (!target.closest('.bubble-menu-wrapper')) {
+                setMode('default')
+                setInstruction('')
+            }
+        }
+        const timer = setTimeout(() => {
+            document.addEventListener('mousedown', handleClickOutside)
+        }, 50)
+        return () => {
+            clearTimeout(timer)
+            document.removeEventListener('mousedown', handleClickOutside)
+        }
+    }, [mode])
+
     // ── Add to Margin ─────────────────────────────────────────────────────────
     const handleAddToMargin = useCallback(() => {
-        if (!selectionRange || !selectedText) return
+        if (!selectionRange || !selectedText || !editor) return
+        const from = selectionRange.from
+        const to = selectionRange.to
+        const text = selectedText
+
+        useEditorStore.getState().setIsProgrammaticSelection(true)
         setPendingEditSelection({
-            text: selectedText,
-            from: selectionRange.from,
-            to: selectionRange.to,
+            text,
+            from,
+            to,
         })
-        editor?.commands.setTextSelection(selectionRange.from)
+        editor.commands.setPromptSelectionHighlight(from, to)
+        editor.commands.blur()
+        editor.commands.setTextSelection(to)
+        setMode('default')
+        setInstruction('')
+
+        setTimeout(() => {
+            useEditorStore.getState().setIsProgrammaticSelection(false)
+            const promptInput = document.querySelector<HTMLElement>('[data-placeholder][contenteditable]')
+            if (promptInput) {
+                promptInput.focus()
+            }
+        }, 10)
     }, [selectionRange, selectedText, setPendingEditSelection, editor])
 
     // ── Enter rewrite mode ────────────────────────────────────────────────────
@@ -194,9 +244,28 @@ export function WritingBubbleMenu() {
         setInstruction('')
     }, [])
 
+    // ── Should show condition ────────────────────────────────────────────────
+    const shouldShow = useCallback(
+        ({ editor: currentEditor, state }: { editor: Editor; state: any }) => {
+            const { selection } = state
+            if (!currentEditor.isEditable || selection.empty) {
+                return false
+            }
+            const s = useEditorStore.getState()
+            if (s.pendingEditSelection && !currentEditor.isFocused) {
+                return false
+            }
+            return true
+        },
+        []
+    )
+
     // ── Fire rewrite ──────────────────────────────────────────────────────────
     const handleRewriteSubmit = useCallback(async () => {
         if (!selectedText || !selectionRange || isStreaming || !editor) return
+
+        // 4. Pre-AI Assist / Pre-Harness Execution Trigger
+        await saveCurrentFile({ force: true })
 
         const finalInstruction =
             instruction.trim() ||
@@ -237,7 +306,27 @@ export function WritingBubbleMenu() {
             if (streamError) throw new Error(streamError)
 
             if (outputText && editor && !harnessDone) {
+                const setAiPendingEdit = useEditorStore.getState().setAiPendingEdit
+                const oldSelectedText = selectedText
+                const endPos = from + outputText.length
+                const currentPath = useEditorStore.getState().currentFilePath
+
                 editor.chain().focus().deleteRange({ from, to }).insertContentAt(from, outputText).run()
+
+                const mdStorage = (editor.storage as any).markdown as { getMarkdown: () => string } | undefined
+                const currentEditorMarkdown = mdStorage ? mdStorage.getMarkdown() : editor.state.doc.textContent
+
+                setAiPendingEdit({
+                    filePath: currentPath || undefined,
+                    previousContent: baseContent,
+                    editorContent: currentEditorMarkdown,
+                    selectionRange: { from, to: endPos },
+                    highlightFrom: from,
+                    originalSelectedText: oldSelectedText,
+                    replacementText: outputText,
+                })
+
+                editor.commands.setAiHighlight(from, endPos, oldSelectedText)
             }
         } catch (err) {
             console.error('Rewrite failed:', err)
@@ -260,10 +349,12 @@ export function WritingBubbleMenu() {
     return (
         <BubbleMenu
             editor={editor}
+            shouldShow={shouldShow}
             // updateDelay=0 makes the bubble appear instantly on selection,
             // eliminating the "drag from left" positioning artifact
             updateDelay={0}
             className={`
+                bubble-menu-wrapper
                 relative
                 flex items-center gap-0.5 px-1.5 py-1
                 bg-[var(--bg-elevated)] border border-[var(--border-subtle)]

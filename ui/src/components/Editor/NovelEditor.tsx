@@ -5,8 +5,12 @@ import { useEffect, useRef } from 'react'
 import { Markdown } from 'tiptap-markdown'
 import { WritingBubbleMenu } from './WritingBubbleMenu'
 import { AiDiffHighlightExtension } from './AiDiffHighlightExtension'
+import { ActiveSelectionExtension } from './ActiveSelectionExtension'
+import { ChangeHighlightExtension } from './ChangeHighlightExtension'
 import { reapplyHarnessHighlight } from '../../lib/applyHarnessResult'
 import { EditorState } from '@tiptap/pm/state'
+import { useSettingsStore } from '../../stores/settingsStore'
+import { saveCurrentFile } from '../../lib/saveFile'
 
 export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: boolean }) {
   const content = useEditorStore(state => state.content)
@@ -17,7 +21,13 @@ export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: bool
   const setAnchorPosition = useEditorStore(state => state.setAnchorPosition)
   const aiPendingEdit = useEditorStore(state => state.aiPendingEdit)
   const setAiPendingEdit = useEditorStore(state => state.setAiPendingEdit)
+  const diffBaseContent = useEditorStore(state => state.diffBaseContent)
+  const documentShowAdditions = useEditorStore(state => state.documentShowAdditions)
+  const documentShowDeletions = useEditorStore(state => state.documentShowDeletions)
+  const showAdditions = useSettingsStore(state => state.settings?.show_additions)
+  const showDeletions = useSettingsStore(state => state.settings?.show_deletions)
   const lastContentRef = useRef('')
+  const autoSaveTimerRef = useRef<number | null>(null)
   // Flag: true while we are programmatically calling setContent so onUpdate
   // doesn't echo the change back into Zustand and cause an infinite loop.
   const isProgrammaticUpdateRef = useRef(false)
@@ -27,37 +37,84 @@ export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: bool
       StarterKit,
       Markdown.configure({ html: false, tightLists: true }),
       AiDiffHighlightExtension,
+      ActiveSelectionExtension,
+      ChangeHighlightExtension,
     ],
     // Feed raw markdown — the Markdown extension parses it natively
     content: content || '',
+    onFocus: ({ editor }) => {
+      if (useEditorStore.getState().isProgrammaticSelection) return
+      editor.commands.clearPromptSelectionHighlight()
+      const s = useEditorStore.getState()
+      if (s.pendingEditSelection) {
+        s.setPendingEditSelection(null)
+      }
+    },
+    onBlur: () => {
+      if (autoSaveTimerRef.current) {
+        window.clearTimeout(autoSaveTimerRef.current)
+        autoSaveTimerRef.current = null
+      }
+      saveCurrentFile()
+    },
     onUpdate: ({ editor }) => {
       // Only propagate changes that come from the USER typing, not from us.
       if (isProgrammaticUpdateRef.current) return
+      if (!editor.isFocused) return
 
-      // Auto-accept AI edits if the user types
+      // Auto-accept AI edits only if the user actively types in the editor
       if (aiPendingEdit) {
         setAiPendingEdit(null)
         isProgrammaticUpdateRef.current = true
         editor.commands.clearAiHighlight()
         isProgrammaticUpdateRef.current = false
       }
+      if (!useEditorStore.getState().isProgrammaticSelection && editor.isFocused) {
+        editor.commands.clearPromptSelectionHighlight()
+        const s = useEditorStore.getState()
+        if (s.pendingEditSelection) {
+          s.setPendingEditSelection(null)
+        }
+      }
       const markdownStorage = (editor.storage as any).markdown as { getMarkdown: () => string }
       if (markdownStorage) {
         const newMarkdown = markdownStorage.getMarkdown()
         lastContentRef.current = newMarkdown
         setContent(newMarkdown)
+        const currentPath = useEditorStore.getState().currentFilePath
+        if (currentPath) {
+          useEditorStore.getState().updateFileContent(currentPath, newMarkdown)
+        }
+
+        // Debounced Idle Auto-Save (2000ms pause in typing)
+        if (autoSaveTimerRef.current) {
+          window.clearTimeout(autoSaveTimerRef.current)
+        }
+        autoSaveTimerRef.current = window.setTimeout(() => {
+          saveCurrentFile()
+        }, 2000)
       }
     },
     onSelectionUpdate: ({ editor }) => {
+      if (!useEditorStore.getState().isProgrammaticSelection && editor.isFocused) {
+        editor.commands.clearPromptSelectionHighlight()
+        const s = useEditorStore.getState()
+        if (s.pendingEditSelection) {
+          s.setPendingEditSelection(null)
+        }
+      }
       const { from, to, empty } = editor.state.selection
       setAnchorPosition(from)
+      const s = useEditorStore.getState()
       if (empty) {
-        setSelectedText('')
-        setSelectionRange(null)
+        if (s.selectedText !== '') setSelectedText('')
+        if (s.selectionRange !== null) setSelectionRange(null)
       } else {
         const text = editor.state.doc.textBetween(from, to, ' ')
-        setSelectedText(text)
-        setSelectionRange({ from, to })
+        if (s.selectedText !== text) setSelectedText(text)
+        if (!s.selectionRange || s.selectionRange.from !== from || s.selectionRange.to !== to) {
+          setSelectionRange({ from, to })
+        }
       }
     },
     editorProps: {
@@ -100,6 +157,23 @@ export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: bool
       }
     }
   }, [content, editor])
+
+  // Refresh diff decorations when diffBaseContent, visibility toggles, or aiPendingEdit change
+  useEffect(() => {
+    if (editor && !editor.isDestroyed && editor.view) {
+      reapplyHarnessHighlight(editor)
+      editor.view.dispatch(editor.state.tr)
+    }
+  }, [diffBaseContent, documentShowAdditions, documentShowDeletions, showAdditions, showDeletions, aiPendingEdit, editor])
+
+  // Clean up autoSave timer on unmount
+  useEffect(() => {
+    return () => {
+      if (autoSaveTimerRef.current) {
+        window.clearTimeout(autoSaveTimerRef.current)
+      }
+    }
+  }, [])
 
   return (
     <div className="bg-[var(--bg)] relative">

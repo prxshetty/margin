@@ -8,6 +8,38 @@ export interface FileEntry {
   originalContent: string
 }
 
+export type FileGitStatus = 'clean' | 'unstaged_modified' | 'staged' | 'staged_modified'
+
+export interface AiPendingEdit {
+  filePath?: string
+  previousContent: string
+  editorContent?: string
+  selectionRange?: { from: number; to: number } | null
+  highlightFrom?: number
+  harness?: string
+  aiContent?: string
+  aiChangedIdx?: number[]
+  originalSelectedText?: string
+  replacementText?: string
+}
+
+function getStoredCurrentFilePath(): string | null {
+  try {
+    return localStorage.getItem('margin-current-file-path')
+  } catch {
+    return null
+  }
+}
+
+function getStoredAiPendingEdit(): AiPendingEdit | null {
+  try {
+    const raw = localStorage.getItem('margin-pending-edit')
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
+
 interface EditorState {
   content: string
   setContent: (content: string) => void
@@ -31,6 +63,20 @@ interface EditorState {
   setAIAssistPreload: (preload: { text: string; range: { from: number; to: number } } | null) => void
   pendingEditSelection: { text: string; from: number; to: number } | null
   setPendingEditSelection: (sel: { text: string; from: number; to: number } | null) => void
+  isProgrammaticSelection: boolean
+  setIsProgrammaticSelection: (isProgrammaticSelection: boolean) => void
+  diffBaseContent: string | null
+  setDiffBaseContent: (content: string | null) => void
+  isGitWorkspace: boolean
+  setIsGitWorkspace: (isGit: boolean) => void
+  hasDiffChanges: boolean
+  setHasDiffChanges: (hasChanges: boolean) => void
+  fileStatusMap: Record<string, FileGitStatus>
+  setFileStatusMap: (map: Record<string, FileGitStatus>) => void
+  documentShowAdditions: boolean
+  setDocumentShowAdditions: (show: boolean) => void
+  documentShowDeletions: boolean
+  setDocumentShowDeletions: (show: boolean) => void
   activeContextPath: string | null
   setActiveContextPath: (path: string | null) => void
   reloadDocSignal: number
@@ -46,8 +92,8 @@ interface EditorState {
   setCurrentFilePath: (path: string | null) => void
   updateFileContent: (path: string, content: string) => void
   markFileClean: (path: string) => void
-  aiPendingEdit: { previousContent: string; selectionRange?: { from: number; to: number } | null; highlightFrom?: number; harness?: string; aiContent?: string; aiChangedIdx?: number[] } | null
-  setAiPendingEdit: (edit: { previousContent: string; selectionRange?: { from: number; to: number } | null; highlightFrom?: number; harness?: string; aiContent?: string; aiChangedIdx?: number[] } | null) => void
+  aiPendingEdit: AiPendingEdit | null
+  setAiPendingEdit: (edit: AiPendingEdit | null) => void
   activeModel: string | null
   setActiveModel: (model: string | null) => void
 }
@@ -75,6 +121,20 @@ export const useEditorStore = create<EditorState>((set) => ({
   setAIAssistPreload: (aiAssistPreload) => set({ aiAssistPreload }),
   pendingEditSelection: null,
   setPendingEditSelection: (pendingEditSelection) => set({ pendingEditSelection }),
+  isProgrammaticSelection: false,
+  setIsProgrammaticSelection: (isProgrammaticSelection) => set({ isProgrammaticSelection }),
+  diffBaseContent: null,
+  setDiffBaseContent: (diffBaseContent) => set({ diffBaseContent }),
+  isGitWorkspace: false,
+  setIsGitWorkspace: (isGitWorkspace) => set({ isGitWorkspace }),
+  hasDiffChanges: false,
+  setHasDiffChanges: (hasDiffChanges) => set({ hasDiffChanges }),
+  fileStatusMap: {},
+  setFileStatusMap: (fileStatusMap) => set({ fileStatusMap }),
+  documentShowAdditions: true,
+  setDocumentShowAdditions: (documentShowAdditions) => set({ documentShowAdditions }),
+  documentShowDeletions: true,
+  setDocumentShowDeletions: (documentShowDeletions) => set({ documentShowDeletions }),
   activeContextPath: null,
   setActiveContextPath: (activeContextPath) => set({ activeContextPath }),
   reloadDocSignal: 0,
@@ -102,17 +162,18 @@ export const useEditorStore = create<EditorState>((set) => ({
     set({
       openedFiles: [],
       workspaceDir: null,
-      currentFilePath: null,
-      content: '',
-      selectedText: '',
-      selectionRange: null,
-      anchorPosition: 0,
-      aiAssistPreload: null,
-      pendingEditSelection: null,
-      aiPendingEdit: null,
     }),
-  currentFilePath: null,
-  setCurrentFilePath: (currentFilePath) => set({ currentFilePath }),
+  currentFilePath: getStoredCurrentFilePath(),
+  setCurrentFilePath: (currentFilePath) => {
+    try {
+      if (currentFilePath) {
+        localStorage.setItem('margin-current-file-path', currentFilePath)
+      } else {
+        localStorage.removeItem('margin-current-file-path')
+      }
+    } catch { /* ignore */ }
+    set({ currentFilePath })
+  },
   updateFileContent: (path, content) =>
     set((state) => ({
       openedFiles: state.openedFiles.map((f) =>
@@ -125,8 +186,17 @@ export const useEditorStore = create<EditorState>((set) => ({
         f.path === path ? { ...f, originalContent: f.content } : f
       ),
     })),
-  aiPendingEdit: null,
-  setAiPendingEdit: (aiPendingEdit) => set({ aiPendingEdit }),
+  aiPendingEdit: getStoredAiPendingEdit(),
+  setAiPendingEdit: (aiPendingEdit) => {
+    try {
+      if (aiPendingEdit) {
+        localStorage.setItem('margin-pending-edit', JSON.stringify(aiPendingEdit))
+      } else {
+        localStorage.removeItem('margin-pending-edit')
+      }
+    } catch { /* ignore */ }
+    set({ aiPendingEdit })
+  },
   activeModel: null,
   setActiveModel: (activeModel) => set({ activeModel }),
 }))

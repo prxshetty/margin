@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { FolderPlus, FileText, Loader, Check, Plus, Trash2, Pencil } from 'lucide-react'
-import { useEditorStore, type FileEntry } from '../stores/editorStore'
+import { FolderPlus, FileText, Loader, Check, Plus, Trash2, Pencil, FolderSync } from 'lucide-react'
+import { useEditorStore, type FileEntry, type FileGitStatus } from '../stores/editorStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { API_BASE } from '../lib/api'
+import { refreshWorkspaceStatus } from '../lib/workspaceStatus'
 
 interface FolderNode {
   type: 'folder'
@@ -113,7 +114,7 @@ export function FileSidebar({
     setContent, clearFiles,
   } = useEditorStore()
 
-  const { settings } = useSettingsStore()
+  const { settings, setShowSettings } = useSettingsStore()
 
   const [loading, setLoading] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -199,6 +200,32 @@ export function FileSidebar({
         for (const file of files) {
           addFile({ name: file.name, path: file.path, content: '', originalContent: '' })
         }
+
+        const savedPath = localStorage.getItem('margin-current-file-path')
+        if (savedPath && files.some((f: { path: string }) => f.path === savedPath)) {
+          try {
+            const fileRes = await fetch(`${API_BASE}/api/workspace/files/${encodeURIComponent(savedPath)}`)
+            if (fileRes.ok && active) {
+              const data = await fileRes.json()
+              const store = useEditorStore.getState()
+              const pending = store.aiPendingEdit
+              const isMatch = pending && pending.filePath === savedPath && pending.editorContent
+              const contentToLoad = isMatch ? pending.editorContent! : data.content
+              const originalContentToSet = isMatch ? (pending.previousContent ?? data.content) : data.content
+              
+              store.setContent(contentToLoad)
+              store.setCurrentFilePath(savedPath)
+              useEditorStore.setState((state) => ({
+                openedFiles: state.openedFiles.map((f) =>
+                  f.path === savedPath ? { ...f, content: contentToLoad, originalContent: originalContentToSet } : f
+                ),
+              }))
+            }
+          } catch (err) {
+            console.error('Failed to restore saved file content', err)
+          }
+        }
+        await refreshWorkspaceStatus()
       } catch {
         // skip
       }
@@ -216,7 +243,7 @@ export function FileSidebar({
 
   const handleFileClick = useCallback(async (path: string) => {
     const store = useEditorStore.getState()
-    if (store.aiPendingEdit && store.currentFilePath) {
+    if (store.aiPendingEdit && store.currentFilePath && store.currentFilePath !== path) {
       const previous = store.aiPendingEdit.previousContent
       store.editor?.commands.clearAiHighlight()
       store.setContent(previous)
@@ -274,6 +301,7 @@ export function FileSidebar({
       addFile({ name: data.name, path: data.path, content: data.content, originalContent: data.content })
       setContent(data.content)
       setCurrentFilePath(data.path)
+      refreshWorkspaceStatus()
     } catch (err) {
       window.alert(`Failed to create file: ${err instanceof Error ? err.message : 'Unknown error'}`)
     }
@@ -299,6 +327,7 @@ export function FileSidebar({
       }
       const data = await res.json()
       addFile({ name: data.name, path: data.path, content: data.content, originalContent: data.content })
+      refreshWorkspaceStatus()
     } catch (err) {
       window.alert(`Failed to create folder: ${err instanceof Error ? err.message : 'Unknown error'}`)
     }
@@ -323,6 +352,7 @@ export function FileSidebar({
         setContent('')
         setCurrentFilePath(null)
       }
+      refreshWorkspaceStatus()
     } catch (err) {
       window.alert(`Failed to delete file: ${err instanceof Error ? err.message : 'Unknown error'}`)
     }
@@ -356,6 +386,7 @@ export function FileSidebar({
           setCurrentFilePath(data.path)
         }
       }
+      refreshWorkspaceStatus()
     } catch (err) {
       window.alert(`Failed to rename: ${err instanceof Error ? err.message : 'Unknown error'}`)
     }
@@ -369,13 +400,22 @@ export function FileSidebar({
       {/* Low-profile action row inside FileSidebar */}
       <div className="flex items-center gap-1.5 pb-2.5 border-b border-[var(--border-sidebar)] shrink-0 select-none animate-fade-in">
         {workspaceDir && (
-          <button
-            onClick={handleCreateFolder}
-            className="flex items-center justify-center w-7 h-7 text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 bg-[var(--bg-icon)]/20 rounded-[6px] transition-all cursor-pointer active:scale-[0.95]"
-            title="New Folder"
-          >
-            <FolderPlus className="w-3.5 h-3.5" strokeWidth={1.75} />
-          </button>
+          <>
+            <button
+              onClick={handleCreateFolder}
+              className="flex items-center justify-center w-7 h-7 text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 bg-[var(--bg-icon)]/20 rounded-[6px] transition-all cursor-pointer active:scale-[0.95]"
+              title="New Folder"
+            >
+              <FolderPlus className="w-3.5 h-3.5" strokeWidth={1.75} />
+            </button>
+            <button
+              onClick={() => setShowSettings(true)}
+              className="flex items-center justify-center w-7 h-7 text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 bg-[var(--bg-icon)]/20 rounded-[6px] transition-all cursor-pointer active:scale-[0.95]"
+              title="Switch Workspace / Workspace Settings"
+            >
+              <FolderSync className="w-3.5 h-3.5" strokeWidth={1.75} />
+            </button>
+          </>
         )}
         <div className="flex-1" />
         <div className="relative shrink-0" ref={dropdownRef}>
@@ -477,12 +517,14 @@ function FolderRow({
   name,
   depth,
   isExpanded,
+  hasModified,
   onToggle,
   onAddFile
 }: {
   name: string
   depth: number
   isExpanded: boolean
+  hasModified?: boolean
   onToggle: () => void
   onAddFile: () => void
 }) {
@@ -506,6 +548,9 @@ function FolderRow({
           <path d="m9 18 6-6-6-6" />
         </svg>
         <span className="truncate select-none">{name}/</span>
+        {!isExpanded && hasModified && (
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-600 dark:bg-amber-400 shrink-0 ml-1" title="Contains modified files" />
+        )}
       </div>
       <button
         onClick={(e) => {
@@ -540,6 +585,12 @@ function TreeNodeComponent({
   handleDeleteFile: (path: string) => void
   handleRenameFile: (path: string) => void
 }) {
+  const currentFilePath = useEditorStore((s) => s.currentFilePath)
+  const isGitWorkspace = useEditorStore((s) => s.isGitWorkspace)
+  const fileStatusMap = useEditorStore((s) => s.fileStatusMap)
+  const diffBaseContent = useEditorStore((s) => s.diffBaseContent)
+  const hasDiffChanges = useEditorStore((s) => s.hasDiffChanges)
+
   if (node.type === 'file') {
     return (
       <FileRow
@@ -554,12 +605,47 @@ function TreeNodeComponent({
 
   const isExpanded = expandedFolders.has(node.path)
 
+  const hasModifiedChildren = useMemo(() => {
+    if (isExpanded) return false
+    const checkNode = (n: TreeNode): boolean => {
+      if (n.type === 'file') {
+        let st = fileStatusMap[n.file.path] || 'clean'
+        const isCurrent = currentFilePath === n.file.path
+        if (isCurrent && diffBaseContent !== null) {
+          if (!hasDiffChanges) {
+            if (!isGitWorkspace || st === 'unstaged_modified') {
+              st = 'clean'
+            } else if (st === 'staged_modified') {
+              st = 'staged'
+            }
+          } else {
+            st = !isGitWorkspace
+              ? 'unstaged_modified'
+              : (st === 'staged' || st === 'staged_modified' ? 'staged_modified' : 'unstaged_modified')
+          }
+        } else {
+          const isDirty = Boolean(n.file.content && n.file.originalContent && n.file.content !== n.file.originalContent)
+          if (isDirty) {
+            st = st === 'staged' ? 'staged_modified' : 'unstaged_modified'
+          }
+        }
+        if (!isGitWorkspace && (st === 'staged' || st === 'staged_modified')) {
+          st = 'unstaged_modified'
+        }
+        return st !== 'clean'
+      }
+      return n.children.some(checkNode)
+    }
+    return node.children.some(checkNode)
+  }, [isExpanded, node, fileStatusMap, currentFilePath, diffBaseContent, hasDiffChanges, isGitWorkspace])
+
   return (
     <div>
       <FolderRow
         name={node.name}
         depth={depth}
         isExpanded={isExpanded}
+        hasModified={hasModifiedChildren}
         onToggle={() => toggleFolder(node.path)}
         onAddFile={() => handleCreateFile(node.path)}
       />
@@ -605,24 +691,121 @@ function FileRow({
   onDelete?: (path: string) => void
   onRename?: (path: string) => void
 }) {
-  const isActive = useEditorStore((s) => s.currentFilePath === file.path)
+  const currentFilePath = useEditorStore((s) => s.currentFilePath)
+  const isActive = currentFilePath === file.path
+  const isGitWorkspace = useEditorStore((s) => s.isGitWorkspace)
+  const fileStatusMap = useEditorStore((s) => s.fileStatusMap)
+  const diffBaseContent = useEditorStore((s) => s.diffBaseContent)
+  const hasDiffChanges = useEditorStore((s) => s.hasDiffChanges)
+
+  // Real-time status: compute if modified in memory or backend status
+  let status: FileGitStatus = fileStatusMap[file.path] || 'clean'
+
+  if (isActive && diffBaseContent !== null) {
+    if (!hasDiffChanges) {
+      if (!isGitWorkspace || status === 'unstaged_modified') {
+        status = 'clean'
+      } else if (status === 'staged_modified') {
+        status = 'staged'
+      }
+    } else {
+      if (!isGitWorkspace) {
+        status = 'unstaged_modified'
+      } else if (status === 'staged' || status === 'staged_modified') {
+        status = 'staged_modified'
+      } else if (status === 'clean') {
+        status = 'unstaged_modified'
+      }
+    }
+  } else {
+    const isDirtyInMemory = Boolean(file.content && file.originalContent && file.content !== file.originalContent)
+    if (isDirtyInMemory) {
+      if (status === 'staged') {
+        status = 'staged_modified'
+      } else if (status === 'clean') {
+        status = 'unstaged_modified'
+      }
+    }
+  }
+
+  // If outside git, any modified state is represented the same as unstaged/modified
+  if (!isGitWorkspace && (status === 'staged' || status === 'staged_modified')) {
+    status = 'unstaged_modified'
+  }
+
+  // Visual styling for file name and status indicator badge
+  let textClass = ''
+  let iconClass = ''
+  let statusBadge = null
+
+  if (status === 'unstaged_modified') {
+    textClass = isActive
+      ? 'text-amber-800 dark:text-amber-300 font-semibold'
+      : 'text-amber-700 dark:text-amber-400 group-hover:text-amber-800 dark:group-hover:text-amber-300 font-medium'
+    iconClass = 'text-amber-600 dark:text-amber-400'
+    statusBadge = (
+      <span
+        className="shrink-0 text-[9px] font-mono font-bold px-1 py-0.5 rounded leading-none bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/25 select-none"
+        title={isGitWorkspace ? 'Modified (unstaged)' : 'Modified'}
+      >
+        M
+      </span>
+    )
+  } else if (status === 'staged') {
+    textClass = isActive
+      ? 'text-emerald-800 dark:text-emerald-300 font-semibold'
+      : 'text-emerald-700 dark:text-emerald-400 group-hover:text-emerald-800 dark:group-hover:text-emerald-300 font-medium'
+    iconClass = 'text-emerald-600 dark:text-emerald-400'
+    statusBadge = (
+      <span
+        className="shrink-0 text-[9px] font-mono font-bold px-1 py-0.5 rounded leading-none bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-500/25 select-none"
+        title="Staged"
+      >
+        S
+      </span>
+    )
+  } else if (status === 'staged_modified') {
+    textClass = isActive
+      ? 'text-amber-800 dark:text-amber-300 font-semibold'
+      : 'text-amber-700 dark:text-amber-400 group-hover:text-amber-800 dark:group-hover:text-amber-300 font-medium'
+    iconClass = 'text-amber-600 dark:text-amber-400'
+    statusBadge = (
+      <span
+        className="shrink-0 text-[9px] font-mono font-bold px-1 py-0.5 rounded leading-none bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/25 flex items-center gap-0.5 select-none"
+        title="Staged & Modified (unstaged changes present)"
+      >
+        <span className="text-emerald-700 dark:text-emerald-300 font-bold">S</span>
+        <span className="text-[8px] opacity-60">/</span>
+        <span>M</span>
+      </span>
+    )
+  } else {
+    textClass = isActive
+      ? 'text-[var(--text)] font-semibold'
+      : 'text-[var(--text-secondary)] group-hover:text-[var(--text)] font-medium'
+    iconClass = isActive ? 'text-[var(--text)]' : 'text-[var(--text-secondary)]/60'
+  }
 
   return (
     <div
       onClick={() => onSelect(file.path)}
       style={{ paddingLeft: `${depth * 12 + 20}px` }}
-      className={`group flex items-center gap-1 pr-2.5 py-2 rounded-[6px] text-xs transition-colors duration-150 cursor-pointer ${isActive
-        ? 'bg-[var(--border-sidebar)]/40 text-[var(--text)]'
-        : 'text-[var(--text-secondary)] hover:bg-[var(--border-sidebar)]/30 hover:text-[var(--text)]'
-        }`}
+      className={`group flex items-center gap-1 pr-2.5 py-1.5 rounded-[6px] text-xs transition-colors duration-150 cursor-pointer ${
+        isActive
+          ? 'bg-[var(--border-sidebar)]/50 text-[var(--text)]'
+          : 'hover:bg-[var(--border-sidebar)]/30'
+      }`}
     >
       <div
         className="flex items-center gap-1.5 flex-1 min-w-0 text-left"
         title={file.path}
       >
-        <FileIcon className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-[var(--text)]' : 'text-[var(--text-secondary)]/60'}`} />
-        <span className="truncate font-sans font-medium">{file.name}</span>
+        <FileIcon className={`w-3.5 h-3.5 shrink-0 transition-colors ${iconClass}`} />
+        <span className={`truncate font-sans ${textClass}`}>{file.name}</span>
       </div>
+
+      {statusBadge}
+
       {onRename && (
         <button
           onClick={(e) => {
@@ -630,7 +813,7 @@ function FileRow({
             onRename(file.path)
           }}
           title={`Rename ${file.name}`}
-          className="flex items-center justify-center w-5 h-5 text-[var(--text-secondary)]/60 hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 rounded-[4px] transition-all cursor-pointer active:scale-[0.9] opacity-0 group-hover:opacity-100"
+          className="flex items-center justify-center w-5 h-5 text-[var(--text-secondary)]/60 hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 rounded-[4px] transition-all cursor-pointer active:scale-[0.9] opacity-0 group-hover:opacity-100 shrink-0"
         >
           <Pencil className="w-3 h-3" strokeWidth={2} />
         </button>
@@ -642,7 +825,7 @@ function FileRow({
             onDelete(file.path)
           }}
           title={`Delete ${file.name}`}
-          className="flex items-center justify-center w-5 h-5 text-[var(--text-secondary)]/60 hover:text-red-500 hover:bg-[var(--border-sidebar)]/60 rounded-[4px] transition-all cursor-pointer active:scale-[0.9] opacity-0 group-hover:opacity-100"
+          className="flex items-center justify-center w-5 h-5 text-[var(--text-secondary)]/60 hover:text-red-500 hover:bg-[var(--border-sidebar)]/60 rounded-[4px] transition-all cursor-pointer active:scale-[0.9] opacity-0 group-hover:opacity-100 shrink-0"
         >
           <Trash2 className="w-3 h-3" strokeWidth={2} />
         </button>
