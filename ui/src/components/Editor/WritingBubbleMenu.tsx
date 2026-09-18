@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { BubbleMenu } from '@tiptap/react/menus'
 import type { Editor } from '@tiptap/core'
 import { NodeSelection } from '@tiptap/pm/state'
-import { ChevronDown, Check, TextIcon, Heading1, Heading2, Heading3, Link as LinkIcon, Ellipsis, ChevronsUpDown } from 'lucide-react'
+import { ChevronDown, Check, TextIcon, Heading1, Heading2, Heading3, ChevronsUpDown } from 'lucide-react'
 import { useEditorStore } from '../../stores/editorStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { toast } from '../../stores/toastStore'
@@ -11,7 +11,7 @@ import { streamSSE } from '../../lib/stream-sse'
 import { applyHarnessResult } from '../../lib/applyHarnessResult'
 import { generateImage, insertStoredImageAt } from '../../lib/media'
 import { imageStyleOptions } from './ImageGenerateDialog'
-import { CueIcon, RewriteIcon, ImagineIcon } from './brandIcons'
+import { CueIcon, RewriteIcon, ImagineIcon, LinkIcon } from './brandIcons'
 
 // ─── Node selector (paragraph / heading) ─────────────────────────────────────
 const NODE_ITEMS = [
@@ -70,7 +70,7 @@ function NodeSelector({ editor }: { editor: Editor }) {
             <button
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => setOpen((v) => !v)}
-                className="flex items-center h-6 gap-1 px-2 py-1 text-[11px] font-medium text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--bg-hover)] rounded-[5px] transition-colors cursor-pointer"
+                className="flex items-center h-6 gap-1 px-2 text-[11px] font-medium text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--bg-hover)] rounded-[5px] transition-colors cursor-pointer"
             >
                 <span className="whitespace-nowrap">{activeItem.name}</span>
                 <ChevronDown className={`w-3 h-3 opacity-60 transition-transform duration-100 ${open ? 'rotate-180' : ''}`} />
@@ -103,8 +103,7 @@ function NodeSelector({ editor }: { editor: Editor }) {
 }
 
 // ─── Formatting buttons ───────────────────────────────────────────────────────
-// Primary row: bold / italic / underline only. Strikethrough and code live in
-// the overflow menu so the bar stays minimal.
+// Full primary row: bold / italic / underline / strikethrough / code.
 const FORMAT_ITEMS = [
     {
         name: 'bold',
@@ -130,21 +129,20 @@ const FORMAT_ITEMS = [
         className: 'underline underline-offset-2',
         title: 'Underline',
     },
-]
-
-const OVERFLOW_ITEMS = [
     {
         name: 'strike',
-        label: 'Strikethrough',
+        label: 'S',
         command: (e: Editor) => e.chain().focus().toggleStrike().run(),
         isActive: (e: Editor) => e.isActive('strike'),
+        className: 'line-through',
         title: 'Strikethrough',
     },
     {
         name: 'code',
-        label: 'Code',
+        label: '<>',
         command: (e: Editor) => e.chain().focus().toggleCode().run(),
         isActive: (e: Editor) => e.isActive('code'),
+        className: 'font-mono text-[10.5px]',
         title: 'Inline code',
     },
 ]
@@ -157,7 +155,7 @@ function FormatButtons({ editor }: { editor: Editor }) {
                     key={item.name}
                     title={item.title}
                     onMouseDown={(e) => { e.preventDefault(); item.command(editor) }}
-                    className={`flex items-center justify-center h-6 px-2 py-1 text-[11.5px] rounded-[5px] cursor-pointer transition-colors ${item.isActive(editor)
+                    className={`flex items-center justify-center h-6 px-2 text-[11.5px] rounded-[5px] cursor-pointer transition-colors ${item.isActive(editor)
                         ? 'text-[var(--accent-brown)] bg-[var(--bg-hover)]'
                         : 'text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--bg-hover)]'
                         } ${item.className}`}
@@ -165,57 +163,6 @@ function FormatButtons({ editor }: { editor: Editor }) {
                     {item.label}
                 </button>
             ))}
-        </div>
-    )
-}
-
-function OverflowMenu({ editor }: { editor: Editor }) {
-    const [open, setOpen] = useState(false)
-    const wrapperRef = useRef<HTMLDivElement>(null)
-
-    useEffect(() => {
-        if (!open) return
-        const handler = (e: MouseEvent) => {
-            if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
-                setOpen(false)
-            }
-        }
-        document.addEventListener('mousedown', handler)
-        return () => document.removeEventListener('mousedown', handler)
-    }, [open])
-
-    return (
-        <div ref={wrapperRef} className="relative">
-            <button
-                title="More formatting"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => setOpen((v) => !v)}
-                className="flex items-center justify-center w-6 h-6 text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--bg-hover)] rounded-[5px] transition-colors cursor-pointer"
-            >
-                <Ellipsis className="w-3.5 h-3.5" />
-            </button>
-            {open && (
-                <div className="absolute top-full left-0 mt-1 w-36 bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-[8px] shadow-lg z-[10000] p-1">
-                    {OVERFLOW_ITEMS.map((item) => (
-                        <button
-                            key={item.name}
-                            title={item.title}
-                            onMouseDown={(e) => {
-                                e.preventDefault()
-                                item.command(editor)
-                                setOpen(false)
-                            }}
-                            className={`flex items-center justify-between w-full px-2 py-1.5 text-[11.5px] rounded-[5px] cursor-pointer transition-colors ${item.isActive(editor)
-                                ? 'text-[var(--accent-brown)] bg-[var(--bg-hover)]'
-                                : 'text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--bg-hover)]'
-                                }`}
-                        >
-                            <span>{item.label}</span>
-                            {item.isActive(editor) && <Check className="w-3 h-3 text-[var(--accent-brown)]" />}
-                        </button>
-                    ))}
-                </div>
-            )}
         </div>
     )
 }
@@ -230,6 +177,9 @@ const SURFACE_CLASS = `
     rounded-[8px] shadow-[0_2px_8px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)]
 `
 const PILL_CLASS = `flex items-center gap-0.5 px-1.5 py-1 ${SURFACE_CLASS}`
+// The AI pill holds wide icon+label buttons, so it trims its own outer
+// padding — otherwise Cue (left) and Imagine (right) sit visibly inset.
+const AI_PILL_CLASS = `flex items-center gap-0.5 px-1 py-1 ${SURFACE_CLASS}`
 const EXPANDED_CLASS = `flex flex-col items-stretch gap-1.5 w-[320px] p-2 ${SURFACE_CLASS}`
 const FIELD_TEXT_CLASS = `
     bg-transparent text-[11.5px] leading-relaxed text-[var(--text-heading)]
@@ -262,7 +212,7 @@ function SendArrow({ title, disabled, dimmed, onSend }: {
             title={title}
             className="flex items-center justify-center w-6 h-6 text-[var(--accent-brown)] hover:text-[var(--accent-brown-hover)] hover:bg-[var(--bg-hover)] rounded-[5px] transition-colors cursor-pointer shrink-0 disabled:opacity-40"
         >
-            <svg xmlns="http://www.w3.org/2000/svg" className={`w-3.5 h-3.5 ${dimmed ? 'opacity-30' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <svg xmlns="http://www.w3.org/2000/svg" className={`w-3.5 h-3.5 ${dimmed ? 'opacity-30' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M5 12h14M12 5l7 7-7 7" />
             </svg>
         </button>
@@ -275,26 +225,45 @@ function StylePill({ value, onChange, disabled, options }: {
     disabled?: boolean
     options: string[]
 }) {
+    // appearance-none hides the native arrow (which sizes to the longest
+    // option and leaves a dead gap after short names) — the pinned chevron
+    // keeps a tight, consistent text→chevron spacing instead.
     return (
-        <select
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            disabled={disabled}
-            title="Style"
-            aria-label="Image style"
-            onMouseDown={(e) => e.stopPropagation()}
-            className="shrink-0 max-w-[120px] truncate px-1.5 py-0.5 text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-heading)] bg-transparent hover:bg-[var(--bg-hover)] rounded-full outline-none cursor-pointer disabled:opacity-60"
-        >
-            {options.map((n) => (
-                <option key={n} value={n}>{n}</option>
-            ))}
-        </select>
+        <span className="relative flex items-center shrink-0">
+            <select
+                value={value}
+                onChange={(e) => onChange(e.target.value)}
+                disabled={disabled}
+                title="Style"
+                aria-label="Image style"
+                onMouseDown={(e) => e.stopPropagation()}
+                className="shrink-0 max-w-[120px] truncate pl-1.5 pr-5 py-0.5 text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-heading)] bg-transparent hover:bg-[var(--bg-hover)] rounded-[5px] outline-none cursor-pointer disabled:opacity-60 appearance-none"
+            >
+                {options.map((n) => (
+                    <option key={n} value={n}>{n}</option>
+                ))}
+            </select>
+            <ChevronDown className="absolute right-1 w-3 h-3 opacity-60 pointer-events-none" />
+        </span>
     )
 }
 
+// ─── Bubble positioning ───────────────────────────────────────────────────────
+// Horizontal, centered on the selection. shift/flip clamp it inside the
+// editor/card bounds (edge/first-line selections) without hard-aligning to
+// the paragraph margin. Stable reference so the plugin isn't reconfigured
+// on every render.
+const BUBBLE_OPTIONS = {
+    placement: 'top',
+    offset: 8,
+    flip: { padding: 16 },
+    shift: { padding: 16, crossAxis: true },
+    inline: {},
+} as const
+
 // ─── Main bubble ──────────────────────────────────────────────────────────────
 // Editor-first, two conceptual groups:
-//   Formatting: Paragraph ▾  B  I  U  link  •••
+//   Formatting: Paragraph ▾  B  I  U  S  code  link
 //   AI:         Cue  Rewrite  Imagine
 export function WritingBubbleMenu() {
     const { editor, selectedText, selectionRange, setPendingEditSelection, content } =
@@ -302,6 +271,10 @@ export function WritingBubbleMenu() {
     const harness = useSettingsStore((s) => s.settings?.default_harness) || 'none'
 
     const [mode, setMode] = useState<'default' | 'rewrite' | 'link' | 'imagine'>('default')
+    // Which AI entry opened the input — drives the expressive morph origin
+    // (Rewrite sits mid-pill, Imagine rightmost) so the input feels like it
+    // grows out of the clicked button.
+    const [origin, setOrigin] = useState<'rewrite' | 'imagine' | 'link' | null>(null)
     const [instruction, setInstruction] = useState('')
     const [linkUrl, setLinkUrl] = useState('')
     const [isStreaming, setIsStreaming] = useState(false)
@@ -341,6 +314,7 @@ export function WritingBubbleMenu() {
     // ── Enter rewrite mode ────────────────────────────────────────────────────
     const handleRewriteClick = useCallback(() => {
         setMode('rewrite')
+        setOrigin('rewrite')
         setInstruction('')
         setExpanded(false)
         sessionRangeRef.current = selectionRange ? { ...selectionRange } : null
@@ -352,6 +326,7 @@ export function WritingBubbleMenu() {
         if (!editor) return
         const prev = editor.getAttributes('link').href as string | undefined
         setMode('link')
+        setOrigin('link')
         setLinkUrl(prev ?? '')
         sessionRangeRef.current = selectionRange ? { ...selectionRange } : null
         setTimeout(() => inputRef.current?.focus(), 30)
@@ -370,6 +345,7 @@ export function WritingBubbleMenu() {
         setImagineAnchor(selectionRange.to)
         setExpanded(false)
         setMode('imagine')
+        setOrigin('imagine')
         sessionRangeRef.current = { ...selectionRange }
         setTimeout(() => inputRef.current?.focus(), 30)
     }, [selectedText, selectionRange, imagineOptions, imageDefaultStyle])
@@ -377,6 +353,7 @@ export function WritingBubbleMenu() {
     // ── Cancel input mode ─────────────────────────────────────────────────────
     const handleCancel = useCallback(() => {
         setMode('default')
+        setOrigin(null)
         setInstruction('')
         setLinkUrl('')
         setImaginePrompt('')
@@ -384,6 +361,15 @@ export function WritingBubbleMenu() {
         setExpanded(false)
         sessionRangeRef.current = null
     }, [])
+
+    // Second-slot morph recenters: the BubbleMenu plugin positions on editor
+    // updates, not on its own size changes, so nudge it on the next frame —
+    // inside the fade, so the correction is invisible. Expanded height
+    // changes stay anchored (as before) to avoid a delayed jump.
+    useEffect(() => {
+        const raf = requestAnimationFrame(() => window.dispatchEvent(new Event('resize')))
+        return () => cancelAnimationFrame(raf)
+    }, [mode])
 
     // An input session belongs to the selection it was opened for. If the
     // selection is cleared or moves elsewhere (user clicked away and
@@ -395,6 +381,7 @@ export function WritingBubbleMenu() {
         const cur = selectionRange
         if (!cur || !active || cur.from !== active.from || cur.to !== active.to) {
             setMode('default')
+            setOrigin(null)
             setInstruction('')
             setLinkUrl('')
             setImaginePrompt('')
@@ -456,6 +443,7 @@ export function WritingBubbleMenu() {
             editor.setEditable(true)
             setIsStreaming(false)
             setMode('default')
+            setOrigin(null)
             setInstruction('')
             setExpanded(false)
             sessionRangeRef.current = null
@@ -484,6 +472,7 @@ export function WritingBubbleMenu() {
             // cuts, newlines, Markdown-significant chars) into the image markup.
             insertStoredImageAt(editor, imagineAnchor, path, 'generated image')
             setMode('default')
+            setOrigin(null)
             setImaginePrompt('')
             setImagineAnchor(null)
             setExpanded(false)
@@ -513,6 +502,7 @@ export function WritingBubbleMenu() {
             editor.chain().focus().unsetLink().run()
         }
         setMode('default')
+        setOrigin(null)
         setLinkUrl('')
         sessionRangeRef.current = null
     }, [editor, linkUrl])
@@ -531,12 +521,28 @@ export function WritingBubbleMenu() {
 
     if (!editor) return null
 
+    // Expressive morph origin: the input grows out of the entry button that
+    // opened it (Link left, Rewrite mid, Imagine right), anchored to the
+    // selection edge below. Returning to default re-centers.
+    const morphOriginClass =
+        origin === 'imagine'
+            ? 'bubble-morph-origin-imagine'
+            : origin === 'rewrite'
+                ? 'bubble-morph-origin-rewrite'
+                : origin === 'link'
+                    ? 'bubble-morph-origin-link'
+                    : ''
+
     return (
         <BubbleMenu
             editor={editor}
             // updateDelay=0 makes the bubble appear instantly on selection,
             // eliminating the "drag from left" positioning artifact
             updateDelay={0}
+            // Selection-relative, boundary-aware: centered horizontally,
+            // clamped inside the editor/card (shift), flipped below when
+            // there is no headroom. Layout itself stays horizontal.
+            options={BUBBLE_OPTIONS}
             // Image nodes have their own selected-state chrome (caption +
             // source line in MarginImage) — the text/AI bubble is meaningless
             // on a NodeSelection and would cover the image.
@@ -546,16 +552,14 @@ export function WritingBubbleMenu() {
             }}
             className="relative flex items-start gap-2 overflow-visible"
         >
-            {(isStreaming || imagineBusy) && (
-                <div className="absolute inset-0 rounded-[10px] z-50 pointer-events-none">
-                    <div className="absolute inset-0 rounded-[10px] animate-spin-border" />
-                </div>
-            )}
-
-            {mode === 'default' ? (
-                // ── Default state: two pills, space-separated ────────────────
-                // Formatting bubble │ AI bubble (Cue Rewrite Imagine)
-                <>
+            {/* Formatting bubble shows in default mode only — hidden while a
+                prompt is open so users don't split attention between the two.
+                The second slot morphs: AI actions by default, prompt input in
+                rewrite / imagine / link modes. Key remounts per mode so the
+                switch crossfades; expanded toggle keeps the key so it never
+                replays. */}
+            <div className="flex items-start gap-2">
+                {mode === 'default' && (
                     <div className={PILL_CLASS}>
                         <NodeSelector editor={editor} />
                         <FormatButtons editor={editor} />
@@ -571,17 +575,24 @@ export function WritingBubbleMenu() {
                         >
                             <LinkIcon className="w-3.5 h-3.5" />
                         </button>
-
-                        <OverflowMenu editor={editor} />
                     </div>
+                )}
 
-                    <div className={PILL_CLASS}>
+                <div key={mode} className={`relative flex items-start bubble-morph-in ${morphOriginClass}`}>
+                {(isStreaming || imagineBusy) && (
+                    <div className="absolute inset-0 rounded-[8px] z-50 pointer-events-none">
+                        <div className="absolute inset-0 rounded-[8px] animate-spin-border" />
+                    </div>
+                )}
+                {mode === 'default' ? (
+                    // ── Second bubble: AI actions (Cue Rewrite Imagine) ──────
+                    <div className={AI_PILL_CLASS}>
                         {/* Cue — hand the selection to the AI */}
                         <button
                             onMouseDown={(e) => { e.preventDefault(); handleCue() }}
-                            className="flex items-center gap-1.5 h-6 px-2 py-1 text-[11.5px] font-medium text-[var(--text-secondary)] hover:text-[var(--accent-brown)] hover:bg-[var(--bg-hover)] rounded-[5px] transition-colors cursor-pointer leading-none whitespace-nowrap"
+                            className="flex items-center gap-1.5 h-6 px-1.5 text-[11.5px] font-medium text-[var(--text-secondary)] hover:text-[var(--accent-brown)] hover:bg-[var(--bg-hover)] rounded-[5px] transition-colors cursor-pointer leading-none whitespace-nowrap"
                         >
-                            <span className="flex items-center justify-center w-4 h-4 shrink-0"><CueIcon /></span>
+                            <span className="flex items-center justify-center w-4 h-4 shrink-0"><CueIcon className="w-3.5 h-3.5" /></span>
                             <span>Cue</span>
                         </button>
 
@@ -590,9 +601,9 @@ export function WritingBubbleMenu() {
                         {/* Rewrite */}
                         <button
                             onMouseDown={(e) => { e.preventDefault(); handleRewriteClick() }}
-                            className="flex items-center gap-1.5 h-6 px-2 py-1 text-[11.5px] font-medium text-[var(--text-secondary)] hover:text-[var(--accent-brown)] hover:bg-[var(--bg-hover)] rounded-[5px] transition-colors cursor-pointer leading-none whitespace-nowrap"
+                            className="flex items-center gap-1.5 h-6 px-1.5 text-[11.5px] font-medium text-[var(--text-secondary)] hover:text-[var(--accent-brown)] hover:bg-[var(--bg-hover)] rounded-[5px] transition-colors cursor-pointer leading-none whitespace-nowrap"
                         >
-                            <span className="flex items-center justify-center w-4 h-4 shrink-0"><RewriteIcon /></span>
+                            <span className="flex items-center justify-center w-4 h-4 shrink-0"><RewriteIcon className="w-3 h-3" /></span>
                             <span>Rewrite</span>
                         </button>
 
@@ -601,17 +612,16 @@ export function WritingBubbleMenu() {
                         {/* Imagine — selection becomes the starting material */}
                         <button
                             onMouseDown={(e) => { e.preventDefault(); handleImagineClick() }}
-                            className="flex items-center gap-1.5 h-6 px-2 py-1 text-[11.5px] font-medium text-[var(--text-secondary)] hover:text-[var(--accent-brown)] hover:bg-[var(--bg-hover)] rounded-[5px] transition-colors cursor-pointer leading-none whitespace-nowrap"
+                            className="flex items-center gap-1.5 h-6 px-1.5 text-[11.5px] font-medium text-[var(--text-secondary)] hover:text-[var(--accent-brown)] hover:bg-[var(--bg-hover)] rounded-[5px] transition-colors cursor-pointer leading-none whitespace-nowrap"
                         >
-                            <span className="flex items-center justify-center w-4 h-4 shrink-0"><ImagineIcon /></span>
+                            <span className="flex items-center justify-center w-4 h-4 shrink-0"><ImagineIcon className="w-3.5 h-3.5" /></span>
                             <span>Imagine</span>
                         </button>
                     </div>
-                </>
-            ) : mode === 'rewrite' ? (
+                ) : mode === 'rewrite' ? (
                 // ── Rewrite input state ────────────────────────────────────────
                 // Collapsed: single row. Expanded: prompt stacks on top with
-                // a quiet footer (hint left, expand + send right).
+                // a quiet right-aligned footer (expand + send).
                 expanded ? (
                     <div className={EXPANDED_CLASS}>
                         <textarea
@@ -624,12 +634,9 @@ export function WritingBubbleMenu() {
                             placeholder={isStreaming ? 'Rewriting…' : 'Describe changes'}
                             className={`${FIELD_TEXT_CLASS} w-full resize-none`}
                         />
-                        <div className="flex items-center justify-between">
-                            <span className="px-1 text-[10.5px] text-[var(--text-muted)]">⌘↵ to send · esc to cancel</span>
-                            <div className="flex items-center gap-0.5">
-                                <ExpandToggle expanded={expanded} onToggle={handleExpandToggle} />
-                                <SendArrow title="Apply rewrite" disabled={isStreaming} dimmed={isStreaming} onSend={() => void handleRewriteSubmit()} />
-                            </div>
+                        <div className="flex items-center justify-end gap-0.5">
+                            <ExpandToggle expanded={expanded} onToggle={handleExpandToggle} />
+                            <SendArrow title="Apply rewrite" disabled={isStreaming} dimmed={isStreaming} onSend={() => void handleRewriteSubmit()} />
                         </div>
                     </div>
                 ) : (
@@ -650,9 +657,10 @@ export function WritingBubbleMenu() {
                 )
             ) : mode === 'imagine' ? (
                 // ── Imagine input state ────────────────────────────────────────
-                // Same stacked structure as Rewrite. The style pill lives in
-                // the expanded footer only — collapsed is a bare prompt + send.
-                // Submit is disabled while empty; busy shows the shimmer.
+                // Same stacked structure as Rewrite: prompt on top, quiet
+                // right-aligned footer below (style + expand + send).
+                // Collapsed is a bare prompt + send. Submit is disabled while
+                // empty; busy shows the shimmer.
                 expanded ? (
                     <div className={EXPANDED_CLASS}>
                         <textarea
@@ -666,12 +674,10 @@ export function WritingBubbleMenu() {
                             spellCheck={false}
                             className={`${FIELD_TEXT_CLASS} w-full resize-none`}
                         />
-                        <div className="flex items-center justify-between">
+                        <div className="flex items-center justify-end gap-0.5">
                             <StylePill value={imagineStyle} onChange={setImagineStyle} disabled={imagineBusy} options={imagineOptions} />
-                            <div className="flex items-center gap-0.5">
-                                <ExpandToggle expanded={expanded} onToggle={handleExpandToggle} />
-                                <SendArrow title="Imagine ✦" disabled={imagineBusy || !imaginePrompt.trim()} dimmed={imagineBusy} onSend={() => void handleImagineSubmit()} />
-                            </div>
+                            <ExpandToggle expanded={expanded} onToggle={handleExpandToggle} />
+                            <SendArrow title="Imagine ✦" disabled={imagineBusy || !imaginePrompt.trim()} dimmed={imagineBusy} onSend={() => void handleImagineSubmit()} />
                         </div>
                     </div>
                 ) : (
@@ -707,6 +713,8 @@ export function WritingBubbleMenu() {
                     <SendArrow title="Apply link" onSend={handleLinkSubmit} />
                 </div>
             )}
+                </div>
+            </div>
         </BubbleMenu>
     )
 }

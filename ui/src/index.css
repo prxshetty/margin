@@ -1277,7 +1277,7 @@ body {
 .animate-spin-border {
   background: conic-gradient(
     from var(--angle),
-    transparent 75%,
+    transparent 88%,
     var(--accent-brown) 100%
   );
   animation: spin-border 3s linear infinite;
@@ -1288,6 +1288,45 @@ body {
   -webkit-mask-composite: xor;
   mask-composite: exclude;
   padding: 1px;
+}
+
+/* ── Writing bubble shrink-morph ────── */
+/* Mode switch (default ~550px ⇄ 320px input) crossfades with a slight
+   settle instead of cutting. Origin is set per entry point so Rewrite /
+   Imagine feel like they grow out of the clicked button, anchored to the
+   selection edge below. */
+@keyframes bubble-morph-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(1.04);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.bubble-morph-in {
+  animation: bubble-morph-in 170ms cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: 50% 100%;
+}
+
+.bubble-morph-origin-link {
+  transform-origin: 10% 100%;
+}
+
+.bubble-morph-origin-rewrite {
+  transform-origin: 50% 100%;
+}
+
+.bubble-morph-origin-imagine {
+  transform-origin: 85% 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bubble-morph-in {
+    animation: none;
+  }
 }
 
 
