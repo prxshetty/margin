@@ -29,6 +29,18 @@ def _posix_rel(path: Path, base: Path) -> str:
     return path.relative_to(base).as_posix()
 
 
+def _image_log_matches(entry: dict, log_id: str) -> bool:
+    if not isinstance(entry, dict):
+        return False
+    if entry.get("id") == log_id:
+        return True
+    # Legacy entries predate ids: match the timestamp+path composite.
+    if not entry.get("id"):
+        legacy = f"{entry.get('timestamp', '')}||{entry.get('path', '')}"
+        return legacy == log_id
+    return False
+
+
 # Image assets live alongside documents as first-class workspace resources:
 # Markdown stores `![alt](assets/<file> "caption")`, bytes live on disk.
 ALLOWED_IMAGE_EXTS = {"png", "jpg", "jpeg", "webp", "gif"}
@@ -512,19 +524,38 @@ class FileStorageService:
         return logs
 
     def save_image_log(self, log_entry: dict) -> None:
+        import uuid
+
         path = self._image_logs_path()
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
         except Exception:
             pass
         logs = self.get_image_logs()
-        logs.append(log_entry)
+        entry = dict(log_entry)
+        entry.setdefault("id", uuid.uuid4().hex)
+        logs.append(entry)
         logs = logs[-100:]
         try:
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(logs, f, indent=2)
         except Exception:
             pass
+
+    def delete_image_log(self, log_id: str) -> bool:
+        """Delete one image log entry by id. Entries written before ids
+        existed match on their timestamp+path composite instead."""
+        path = self._image_logs_path()
+        logs = self.get_image_logs()
+        kept = [e for e in logs if not _image_log_matches(e, log_id)]
+        if len(kept) == len(logs):
+            return False
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(kept, f, indent=2)
+        except Exception:
+            pass
+        return True
 
     def _harness_sessions_path(self):
         return self.outputs_dir / "harness_sessions.json"

@@ -3,6 +3,7 @@ import { X } from 'lucide-react'
 import { API_BASE } from '../lib/api'
 
 export interface ImageLogEntry {
+  id?: string
   timestamp?: string
   prompt?: string
   final_prompt?: string

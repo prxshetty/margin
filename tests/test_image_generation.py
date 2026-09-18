@@ -940,6 +940,59 @@ class TestImageLogs(unittest.TestCase):
         self.assertEqual(len(opened), 1)
         self.assertIn("generated", opened[0][-1])
 
+    def test_save_assigns_ids(self):
+        svc = _storage()
+        svc.save_image_log({"timestamp": "2026-01-01T00:00:00+00:00",
+                            "prompt": "x", "path": "assets/generated/x.png"})
+        logs = svc.get_image_logs()
+        self.assertEqual(len(logs), 1)
+        self.assertTrue(logs[0]["id"])
+
+    def test_delete_by_id(self):
+        svc = _storage()
+        svc.save_image_log({"timestamp": "2026-01-01T00:00:00+00:00",
+                            "prompt": "keep", "path": "assets/generated/a.png"})
+        svc.save_image_log({"timestamp": "2026-01-01T00:00:01+00:00",
+                            "prompt": "drop", "path": "assets/generated/b.png"})
+        target = svc.get_image_logs()[1]["id"]
+        self.assertTrue(svc.delete_image_log(target))
+        remaining = svc.get_image_logs()
+        self.assertEqual(len(remaining), 1)
+        self.assertEqual(remaining[0]["prompt"], "keep")
+        self.assertFalse(svc.delete_image_log(target))
+        self.assertFalse(svc.delete_image_log("nope"))
+
+    def test_delete_legacy_entry_by_composite(self):
+        svc = _storage()
+        path = svc._image_logs_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        import json as _json
+
+        with open(path, "w", encoding="utf-8") as f:
+            _json.dump([{"timestamp": "2026-01-01T00:00:00+00:00",
+                         "prompt": "legacy", "path": "assets/generated/l.png"}],
+                       f)
+        legacy_key = "2026-01-01T00:00:00+00:00||assets/generated/l.png"
+        self.assertTrue(svc.delete_image_log(legacy_key))
+        self.assertEqual(svc.get_image_logs(), [])
+
+    def test_delete_endpoint(self):
+        import api.routers.images as images_router
+
+        svc = _storage()
+        c = _client()
+        svc.save_image_log({"timestamp": "2026-01-01T00:00:00+00:00",
+                            "prompt": "x", "path": "assets/generated/x.png"})
+        log_id = svc.get_image_logs()[0]["id"]
+        with patch.object(images_router, "storage", svc):
+            r = c.delete(f"/api/images/logs/{log_id}")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertTrue(r.json()["success"])
+        self.assertEqual(svc.get_image_logs(), [])
+        with patch.object(images_router, "storage", svc):
+            r = c.delete("/api/images/logs/does-not-exist")
+        self.assertEqual(r.status_code, 404)
+
 
 if __name__ == "__main__":
     unittest.main()

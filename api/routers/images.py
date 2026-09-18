@@ -39,6 +39,13 @@ def get_image_logs():
     return {"logs": storage.get_image_logs()}
 
 
+@router.delete("/logs/{log_id}")
+def delete_image_log(log_id: str):
+    if not storage.delete_image_log(log_id):
+        raise HTTPException(status_code=404, detail="Image log entry not found")
+    return {"success": True}
+
+
 @router.post("/reveal")
 def reveal_generated_folder():
     """Open the workspace assets/generated/ folder in the OS file manager.

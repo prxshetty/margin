@@ -516,7 +516,12 @@ export function SimpleAssist() {
     }
   }
 
+  const imageLogsFetchingRef = useRef(false)
+
   const fetchImageLogs = useCallback(async () => {
+    // Dedup: rapid open/tab-switch sequences share one in-flight request.
+    if (imageLogsFetchingRef.current) return
+    imageLogsFetchingRef.current = true
     try {
       const res = await fetch(`${API_BASE}/api/images/logs`)
       if (res.ok) {
@@ -528,8 +533,32 @@ export function SimpleAssist() {
     } catch (err) {
       console.error('Failed to fetch image logs:', err)
       setImageLogs([])
+    } finally {
+      imageLogsFetchingRef.current = false
     }
   }, [])
+
+  const handleDeleteImageLog = async (e: React.MouseEvent, log: ImageLogEntry, i: number) => {
+    e.stopPropagation()
+    try {
+      const res = await fetch(
+        `${API_BASE}/api/images/logs/${encodeURIComponent(imageKey(log, i))}`,
+        { method: 'DELETE' },
+      )
+      if (!res.ok) console.warn('DELETE image log returned', res.status)
+    } catch (err) {
+      console.error('Failed to delete image log:', err)
+    }
+    // Don't leave the detail popup open on a deleted entry.
+    if (selectedImage != null) {
+      const same = selectedImage.id
+        ? selectedImage.id === log.id
+        : !log.id && selectedImage.timestamp === log.timestamp
+          && selectedImage.path === log.path
+      if (same) setSelectedImage(null)
+    }
+    await fetchImageLogs()
+  }
 
   const handleHistoryOpen = () => {
     const opening = !showHistoryDropdown
@@ -548,7 +577,8 @@ export function SimpleAssist() {
     }
   }
 
-  const imageKey = (log: ImageLogEntry, i: number) => `${log.timestamp || ''}-${log.path || i}`
+  const imageKey = (log: ImageLogEntry, i: number) =>
+    log.id || `${log.timestamp || ''}||${log.path || i}`
   const sessions = useMemo(() => {
     const map = new Map<string, { name: string; logCount: number; timestamp: string }>()
     const sessionLogs = new Map<string, SimpleLogEntry[]>()
@@ -1541,31 +1571,41 @@ export function SimpleAssist() {
                       ) : (
                         <>
                           {imageLogs.slice(0, imageLoadCount).map((log, i) => (
-                            <button
+                            <div
                               key={imageKey(log, i)}
-                              onClick={() => { setSelectedImage(log); setShowHistoryDropdown(false) }}
-                              className="w-full flex items-center gap-2 px-2 py-1.5 mx-1 mb-0.5 rounded-[4px] hover:bg-[var(--bg-hover)] transition-colors cursor-pointer text-left"
-                              style={{ width: 'calc(100% - 8px)' }}
+                              className="group flex items-center gap-1 px-2 py-1 mx-1 mb-0.5 rounded-[4px] hover:bg-[var(--bg-hover)] transition-colors"
                             >
-                              {log.path ? (
-                                <img
-                                  src={`${API_BASE}/api/workspace/media/${log.path}`}
-                                  alt=""
-                                  className="h-9 w-9 rounded-[4px] border border-[var(--border-subtle)] object-cover shrink-0"
-                                />
-                              ) : (
-                                <span className="h-9 w-9 rounded-[4px] border border-[var(--border-subtle)] bg-[var(--bg-hover)] shrink-0" />
-                              )}
-                              <span className="flex-1 min-w-0">
-                                <span className="truncate block text-[11px] text-[var(--text-secondary)] pr-1">
-                                  {(log.prompt || log.final_prompt || 'Untitled').slice(0, 60)}
+                              <button
+                                onClick={() => { setSelectedImage(log); setShowHistoryDropdown(false) }}
+                                className="flex-1 min-w-0 flex items-center gap-2 text-left cursor-pointer"
+                              >
+                                {log.path ? (
+                                  <img
+                                    src={`${API_BASE}/api/workspace/media/${log.path}`}
+                                    alt=""
+                                    className="h-9 w-9 rounded-[4px] border border-[var(--border-subtle)] object-cover shrink-0"
+                                  />
+                                ) : (
+                                  <span className="h-9 w-9 rounded-[4px] border border-[var(--border-subtle)] bg-[var(--bg-hover)] shrink-0" />
+                                )}
+                                <span className="flex-1 min-w-0">
+                                  <span className="truncate block text-[11px] text-[var(--text-secondary)] pr-1">
+                                    {(log.prompt || log.final_prompt || 'Untitled').slice(0, 60)}
+                                  </span>
+                                  <span className="truncate block text-[10px] text-[var(--text-muted)] pr-1">
+                                    {log.timestamp ? new Date(log.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : ''}
+                                    {log.timestamp ? ` ${new Date(log.timestamp).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}` : ''}
+                                  </span>
                                 </span>
-                                <span className="truncate block text-[10px] text-[var(--text-muted)] pr-1">
-                                  {log.timestamp ? new Date(log.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : ''}
-                                  {log.timestamp ? ` ${new Date(log.timestamp).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}` : ''}
-                                </span>
-                              </span>
-                            </button>
+                              </button>
+                              <button
+                                onClick={(e) => handleDeleteImageLog(e, log, i)}
+                                className="flex items-center justify-center w-5 h-5 text-[var(--text-secondary)]/60 hover:text-red-500 hover:bg-[var(--border-sidebar)]/60 rounded-[4px] transition-all cursor-pointer active:scale-[0.9] opacity-0 group-hover:opacity-100 shrink-0"
+                                title="Delete log entry"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
                           ))}
                           {imageLogs.length > imageLoadCount && (
                             <button
