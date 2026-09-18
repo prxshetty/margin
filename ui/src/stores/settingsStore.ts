@@ -27,6 +27,21 @@ export interface AppSettings {
   planner_include_outline?: boolean
   linked_workspace_dir?: string | null
   history_turns?: number
+  image_provider?: 'openai-compatible' | 'stability' | 'fal' | 'comfyui' | string
+  image_base_url?: string
+  image_api_key?: string
+  image_model?: string
+  image_default_style?: string | null
+  image_custom_styles?: { name: string; prompt: string }[]
+  image_comfy_text_workflow?: Record<string, { class_type: string; inputs: Record<string, unknown> }> | null
+  image_comfy_text_prompt_map?: { nodeId: string; input: string } | null
+  image_comfy_text_seed_map?: { nodeId: string; input: string } | null
+  image_comfy_edit_workflow?: Record<string, { class_type: string; inputs: Record<string, unknown> }> | null
+  image_comfy_edit_prompt_map?: { nodeId: string; input: string } | null
+  image_comfy_edit_image_map?: { nodeId: string; input: string } | null
+  image_comfy_edit_seed_map?: { nodeId: string; input: string } | null
+  /** Reserved for a future reference-image mapping; v1 ignores it. */
+  image_comfy_negative_map?: { nodeId: string; input: string } | null
 }
 
 interface SettingsState {
