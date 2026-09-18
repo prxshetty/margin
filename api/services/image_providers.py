@@ -47,7 +47,7 @@ BUILTIN_STYLES: Dict[str, Optional[str]] = {
 #: Providers offered in Settings. ComfyUI is listed but conditionally
 #: usable: generation and provider-test return a 400 with guidance until
 #: a workflow + prompt mapping is configured — never silently broken.
-SELECTABLE_PROVIDERS = ("openai-compatible", "stability", "fal", "comfyui")
+SELECTABLE_PROVIDERS = ("openai-compatible", "stability", "fal", "gemini", "comfyui")
 
 EMPTY_REGEN_PROMPT = "Create another version of this image."
 
@@ -317,6 +317,148 @@ class FalProvider:
                                   mime_type=dl.headers.get("Content-Type", "image/png"))
         except Exception as e:
             raise ValueError(f"Could not download FAL image: {e}")
+
+
+class GeminiProvider:
+    """Google Gemini image models (Nano Banana family) via the Interactions
+    API. Google's OpenAI-compat layer exposes no images route (verified:
+    /v1beta/openai/images/generations 404s), so this is a dedicated thin
+    provider — same generate() contract, no shared code with the
+    OpenAI-compatible provider beyond GeneratedImage.
+
+    Text-to-image sends a single text input; editing appends the reference
+    as a base64 image input. Auth is x-goog-api-key; the endpoint is fixed
+    (the shared base-URL setting is ignored).
+    """
+
+    API_ROOT = "https://generativelanguage.googleapis.com/v1beta"
+
+    def __init__(self, api_key: str, model: str):
+        self.api_key = (api_key or "").strip()
+        self.model = (model or "").strip()
+
+    def generate(self, prompt: str,
+                 reference_bytes: Optional[bytes] = None) -> GeneratedImage:
+        import requests
+
+        if not self.api_key:
+            raise ValueError("Gemini API key is not configured (Settings → Images)")
+        if not self.model:
+            raise ValueError("Gemini model is not configured (Settings → Images)")
+        if not (prompt or "").strip():
+            raise ValueError("Prompt is required")
+        inputs: List[Dict[str, Any]] = [{"type": "text", "text": prompt}]
+        if reference_bytes:
+            ext = _infer_upload_ext(reference_bytes)
+            mime = {"png": "image/png", "jpg": "image/jpeg",
+                    "webp": "image/webp"}[ext]
+            inputs.append({
+                "type": "image",
+                "data": base64.b64encode(reference_bytes).decode("ascii"),
+                "mime_type": mime,
+            })
+        try:
+            resp = requests.post(
+                f"{self.API_ROOT}/interactions",
+                headers={"x-goog-api-key": self.api_key,
+                         "Content-Type": "application/json"},
+                json={"model": self.model, "input": inputs},
+                timeout=180,
+            )
+        except Exception as e:
+            raise ValueError(f"Gemini request failed: {e}")
+        if resp.status_code in (401, 403):
+            raise ValueError("Gemini rejected the API key (401/403)")
+        if not resp.ok:
+            try:
+                detail = resp.json()
+                msg = str(detail.get("error", {}).get("message", detail))[:300]
+            except Exception:
+                msg = resp.text[:300]
+            if "SAFETY" in msg.upper():
+                raise ValueError(f"Gemini refused the request on safety grounds: {msg}")
+            raise ValueError(f"Gemini error ({resp.status_code}): {msg}")
+        try:
+            body = resp.json()
+        except Exception:
+            raise ValueError("Gemini returned invalid JSON")
+        return _extract_gemini_image(body)
+
+    def check_model(self) -> None:
+        """Lightweight validation: confirms key + model exist, no generation."""
+        import requests
+
+        if not self.api_key:
+            raise ValueError("Gemini API key is not configured (Settings → Images)")
+        if not self.model:
+            raise ValueError("Gemini model is not configured (Settings → Images)")
+        try:
+            resp = requests.get(
+                f"{self.API_ROOT}/models/{self.model}",
+                headers={"x-goog-api-key": self.api_key},
+                timeout=30,
+            )
+        except Exception as e:
+            raise ValueError(f"Could not reach Gemini: {e}")
+        if resp.status_code in (401, 403):
+            raise ValueError("Gemini rejected the API key (401/403)")
+        if resp.status_code == 404:
+            raise ValueError(f"Gemini model not found: {self.model!r}")
+        if not resp.ok:
+            raise ValueError(f"Gemini test failed ({resp.status_code}): {resp.text[:300]}")
+
+
+def _extract_gemini_image(body: Any) -> GeneratedImage:
+    """Pull the output image out of an interactions.create response.
+
+    Primary path is the documented `output_image` convenience block; the
+    fallback recursively scans for any image-typed block carrying base64
+    data, so minor envelope variations don't break generation.
+    """
+    if isinstance(body, dict):
+        direct = body.get("output_image")
+        if isinstance(direct, dict) and isinstance(direct.get("data"), str):
+            return _decode_gemini_block(direct)
+    found = _scan_gemini_blocks(body)
+    if found is not None:
+        return found
+    raise ValueError("Gemini returned no image (the request may have been safety-blocked)")
+
+
+def _decode_gemini_block(block: Dict[str, Any]) -> GeneratedImage:
+    try:
+        raw = base64.b64decode(block["data"])
+    except Exception as e:
+        raise ValueError(f"Gemini returned undecodable image data: {e}")
+    try:
+        ext = _infer_upload_ext(raw)
+    except ValueError:
+        raise ValueError("Gemini returned an invalid image")
+    mime = {"png": "image/png", "jpg": "image/jpeg",
+            "webp": "image/webp"}.get(ext, "image/png")
+    return GeneratedImage(data=raw, mime_type=mime)
+
+
+def _scan_gemini_blocks(node: Any) -> Optional[GeneratedImage]:
+    """Fallback: walk the envelope for any string that decodes to valid
+    image bytes. Magic-byte validation rejects text blocks, so attempting
+    freely is safe and envelope-shape-agnostic."""
+    if isinstance(node, dict):
+        for value in node.values():
+            found = _scan_gemini_blocks(value)
+            if found is not None:
+                return found
+    elif isinstance(node, list):
+        for item in node:
+            found = _scan_gemini_blocks(item)
+            if found is not None:
+                return found
+    elif isinstance(node, str) and len(node) > 50:
+        try:
+            return _decode_gemini_block({"data": node})
+        except ValueError:
+            pass
+    return None
 
 
 class ComfyUIBundle:
@@ -895,6 +1037,11 @@ def get_image_provider(settings: Dict[str, Any]) -> ImageProvider:
         )
     if name == "fal":
         return FalProvider(
+            api_key=_settings_get(settings, "image_api_key"),
+            model=_settings_get(settings, "image_model"),
+        )
+    if name == "gemini":
+        return GeminiProvider(
             api_key=_settings_get(settings, "image_api_key"),
             model=_settings_get(settings, "image_model"),
         )

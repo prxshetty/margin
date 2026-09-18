@@ -250,6 +250,125 @@ class TestProviders(unittest.TestCase):
             p._decode_image_payload({"data": []})
 
 
+class TestGeminiProvider(unittest.TestCase):
+    def _provider(self):
+        return ip.GeminiProvider(api_key="test-key",
+                                 model="gemini-3.1-flash-lite-image")
+
+    def test_factory(self):
+        p = ip.get_image_provider({
+            "image_provider": "gemini",
+            "image_api_key": "k",
+            "image_model": "gemini-3.1-flash-lite-image",
+        })
+        self.assertIsInstance(p, ip.GeminiProvider)
+
+    def test_missing_config(self):
+        with self.assertRaisesRegex(ValueError, "API key is not configured"):
+            ip.GeminiProvider(api_key="", model="m").generate("x")
+        with self.assertRaisesRegex(ValueError, "model is not configured"):
+            ip.GeminiProvider(api_key="k", model="").generate("x")
+
+    def test_text_request_shape(self):
+        p = self._provider()
+        seen = {}
+
+        def fake_post(url, **kw):
+            seen["url"] = url
+            seen.update(kw)
+            b64 = base64.b64encode(PNG).decode()
+            return _Resp({"output_image": {"data": b64, "mime_type": "image/png"}})
+
+        with patch("requests.post", side_effect=fake_post):
+            img = p.generate("a cabin")
+        self.assertTrue(seen["url"].endswith("/interactions"))
+        self.assertEqual(seen["headers"]["x-goog-api-key"], "test-key")
+        body = seen["json"]
+        self.assertEqual(body["model"], "gemini-3.1-flash-lite-image")
+        self.assertEqual(body["input"],
+                         [{"type": "text", "text": "a cabin"}])
+        self.assertEqual(img.data, PNG)
+        self.assertEqual(img.mime_type, "image/png")
+        self.assertIsNone(img.seed)
+
+    def test_reference_appended_as_image_input(self):
+        p = self._provider()
+        seen = {}
+
+        def fake_post(url, **kw):
+            seen.update(kw)
+            b64 = base64.b64encode(PNG).decode()
+            return _Resp({"steps": [{"output": [{"data": b64}]}]})
+
+        with patch("requests.post", side_effect=fake_post):
+            img = p.generate("edit it", PNG)
+        inputs = seen["json"]["input"]
+        self.assertEqual(len(inputs), 2)
+        self.assertEqual(inputs[0], {"type": "text", "text": "edit it"})
+        self.assertEqual(inputs[1]["type"], "image")
+        self.assertEqual(inputs[1]["mime_type"], "image/png")
+        self.assertEqual(base64.b64decode(inputs[1]["data"]), PNG)
+        self.assertEqual(img.data, PNG)
+
+    def test_fallback_scan_finds_nested_block(self):
+        p = self._provider()
+        b64 = base64.b64encode(PNG).decode()
+        body = {"steps": [{"model_output": {"blocks": [
+            {"type": "text", "text": "here you go"},
+            {"type": "image", "mime_type": "image/png", "data": b64},
+        ]}}]}
+        with patch("requests.post", return_value=_Resp(body)):
+            self.assertEqual(p.generate("x").data, PNG)
+
+    def test_no_image_is_502_class(self):
+        p = self._provider()
+        with patch("requests.post",
+                   return_value=_Resp({"steps": [{"model_output": {"blocks": []}}]})):
+            with self.assertRaisesRegex(ValueError, "no image"):
+                p.generate("x")
+
+    def test_auth_failure_maps_to_401_403_message(self):
+        p = self._provider()
+        resp = _Resp(None, ok=False, status=401)
+        resp.text = "forbidden"
+        with patch("requests.post", return_value=resp):
+            with self.assertRaisesRegex(ValueError, "rejected the API key"):
+                p.generate("x")
+
+    def test_safety_refusal_surfaced(self):
+        p = self._provider()
+        err = {"error": {"message": "SAFETY: blocked", "code": 400}}
+        with patch("requests.post", return_value=_Resp(err, ok=False, status=400)):
+            with self.assertRaisesRegex(ValueError, "safety"):
+                p.generate("x")
+
+    def test_check_model(self):
+        p = self._provider()
+        with patch("requests.get", return_value=_Resp({"name": "models/x"})):
+            p.check_model()  # no raise
+        bad = _Resp({"error": {"message": "not found"}}, ok=False, status=404)
+        with patch("requests.get", return_value=bad):
+            with self.assertRaisesRegex(ValueError, "not found"):
+                p.check_model()
+
+    def test_endpoint_returns_path_and_null_seed(self):
+        import api.routers.images as images_router
+
+        svc = _storage()
+        c = _client()
+        provider = self._provider()
+        b64 = base64.b64encode(PNG).decode()
+        with patch("requests.post",
+                   return_value=_Resp({"output_image": {"data": b64}})), \
+                patch.object(images_router, "storage", svc), \
+                patch.object(images_router, "get_image_provider",
+                             return_value=provider):
+            r = c.post("/api/images/generate", json={"prompt": "x"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertTrue(r.json()["path"].startswith("assets/generated/"))
+        self.assertIsNone(r.json()["seed"])
+
+
 class TestComfyWorkflow(unittest.TestCase):
     def test_graph_format_rejected_with_guidance(self):
         with self.assertRaisesRegex(ValueError, "API format"):

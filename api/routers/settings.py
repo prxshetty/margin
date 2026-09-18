@@ -106,6 +106,14 @@ def test_image_provider(req: TestImageProviderRequest):
             if not model:
                 raise HTTPException(status_code=400, detail="FAL model is not configured")
             return {"success": True, "provider": provider, "note": "Key + model present; generation tested on use."}
+        if provider == "gemini":
+            from api.services.image_providers import GeminiProvider
+
+            try:
+                GeminiProvider(api_key=api_key, model=model).check_model()
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            return {"success": True, "provider": provider, "model": model}
         if provider == "comfyui":
             from api.services.image_providers import (
                 validate_comfy_edit_image_map,

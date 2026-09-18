@@ -1106,6 +1106,7 @@ const IMAGE_PROVIDERS = [
   { id: 'openai-compatible', label: 'OpenAI-compatible' },
   { id: 'stability', label: 'Stability' },
   { id: 'fal', label: 'FAL' },
+  { id: 'gemini', label: 'Gemini (Google)' },
   { id: 'comfyui', label: 'ComfyUI (local)' },
 ] as const
 
@@ -1396,6 +1397,7 @@ function ImagesSettings({ settings, updateSettings }: { settings: AppSettings, u
   const customs = settings.image_custom_styles || []
   const defaultStyle = settings.image_default_style ?? 'None'
   const isComfy = (settings.image_provider || 'openai-compatible') === 'comfyui'
+  const isGemini = (settings.image_provider || 'openai-compatible') === 'gemini'
 
   const handleTest = async () => {
     setTestResult({ status: 'testing' })
@@ -1441,12 +1443,19 @@ function ImagesSettings({ settings, updateSettings }: { settings: AppSettings, u
           ))}
         </select>
         <div className="grid grid-cols-1 gap-3 mt-3">
-          <input
-            placeholder={isComfy ? 'ComfyUI URL (e.g. http://127.0.0.1:8188)' : 'Base URL (e.g. https://api.openai.com)'}
-            value={settings.image_base_url || ''}
-            onChange={(e) => updateSettings({ image_base_url: e.target.value })}
-            className="border border-[var(--border-subtle)] rounded-[6px] px-3 py-2 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]"
-          />
+          {!isGemini && (
+            <input
+              placeholder={isComfy ? 'ComfyUI URL (e.g. http://127.0.0.1:8188)' : 'Base URL (e.g. https://api.openai.com)'}
+              value={settings.image_base_url || ''}
+              onChange={(e) => updateSettings({ image_base_url: e.target.value })}
+              className="border border-[var(--border-subtle)] rounded-[6px] px-3 py-2 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]"
+            />
+          )}
+          {isGemini && (
+            <p className="text-[11px] text-[var(--text-muted)]">
+              Uses Google's Gemini API directly (googleapis.com) — no base URL needed. Get a key at AI Studio.
+            </p>
+          )}
           {!isComfy && (
             <>
               <input
@@ -1457,7 +1466,7 @@ function ImagesSettings({ settings, updateSettings }: { settings: AppSettings, u
                 className="border border-[var(--border-subtle)] rounded-[6px] px-3 py-2 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]"
               />
               <input
-                placeholder="Model (e.g. gpt-image-1)"
+                placeholder={isGemini ? 'Model (e.g. gemini-3.1-flash-lite-image)' : 'Model (e.g. gpt-image-1)'}
                 value={settings.image_model || ''}
                 onChange={(e) => updateSettings({ image_model: e.target.value })}
                 className="border border-[var(--border-subtle)] rounded-[6px] px-3 py-2 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]"
