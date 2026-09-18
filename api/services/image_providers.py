@@ -442,29 +442,7 @@ def _extract_gemini_image(body: Any) -> GeneratedImage:
     found = _scan_gemini_blocks(body)
     if found is not None:
         return found
-    raise ValueError(
-        "Gemini returned no image "
-        f"({_describe_gemini_body(body)}; the request may have been safety-blocked)")
-
-
-def _describe_gemini_body(body: Any) -> str:
-    """Compact shape summary for the no-image error, so failures are
-    diagnosable without dumping megabytes of base64."""
-    try:
-        if not isinstance(body, dict):
-            return f"unexpected envelope type {type(body).__name__}"
-        parts = [f"keys={sorted(body.keys())}"]
-        steps = body.get("steps")
-        if isinstance(steps, list):
-            parts.append("steps=[{}]".format(", ".join(
-                str(s.get("type", "?")) if isinstance(s, dict) else "?"
-                for s in steps)))
-        for key in ("status", "finish_reason", "finishReason", "error"):
-            if body.get(key) is not None:
-                parts.append(f"{key}={str(body[key])[:120]}")
-        return "; ".join(parts)
-    except Exception:
-        return "uninspectable envelope"
+    raise ValueError("Gemini returned no image (the request may have been safety-blocked)")
 
 
 def _decode_gemini_block(block: Dict[str, Any]) -> GeneratedImage:
