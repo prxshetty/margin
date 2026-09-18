@@ -577,8 +577,7 @@ export function SimpleAssist() {
     }
   }
 
-  const imageKey = (log: ImageLogEntry, i: number) =>
-    log.id || `${log.timestamp || ''}||${log.path || i}`
+  const imageKey = (log: ImageLogEntry, i: number) => log.id || `img-${i}`
   const sessions = useMemo(() => {
     const map = new Map<string, { name: string; logCount: number; timestamp: string }>()
     const sessionLogs = new Map<string, SimpleLogEntry[]>()
