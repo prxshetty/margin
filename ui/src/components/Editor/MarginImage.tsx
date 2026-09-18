@@ -3,8 +3,10 @@ import type { PointerEvent as ReactPointerEvent } from 'react'
 import Image from '@tiptap/extension-image'
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
 import type { NodeViewProps } from '@tiptap/core'
-import { AlignCenter, AlignLeft, AlignRight, RotateCcw } from 'lucide-react'
+import { AlignCenter, AlignLeft, AlignRight, RotateCcw, Sparkles } from 'lucide-react'
 import { toDisplaySrc } from '../../lib/media'
+import { useImageGenStore } from '../../stores/imageGenStore'
+import { useSettingsStore } from '../../stores/settingsStore'
 import { parseImageMarkdown, serializeImageMarkdown, splitAltDims } from '../../lib/imageMarkdown'
 import type { ImageAlign } from '../../lib/imageMarkdown'
 
@@ -321,6 +323,37 @@ function MarginImageView({ editor, node, selected, updateAttributes, deleteNode,
                     <Icon className="margin-image__btn-icon" />
                   </button>
                 ))}
+                <span className="margin-image__divider" />
+                <button
+                  type="button"
+                  title="Regenerate image"
+                  aria-label="Regenerate image"
+                  className="margin-image__btn"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    const pos = typeof getPos === 'function' ? getPos() : null
+                    // Prefill with the edit workflow's saved prompt text so the
+                    // user edits the real description (overwrite on submit is
+                    // unchanged). Falls back to alt, then empty.
+                    const settings = useSettingsStore.getState().settings
+                    const editWf = settings?.image_comfy_edit_workflow
+                    const editMap = settings?.image_comfy_edit_prompt_map
+                    const savedPrompt =
+                      editWf && editMap
+                        ? (editWf[editMap.nodeId]?.inputs?.[editMap.input] as unknown)
+                        : null
+                    useImageGenStore.getState().openDialog({
+                      initialPrompt: typeof savedPrompt === 'string' && savedPrompt.trim()
+                        ? savedPrompt.slice(0, 2000)
+                        : (alt ?? '').slice(0, 2000),
+                      referenceSrc: src,
+                      anchorPos: null,
+                      regenNodePos: typeof pos === 'number' ? pos : null,
+                    })
+                  }}
+                >
+                  <Sparkles className="margin-image__btn-icon" />
+                </button>
               </div>
             )}
           </div>

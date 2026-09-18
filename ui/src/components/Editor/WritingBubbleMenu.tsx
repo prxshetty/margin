@@ -4,6 +4,7 @@ import type { Editor } from '@tiptap/core'
 import { NodeSelection } from '@tiptap/pm/state'
 import { ChevronDown, Check, TextIcon, Heading1, Heading2, Heading3 } from 'lucide-react'
 import { useEditorStore } from '../../stores/editorStore'
+import { useImageGenStore } from '../../stores/imageGenStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { API_BASE } from '../../lib/api'
 import { streamSSE } from '../../lib/stream-sse'
@@ -189,6 +190,19 @@ export function WritingBubbleMenu() {
         setTimeout(() => inputRef.current?.focus(), 30)
     }, [])
 
+    // ── Generate image from selection ───────────────────────────────────────
+    // Selection is context/prompt only — never deleted. The dialog inserts
+    // the result after the selection via insertStoredImageAt.
+    const handleGenerateClick = useCallback(() => {
+        if (!selectedText || !selectionRange) return
+        useImageGenStore.getState().openDialog({
+            initialPrompt: selectedText.slice(0, 2000),
+            referenceSrc: null,
+            anchorPos: selectionRange.to,
+            regenNodePos: null,
+        })
+    }, [selectedText, selectionRange])
+
     // ── Cancel rewrite mode ───────────────────────────────────────────────────
     const handleCancel = useCallback(() => {
         setMode('default')
@@ -311,6 +325,15 @@ export function WritingBubbleMenu() {
                         className="px-2 py-1 text-[11.5px] font-medium text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--bg-hover)] rounded-[5px] transition-colors cursor-pointer leading-none whitespace-nowrap"
                     >
                         Rewrite
+                    </button>
+
+                    {/* Generate image — peer of Rewrite, selection becomes prompt */}
+                    <button
+                        onMouseDown={(e) => { e.preventDefault(); handleGenerateClick() }}
+                        title="Generate image from selection"
+                        className="px-2 py-1 text-[11.5px] font-medium text-[var(--text-secondary)] hover:text-[var(--accent-brown)] hover:bg-[var(--bg-hover)] rounded-[5px] transition-colors cursor-pointer leading-none whitespace-nowrap"
+                    >
+                        Generate
                     </button>
                 </>
             ) : (

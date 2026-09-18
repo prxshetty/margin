@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Markdown } from 'tiptap-markdown'
 import { WritingBubbleMenu } from './WritingBubbleMenu'
 import { MarginImage } from './MarginImage'
+import { ImageGenerateDialogHost } from './ImageGenerateDialog'
 import { SlashMenuView, computeSlash } from './SlashMenu'
 import type { SlashMenuHandle } from './SlashMenu'
 import { AiDiffHighlightExtension } from './AiDiffHighlightExtension'
@@ -272,6 +273,7 @@ export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: bool
     <div className="bg-[var(--bg)] relative">
       <EditorContent editor={editor} />
       {showInlinePopup && <WritingBubbleMenu />}
+      <ImageGenerateDialogHost />
       {editor && slash && createPortal(
         <div
           ref={slashElRef}
