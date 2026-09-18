@@ -347,15 +347,18 @@ class GeminiProvider:
     OpenAI-compatible provider beyond GeneratedImage.
 
     Text-to-image sends a single text input; editing appends the reference
-    as a base64 image input. Auth is x-goog-api-key; the endpoint is fixed
-    (the shared base-URL setting is ignored).
+    as a base64 image input. Auth is x-goog-api-key. The API root defaults
+    to googleapis.com but accepts an override (same constructor shape as
+    the other providers) for proxies, mocks, or future version bumps —
+    the shared base-URL setting flows through and is otherwise ignored.
     """
 
     API_ROOT = "https://generativelanguage.googleapis.com/v1beta"
 
-    def __init__(self, api_key: str, model: str):
+    def __init__(self, api_key: str, model: str, base_url: str = ""):
         self.api_key = (api_key or "").strip()
         self.model = (model or "").strip()
+        self.api_root = (base_url or "").rstrip("/") or self.API_ROOT
 
     def generate(self, prompt: str,
                  reference_bytes: Optional[bytes] = None) -> GeneratedImage:
@@ -379,7 +382,7 @@ class GeminiProvider:
             })
         try:
             resp = requests.post(
-                f"{self.API_ROOT}/interactions",
+                f"{self.api_root}/interactions",
                 headers={"x-goog-api-key": self.api_key,
                          "Content-Type": "application/json"},
                 json={"model": self.model, "input": inputs},
@@ -414,7 +417,7 @@ class GeminiProvider:
             raise ValueError("Gemini model is not configured (Settings → Images)")
         try:
             resp = requests.get(
-                f"{self.API_ROOT}/models/{self.model}",
+                f"{self.api_root}/models/{self.model}",
                 headers={"x-goog-api-key": self.api_key},
                 timeout=30,
             )
@@ -1064,6 +1067,7 @@ def get_image_provider(settings: Dict[str, Any]) -> ImageProvider:
         return GeminiProvider(
             api_key=_settings_get(settings, "image_api_key"),
             model=_settings_get(settings, "image_model"),
+            base_url=_settings_get(settings, "image_base_url"),
         )
     if name == "comfyui":
         text = _comfy_text_bundle(settings)

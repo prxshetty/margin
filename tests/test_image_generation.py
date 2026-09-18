@@ -286,6 +286,35 @@ class TestGeminiProvider(unittest.TestCase):
         })
         self.assertIsInstance(p, ip.GeminiProvider)
 
+    def test_api_root_defaults_to_google(self):
+        p = self._provider()
+        self.assertEqual(p.api_root, ip.GeminiProvider.API_ROOT)
+
+    def test_api_root_override(self):
+        p = ip.GeminiProvider(api_key="k", model="m",
+                              base_url="http://proxy:8080/v1beta/")
+        self.assertEqual(p.api_root, "http://proxy:8080/v1beta")
+        seen = {}
+
+        def fake_post(url, **kw):
+            seen["url"] = url
+            b64 = base64.b64encode(PNG).decode()
+            return _Resp({"output_image": {"data": b64}})
+
+        with patch("requests.post", side_effect=fake_post):
+            p.generate("x")
+        self.assertTrue(seen["url"].startswith("http://proxy:8080/v1beta/interactions"))
+
+    def test_factory_passes_base_url_through(self):
+        p = ip.get_image_provider({
+            "image_provider": "gemini",
+            "image_api_key": "k",
+            "image_model": "m",
+            "image_base_url": "http://proxy:8080",
+        })
+        self.assertIsInstance(p, ip.GeminiProvider)
+        self.assertEqual(p.api_root, "http://proxy:8080")
+
     def test_missing_config(self):
         with self.assertRaisesRegex(ValueError, "API key is not configured"):
             ip.GeminiProvider(api_key="", model="m").generate("x")

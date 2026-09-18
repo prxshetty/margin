@@ -1460,18 +1460,25 @@ function ImagesSettings({ settings, updateSettings }: { settings: AppSettings, u
           ))}
         </select>
         <div className="grid grid-cols-1 gap-3 mt-3">
-          {!isGemini && (
+          {isGemini ? (
+            <>
+              <input
+                placeholder="Base URL (default: https://generativelanguage.googleapis.com/v1beta)"
+                value={settings.image_base_url || ''}
+                onChange={(e) => updateSettings({ image_base_url: e.target.value })}
+                className="border border-[var(--border-subtle)] rounded-[6px] px-3 py-2 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]"
+              />
+              <p className="text-[11px] text-[var(--text-muted)]">
+                Uses Google's Gemini API directly — leave the base URL empty unless you use a proxy. Get a key at AI Studio.
+              </p>
+            </>
+          ) : (
             <input
               placeholder={isComfy ? 'ComfyUI URL (e.g. http://127.0.0.1:8188)' : 'Base URL (e.g. https://api.openai.com)'}
               value={settings.image_base_url || ''}
               onChange={(e) => updateSettings({ image_base_url: e.target.value })}
               className="border border-[var(--border-subtle)] rounded-[6px] px-3 py-2 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]"
             />
-          )}
-          {isGemini && (
-            <p className="text-[11px] text-[var(--text-muted)]">
-              Uses Google's Gemini API directly (googleapis.com) — no base URL needed. Get a key at AI Studio.
-            </p>
           )}
           {!isComfy && (
             <>
