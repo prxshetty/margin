@@ -160,3 +160,23 @@ Interact with an image by selecting it:
 Underneath, an image is just Markdown text, so it behaves like everything else you write: it survives copy/paste, undo, and git, and the AI reads the same reference you see.
 
 If an image breaks (renamed, moved, or deleted file), margin shows a placeholder and leaves your text untouched — see [Debugging](./debugging.md#image-issues) for common fixes.
+
+### AI image generation
+
+Besides uploading, margin can generate images from a prompt and regenerate existing ones. There are three operations and nothing else:
+
+- **Upload** — file or URL into `assets/`, as above.
+- **Generate** — prompt (plus an optional style) into a new image under `assets/generated/`, inserted at your cursor.
+- **Regenerate** — an existing image plus a prompt into a *new* file under `assets/generated/`; only the reference changes, so **undo restores the previous image** and old versions stay on disk.
+
+Entry points:
+
+- Type `/` and pick **Generate image** for free-form generation.
+- Select text and click **Generate** in the bubble menu — the selection becomes the starting prompt (your text is never deleted).
+- Select an image and click **Regenerate** (✨) in its toolbar — the current image becomes the reference. Type your edit ("make the suit blue") over the prefilled prompt and submit. The dialog closes itself on success.
+
+Providers live in **Settings → Images**. Margin supports OpenAI-compatible endpoints, Stability, FAL, Google Gemini, and local ComfyUI — the editor never cares which one produced the image. Use **Test provider** after configuring. For ComfyUI, import your own API-format workflows into two slots: a **text-to-image workflow** for Generate and an **edit workflow** (with a `LoadImage` input) for Regenerate. Each slot also accepts an optional **seed mapping** so every run gets a fresh random seed; without one, the workflow's saved seed is reused verbatim. Your workflows are never modified — margin overlays prompt, reference, and seed onto a per-run copy.
+
+**Styles** append a suffix to your prompt. The shipped styles (`Cinematic`, `Illustration`) show their prompt text and can be customized with an override (Reset restores the original); add your own under Custom styles. `None` always means no suffix. The dialog only ever selects — all editing happens in Settings.
+
+Every run is recorded under **History → Images** in the assistant sidebar (newest first, refetch on open): thumbnail, prompt, timestamp, seed, and provider. Click any entry for the full details — input and output images, submitted prompt, paths — plus Copy prompt and Open-folder actions. Delete individual entries with the hover × button, like chat sessions. Generation history lives in your workspace's `outputs/image_logs/` folder, per workspace like everything else.
