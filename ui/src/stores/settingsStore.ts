@@ -33,6 +33,7 @@ export interface AppSettings {
   image_model?: string
   image_default_style?: string | null
   image_custom_styles?: { name: string; prompt: string }[]
+  image_style_overrides?: Record<string, string>
   image_comfy_text_workflow?: Record<string, { class_type: string; inputs: Record<string, unknown> }> | null
   image_comfy_text_prompt_map?: { nodeId: string; input: string } | null
   image_comfy_text_seed_map?: { nodeId: string; input: string } | null

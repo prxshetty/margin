@@ -1394,9 +1394,26 @@ function ComfySlotSection({
 function ImagesSettings({ settings, updateSettings }: { settings: AppSettings, updateSettings: (u: Partial<AppSettings>) => void }) {  const [testResult, setTestResult] = useState<{ status: 'idle' | 'testing' | 'success' | 'error', msg?: string }>({ status: 'idle' })
   const [newName, setNewName] = useState('')
   const [newPrompt, setNewPrompt] = useState('')
+  const [builtinPrompts, setBuiltinPrompts] = useState<Record<string, string | null> | null>(null)
+  const [editingName, setEditingName] = useState<string | null>(null)
+  const [editingPrompt, setEditingPrompt] = useState('')
   const customs = settings.image_custom_styles || []
   const defaultStyle = settings.image_default_style ?? 'None'
   const isComfy = (settings.image_provider || 'openai-compatible') === 'comfyui'
+
+  // Shipped prompt text for built-ins (customized overrides come from settings).
+  useEffect(() => {
+    fetch(`${API_BASE}/api/images/styles`)
+      .then((res) => (res.ok ? res.json() : { styles: [] }))
+      .then((data) => {
+        const map: Record<string, string | null> = {}
+        for (const s of data.styles || []) {
+          if (s?.builtin) map[s.name] = s.default_prompt ?? s.prompt ?? null
+        }
+        setBuiltinPrompts(map)
+      })
+      .catch(() => setBuiltinPrompts({}))
+  }, [])
   const isGemini = (settings.image_provider || 'openai-compatible') === 'gemini'
 
   const handleTest = async () => {
@@ -1490,50 +1507,132 @@ function ImagesSettings({ settings, updateSettings }: { settings: AppSettings, u
       </section>
 
       <section>
-        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Default style</h3>
-        <div className="flex flex-col gap-1.5">
-          {allStyleNames.map((name) => (
-            <label key={name} className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="radio"
-                name="image_default_style"
-                checked={(defaultStyle ?? 'None') === name}
-                onChange={() => updateSettings({ image_default_style: name === 'None' ? null : name })}
-                className="accent-[var(--accent-brown)]"
-              />
-              <span className="text-[13px] text-[var(--text)]">{name}</span>
-            </label>
-          ))}
+        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Styles</h3>
+        <p className="text-[12px] text-[var(--text-secondary)] mb-3">
+          Every style shows its name and prompt. Built-ins can be customized too —
+          editing one saves an override; Reset restores the shipped text. The generation
+          dialog only selects from this list.
+        </p>
+        <div className="flex flex-col gap-2 mb-3">
+          {allStyleNames.map((name) => {
+            const custom = customs.find((c) => c.name === name)
+            const isBuiltin = !custom
+            const overridden = isBuiltin && name !== 'None'
+              && (settings.image_style_overrides || {})[name] !== undefined
+            const prompt = isBuiltin
+              ? (name === 'None'
+                ? null
+                : (settings.image_style_overrides || {})[name]
+                  ?? builtinPrompts?.[name] ?? null)
+              : (custom?.prompt ?? '')
+            const isEditing = editingName === name
+            return (
+              <div key={name} className="border border-[var(--border-subtle)] rounded-[6px] p-2">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="image_default_style"
+                    checked={(defaultStyle ?? 'None') === name}
+                    onChange={() => updateSettings({ image_default_style: name === 'None' ? null : name })}
+                    className="accent-[var(--accent-brown)] shrink-0"
+                    title="Use as default style"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[12.5px] font-medium text-[var(--text-heading)] truncate">
+                      {name}
+                      {isBuiltin && name !== 'None' && (
+                        <span className="ml-1.5 text-[10px] font-normal text-[var(--text-muted)]">
+                          built-in{overridden ? ' · customized' : ''}
+                        </span>
+                      )}
+                    </div>
+                    {!isEditing && (
+                      <div className="text-[11px] text-[var(--text-secondary)] break-words">
+                        {name === 'None' ? 'No style suffix — nothing is appended.' : (prompt || '—')}
+                      </div>
+                    )}
+                  </div>
+                  {name !== 'None' && !isEditing && (
+                    <button
+                      onClick={() => { setEditingName(name); setEditingPrompt(prompt ?? '') }}
+                      className="px-2 py-1 text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-heading)] border border-[var(--border-subtle)] rounded-[4px] cursor-pointer shrink-0"
+                    >
+                      Edit
+                    </button>
+                  )}
+                  {overridden && !isEditing && (
+                    <button
+                      onClick={() => {
+                        const next = { ...(settings.image_style_overrides || {}) }
+                        delete next[name]
+                        updateSettings({ image_style_overrides: next })
+                      }}
+                      className="px-2 py-1 text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-heading)] border border-[var(--border-subtle)] rounded-[4px] cursor-pointer shrink-0"
+                    >
+                      Reset
+                    </button>
+                  )}
+                  {!isBuiltin && !isEditing && (
+                    <button
+                      onClick={() => {
+                        const next = customs.filter((x) => x.name !== name)
+                        const updates: Partial<AppSettings> = { image_custom_styles: next }
+                        if (defaultStyle === name) updates.image_default_style = null
+                        updateSettings(updates)
+                      }}
+                      className="px-2 py-1 text-[11px] text-[var(--text-secondary)] hover:text-red-500 border border-[var(--border-subtle)] rounded-[4px] cursor-pointer shrink-0"
+                    >
+                      Delete
+                    </button>
+                  )}
+                </div>
+                {isEditing && (
+                  <div className="flex flex-col gap-2 mt-2">
+                    <textarea
+                      value={editingPrompt}
+                      onChange={(e) => setEditingPrompt(e.target.value)}
+                      rows={2}
+                      className="w-full border border-[var(--border-subtle)] rounded-[4px] px-2.5 py-1.5 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)] resize-y"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          if (isBuiltin) {
+                            updateSettings({
+                              image_style_overrides: {
+                                ...(settings.image_style_overrides || {}),
+                                [name]: editingPrompt.trim(),
+                              },
+                            })
+                          } else {
+                            updateSettings({
+                              image_custom_styles: customs.map((x) =>
+                                x.name === name ? { ...x, prompt: editingPrompt.trim() } : x),
+                            })
+                          }
+                          setEditingName(null)
+                        }}
+                        disabled={!editingPrompt.trim()}
+                        className="px-3 py-1 text-[11px] bg-[var(--accent-brown)] text-[var(--text-inverse)] rounded-[4px] hover:bg-[var(--accent-brown-hover)] transition-colors disabled:opacity-50 cursor-pointer"
+                      >
+                        Save
+                      </button>
+                      <button
+                        onClick={() => setEditingName(null)}
+                        className="px-3 py-1 text-[11px] bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[4px] hover:border-[var(--text-secondary)] transition-colors cursor-pointer text-[var(--text)]"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
-      </section>
-
-      <section>
-        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Custom styles</h3>
-        <p className="text-[12px] text-[var(--text-secondary)] mb-3">Styles are managed here — the generation dialog only selects from this list.</p>
         {customs.length === 0 && (
           <p className="text-[12px] text-[var(--text-muted)] mb-2">No custom styles yet.</p>
         )}
-        <div className="flex flex-col gap-2 mb-3">
-          {customs.map((c) => (
-            <div key={c.name} className="flex items-center gap-2 border border-[var(--border-subtle)] rounded-[6px] p-2">
-              <div className="flex-1 min-w-0">
-                <div className="text-[12.5px] font-medium text-[var(--text-heading)] truncate">{c.name}</div>
-                <div className="text-[11px] text-[var(--text-secondary)] truncate">{c.prompt}</div>
-              </div>
-              <button
-                onClick={() => {
-                  const next = customs.filter((x) => x.name !== c.name)
-                  const updates: Partial<AppSettings> = { image_custom_styles: next }
-                  if (defaultStyle === c.name) updates.image_default_style = null
-                  updateSettings(updates)
-                }}
-                className="px-2 py-1 text-[11px] text-[var(--text-secondary)] hover:text-red-500 border border-[var(--border-subtle)] rounded-[4px] cursor-pointer"
-              >
-                Delete
-              </button>
-            </div>
-          ))}
-        </div>
         <div className="flex flex-col gap-2 bg-[var(--bg-elevated)] p-3 rounded-[6px] border border-[var(--border-subtle)]">
           <input
             placeholder="Name (e.g. Fantasy)"

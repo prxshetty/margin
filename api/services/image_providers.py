@@ -52,8 +52,18 @@ SELECTABLE_PROVIDERS = ("openai-compatible", "stability", "fal", "gemini", "comf
 EMPTY_REGEN_PROMPT = "Create another version of this image."
 
 
+def _style_overrides(settings: Dict[str, Any]) -> Dict[str, str]:
+    raw = settings.get("image_style_overrides") or {}
+    if not isinstance(raw, dict):
+        return {}
+    return {str(k): str(v) for k, v in raw.items()}
+
+
 def resolve_style_prompt(style_name: Any, settings: Dict[str, Any]) -> Optional[str]:
-    """Map a style name to its prompt suffix. Unknown names are 400s."""
+    """Map a style name to its prompt suffix. Unknown names are 400s.
+
+    Precedence: custom styles first, then built-in overrides, then the
+    built-in default — so users can customize even the shipped styles."""
     name = style_name if style_name is not None else settings.get("image_default_style")
     if name is None:
         return None
@@ -62,20 +72,30 @@ def resolve_style_prompt(style_name: Any, settings: Dict[str, Any]) -> Optional[
     if not isinstance(name, str):
         raise ValueError(f"Unknown image style: {name!r}")
     key = name.strip()
-    for builtin_name, prompt in BUILTIN_STYLES.items():
-        if builtin_name.lower() == key.lower():
-            return prompt
     customs = settings.get("image_custom_styles") or []
     if isinstance(customs, list):
         for entry in customs:
             if isinstance(entry, dict) and str(entry.get("name", "")).strip().lower() == key.lower():
                 p = str(entry.get("prompt", "")).strip()
                 return p or None
+    overrides = _style_overrides(settings)
+    for builtin_name, prompt in BUILTIN_STYLES.items():
+        if builtin_name.lower() == key.lower():
+            if builtin_name == "None":
+                return None
+            return overrides.get(builtin_name, prompt)
     raise ValueError(f"Unknown image style: {key!r}")
 
 
 def list_styles(settings: Dict[str, Any]) -> List[Dict[str, Any]]:
-    out = [{"name": n, "prompt": p, "builtin": True} for n, p in BUILTIN_STYLES.items()]
+    overrides = _style_overrides(settings)
+    out = [{
+        "name": n,
+        "prompt": overrides.get(n, p),
+        "default_prompt": p,
+        "builtin": True,
+        "overridden": n in overrides,
+    } for n, p in BUILTIN_STYLES.items()]
     customs = settings.get("image_custom_styles") or []
     if isinstance(customs, list):
         for entry in customs:

@@ -108,6 +108,30 @@ class TestStyles(unittest.TestCase):
         self.assertEqual(ip.compose_final_prompt("cabin", None), "cabin")
         self.assertIn("Style:", ip.compose_final_prompt("cabin", "moody"))
 
+    def test_builtin_override_resolves(self):
+        s = {"image_style_overrides": {"Cinematic": "my noir"}}
+        self.assertEqual(ip.resolve_style_prompt("Cinematic", s), "my noir")
+        self.assertEqual(ip.resolve_style_prompt("cinematic", s), "my noir")
+
+    def test_none_override_is_ignored(self):
+        # "None" must always mean no style, even with a hostile override.
+        s = {"image_style_overrides": {"None": "evil"}}
+        self.assertIsNone(ip.resolve_style_prompt("None", s))
+        self.assertIsNone(ip.resolve_style_prompt(None, s))
+
+    def test_custom_beats_builtin(self):
+        s = {"image_custom_styles": [{"name": "Cinematic", "prompt": "custom wins"}]}
+        self.assertEqual(ip.resolve_style_prompt("Cinematic", s), "custom wins")
+
+    def test_list_styles_flags_overrides(self):
+        styles = {s["name"]: s for s in ip.list_styles(
+            {"image_style_overrides": {"Cinematic": "my noir"}})}
+        self.assertTrue(styles["Cinematic"]["builtin"])
+        self.assertTrue(styles["Cinematic"]["overridden"])
+        self.assertEqual(styles["Cinematic"]["prompt"], "my noir")
+        self.assertIn("cinematic", styles["Cinematic"]["default_prompt"].lower())
+        self.assertFalse(styles["Illustration"]["overridden"])
+
 
 class FakeProvider:
     def __init__(self, *a, **k):
@@ -178,7 +202,6 @@ class TestGenerateEndpoint(unittest.TestCase):
             r = c.post("/api/images/generate",
                        json={"prompt": "x", "style_name": "Nope"})
         self.assertEqual(r.status_code, 400)
-
     def test_invalid_reference_400(self):
         svc = _storage()
         c = _client()
@@ -961,20 +984,6 @@ class TestImageLogs(unittest.TestCase):
         self.assertEqual(remaining[0]["prompt"], "keep")
         self.assertFalse(svc.delete_image_log(target))
         self.assertFalse(svc.delete_image_log("nope"))
-
-    def test_delete_legacy_entry_by_composite(self):
-        svc = _storage()
-        path = svc._image_logs_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        import json as _json
-
-        with open(path, "w", encoding="utf-8") as f:
-            _json.dump([{"timestamp": "2026-01-01T00:00:00+00:00",
-                         "prompt": "legacy", "path": "assets/generated/l.png"}],
-                       f)
-        legacy_key = "2026-01-01T00:00:00+00:00||assets/generated/l.png"
-        self.assertTrue(svc.delete_image_log(legacy_key))
-        self.assertEqual(svc.get_image_logs(), [])
 
     def test_delete_endpoint(self):
         import api.routers.images as images_router

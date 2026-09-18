@@ -29,18 +29,6 @@ def _posix_rel(path: Path, base: Path) -> str:
     return path.relative_to(base).as_posix()
 
 
-def _image_log_matches(entry: dict, log_id: str) -> bool:
-    if not isinstance(entry, dict):
-        return False
-    if entry.get("id") == log_id:
-        return True
-    # Legacy entries predate ids: match the timestamp+path composite.
-    if not entry.get("id"):
-        legacy = f"{entry.get('timestamp', '')}||{entry.get('path', '')}"
-        return legacy == log_id
-    return False
-
-
 # Image assets live alongside documents as first-class workspace resources:
 # Markdown stores `![alt](assets/<file> "caption")`, bytes live on disk.
 ALLOWED_IMAGE_EXTS = {"png", "jpg", "jpeg", "webp", "gif"}
@@ -138,6 +126,7 @@ class FileStorageService:
             "image_model": "",
             "image_default_style": None,
             "image_custom_styles": [],
+            "image_style_overrides": {},
             "image_comfy_text_workflow": None,
             "image_comfy_text_prompt_map": None,
             "image_comfy_text_seed_map": None,
@@ -543,11 +532,11 @@ class FileStorageService:
             pass
 
     def delete_image_log(self, log_id: str) -> bool:
-        """Delete one image log entry by id. Entries written before ids
-        existed match on their timestamp+path composite instead."""
+        """Delete one image log entry by id."""
         path = self._image_logs_path()
         logs = self.get_image_logs()
-        kept = [e for e in logs if not _image_log_matches(e, log_id)]
+        kept = [e for e in logs
+                if not (isinstance(e, dict) and e.get("id") == log_id)]
         if len(kept) == len(logs):
             return False
         try:
