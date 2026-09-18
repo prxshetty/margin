@@ -171,6 +171,10 @@ export function WritingBubbleMenu() {
     const [instruction, setInstruction] = useState('')
     const [isStreaming, setIsStreaming] = useState(false)
     const inputRef = useRef<HTMLInputElement>(null)
+    // Range the rewrite input was opened for. The bubble never unmounts
+    // (TipTap only hides it), so without this a dismissed rewrite session
+    // would still be showing on the next selection.
+    const rewriteRangeRef = useRef<{ from: number; to: number } | null>(null)
 
     // ── Add to Margin ─────────────────────────────────────────────────────────
     const handleAddToMargin = useCallback(() => {
@@ -187,8 +191,9 @@ export function WritingBubbleMenu() {
     const handleRewriteClick = useCallback(() => {
         setMode('rewrite')
         setInstruction('')
+        rewriteRangeRef.current = selectionRange ? { ...selectionRange } : null
         setTimeout(() => inputRef.current?.focus(), 30)
-    }, [])
+    }, [selectionRange])
 
     // ── Generate image from selection ───────────────────────────────────────
     // Selection is context/prompt only — never deleted. The dialog inserts
@@ -207,7 +212,23 @@ export function WritingBubbleMenu() {
     const handleCancel = useCallback(() => {
         setMode('default')
         setInstruction('')
+        rewriteRangeRef.current = null
     }, [])
+
+    // A rewrite session belongs to the selection it was opened for. If the
+    // selection is cleared or moves elsewhere (user clicked away and
+    // reselected), drop back to the default bubble instead of showing a
+    // stale input. Never fires mid-stream.
+    useEffect(() => {
+        if (mode !== 'rewrite' || isStreaming) return
+        const active = rewriteRangeRef.current
+        const cur = selectionRange
+        if (!cur || !active || cur.from !== active.from || cur.to !== active.to) {
+            setMode('default')
+            setInstruction('')
+            rewriteRangeRef.current = null
+        }
+    }, [mode, isStreaming, selectionRange])
 
     // ── Fire rewrite ──────────────────────────────────────────────────────────
     const handleRewriteSubmit = useCallback(async () => {
@@ -262,6 +283,7 @@ export function WritingBubbleMenu() {
             setIsStreaming(false)
             setMode('default')
             setInstruction('')
+            rewriteRangeRef.current = null
         }
     }, [selectedText, selectionRange, isStreaming, instruction, content, editor, harness])
 
