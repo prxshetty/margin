@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { X, Plus, Trash2, CheckCircle, Play, Edit, Brain, ChevronRight, ChevronDown, Folder, FolderOpen, Pin, EyeOff, Eye } from 'lucide-react'
+import { X, Plus, Trash2, CheckCircle, Play, Edit, Brain, ChevronRight, ChevronDown, Folder, FolderOpen, Pin, EyeOff, Eye, Pencil, RotateCcw } from 'lucide-react'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useEditorStore } from '../stores/editorStore'
 import type { AppSettings } from '../stores/settingsStore'
@@ -116,20 +116,20 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
           <div className="w-[180px] border-r border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-4 flex flex-col gap-1">
             <TabButton active={activeTab === 'general'} onClick={() => setActiveTab('general')} label="General" />
             <TabButton active={activeTab === 'appearance'} onClick={() => setActiveTab('appearance')} label="Appearance" />
+            <TabButton active={activeTab === 'images'} onClick={() => setActiveTab('images')} label="Images" />
             <TabButton active={activeTab === 'context'} onClick={() => setActiveTab('context')} label="Context" />
             <TabButton active={activeTab === 'endpoints'} onClick={() => setActiveTab('endpoints')} label="Endpoints" />
-            <TabButton active={activeTab === 'harnesses'} onClick={() => setActiveTab('harnesses')} label="Harnesses" />
-            <TabButton active={activeTab === 'images'} onClick={() => setActiveTab('images')} label="Images" />
+            <TabButton active={activeTab === 'harnesses'} onClick={() => setActiveTab('harnesses')} label="Harness" />
           </div>
 
           {/* Content Area */}
           <div className="flex-1 p-8 overflow-y-auto bg-[var(--bg)] text-[var(--text)]">
             {activeTab === 'general' && <GeneralSettings settings={settings} updateSettings={updateSettings} />}
             {activeTab === 'appearance' && <AppearanceSettings settings={settings} updateSettings={updateSettings} />}
+            {activeTab === 'images' && <ImagesSettings settings={settings} updateSettings={updateSettings} />}
             {activeTab === 'context' && <ContextSettings settings={settings} updateSettings={updateSettings} availableFiles={availableFiles} />}
             {activeTab === 'endpoints' && <EndpointsSettings settings={settings} updateSettings={updateSettings} />}
             {activeTab === 'harnesses' && <HarnessesSettings settings={settings} updateSettings={updateSettings} />}
-            {activeTab === 'images' && <ImagesSettings settings={settings} updateSettings={updateSettings} />}
           </div>
         </div>
       </div>
@@ -1151,7 +1151,7 @@ function ComfySlotSection({
   const pickedSeed = savedSeedMap ? `${savedSeedMap.nodeId}:${savedSeedMap.input}` : ''
 
   // Non-blocking warning: a LoadImage node in the text slot means plain
-  // Generate will hit ComfyUI validation on the stale default file.
+  // Imagine will hit ComfyUI validation on the stale default file.
   const hasLoader =
     (candidates || []).some((c) => c.classType === 'LoadImage') ||
     (imageCandidates || []).some((c) => c.classType === 'LoadImage') ||
@@ -1279,18 +1279,22 @@ function ComfySlotSection({
     })
   }
 
-  const title = slot === 'text' ? 'Text-to-image workflow' : 'Edit / regeneration workflow'
+  const title = slot === 'text' ? 'Text-to-image workflow' : 'Image edit workflow'
   const blurb = slot === 'text'
-    ? 'Used by Generate. Margin fills in the prompt input you pick below.'
-    : 'Used by Regenerate. Margin uploads the existing image and fills in both inputs below.'
+    ? 'Used by Imagine — Margin fills in the prompt input you map.'
+    : 'Used by Imagine again — Margin uploads the existing image and fills in both inputs.'
 
   return (
-    <div className="mt-3 rounded-[6px] border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-3">
-      <div className="text-[12px] font-medium text-[var(--text-heading)]">{title}</div>
-      <p className="text-[11px] text-[var(--text-secondary)] mt-0.5 mb-2">
-        Import your workflow exported as <strong>API format</strong> (not graph format).
-        Margin keeps your workflow untouched and {blurb}
-        v1 uses the first returned image.
+    <div className="rounded-[8px] border border-[var(--border-subtle)] bg-[var(--bg)] p-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-[12px] font-medium text-[var(--text-heading)]">{title}</div>
+        {savedWorkflow && (
+          <span className="text-[10.5px] text-[var(--text-muted)] shrink-0">{savedNodeCount} nodes</span>
+        )}
+      </div>
+      <p className="text-[11px] text-[var(--text-secondary)] mt-0.5">
+        {blurb} Import as <strong>API format</strong> (not graph format) —
+        Margin never edits your workflow and uses the first returned image.
       </p>
       <input
         ref={fileRef}
@@ -1299,93 +1303,94 @@ function ComfySlotSection({
         className="hidden"
         onChange={(e) => void handleFile(e.target.files?.[0])}
       />
-      <div className="flex items-center gap-2 flex-wrap">
+      <div className="flex items-center gap-2 mt-2">
         <button
           onClick={() => fileRef.current?.click()}
           disabled={busy}
-          className="px-3 py-1.5 text-[12px] bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[4px] hover:border-[var(--text-secondary)] transition-colors disabled:opacity-50 cursor-pointer text-[var(--text)]"
+          className="px-3 py-1.5 text-[12px] bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[6px] hover:border-[var(--text-secondary)] transition-colors disabled:opacity-50 cursor-pointer text-[var(--text)]"
         >
           {busy ? 'Analyzing…' : savedWorkflow ? 'Re-import workflow…' : 'Import workflow.json…'}
         </button>
         {savedWorkflow && (
-          <span className="text-[11px] text-[var(--text-secondary)]">
-            {savedNodeCount} nodes{savedMap ? ` · prompt → Node ${savedMap.nodeId} / ${savedMap.input}` : ' · no prompt input picked yet'}{savedImageMap ? ` · image → Node ${savedImageMap.nodeId} / ${savedImageMap.input}` : ''}
-          </span>
-        )}
-        {savedWorkflow && (
-          <button onClick={handleClear} className="px-2 py-1 text-[11px] text-[var(--text-secondary)] hover:text-red-500 border border-[var(--border-subtle)] rounded-[4px] cursor-pointer">
+          <button onClick={handleClear} className="px-2 py-1 text-[11px] text-[var(--text-muted)] hover:text-red-500 transition-colors cursor-pointer">
             Clear
           </button>
         )}
       </div>
       {importError && <p className="text-[11px] text-red-500 mt-2">{importError}</p>}
       {(options.length > 0 || nodeCount != null) && (
-        <div className="mt-2">
-          <label className="block text-[12px] font-medium text-[var(--text-secondary)] mb-1">
-            Prompt input{nodeCount != null ? ` (${nodeCount} nodes)` : ''}
-          </label>
-          <select
-            value={picked}
-            onChange={(e) => handlePick(e.target.value)}
-            className="w-full border border-[var(--border-subtle)] rounded-[6px] px-3 py-2 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]"
-          >
-            <option value="">Pick the positive-prompt input…</option>
-            {options.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-          <p className="text-[10.5px] text-[var(--text-muted)] mt-1">
-            Likely prompt fields are listed first — confirm the right one for your workflow.
-          </p>
-          {slot === 'text' && hasLoader && (
-            <p className="text-[11px] text-amber-600 mt-1">
-              This workflow contains an image loader — plain Generate may fail
-              validation on its default file. Prefer a text-only workflow here,
-              or use the edit slot below for image inputs.
-            </p>
-          )}
-        </div>
+        <ComfyMappingField
+          label={`Prompt input${nodeCount != null ? ` · ${nodeCount} nodes` : ''}`}
+          tag="required"
+          value={picked}
+          placeholder="Pick the positive-prompt input…"
+          options={options}
+          hint="Ranked by likelihood — confirm the right one for your workflow."
+          onPick={handlePick}
+        />
+      )}
+      {slot === 'text' && hasLoader && (options.length > 0 || nodeCount != null) && (
+        <p className="text-[11px] text-amber-600 mt-1">
+          This workflow contains an image loader — plain Imagine may fail
+          validation on its default file. Prefer a text-only workflow here,
+          or use the edit slot below for image inputs.
+        </p>
       )}
       {slot === 'edit' && (refOptions.length > 0 || nodeCount != null) && (
-        <div className="mt-2">
-          <label className="block text-[12px] font-medium text-[var(--text-secondary)] mb-1">
-            Reference image input (required)
-          </label>
-          <select
-            value={pickedImage}
-            onChange={(e) => handlePickImage(e.target.value)}
-            className="w-full border border-[var(--border-subtle)] rounded-[6px] px-3 py-2 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]"
-          >
-            <option value="">Pick the LoadImage input…</option>
-            {refOptions.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-          <p className="text-[10.5px] text-[var(--text-muted)] mt-1">
-            Required: without it the edit workflow can't accept the image Margin sends.
-            Margin uploads the existing image automatically — nothing to upload by hand.
-          </p>
-        </div>
+        <ComfyMappingField
+          label="Reference image input"
+          tag="required"
+          value={pickedImage}
+          placeholder="Pick the LoadImage input…"
+          options={refOptions}
+          hint="Margin uploads the existing image automatically — nothing to upload by hand."
+          onPick={handlePickImage}
+        />
       )}
       {(seedOptions.length > 0 || nodeCount != null) && (
-        <div className="mt-2">
-          <label className="block text-[12px] font-medium text-[var(--text-secondary)] mb-1">
-            Seed input (optional)
-          </label>
-          <select
-            value={pickedSeed}
-            onChange={(e) => handlePickSeed(e.target.value)}
-            className="w-full border border-[var(--border-subtle)] rounded-[6px] px-3 py-2 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]"
-          >
-            <option value="">No seed mapping (reuse saved value)</option>
-            {seedOptions.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-          <p className="text-[10.5px] text-[var(--text-muted)] mt-1">
-            Randomized every run — your saved value is never changed.
-          </p>
-        </div>
+        <ComfyMappingField
+          label="Seed input"
+          tag="optional"
+          value={pickedSeed}
+          placeholder="No seed mapping (reuse saved value)"
+          options={seedOptions}
+          hint="Randomized every run — your saved value is never changed."
+          onPick={handlePickSeed}
+        />
+      )}
+    </div>
+  )
+}
+
+function ComfyMappingField({ label, tag, value, placeholder, options, hint, onPick }: {
+  label: string
+  tag?: 'required' | 'optional'
+  value: string
+  placeholder: string
+  options: { value: string; label: string }[]
+  hint?: string
+  onPick: (value: string) => void
+}) {
+  return (
+    <div className="mt-3">
+      <div className="flex items-baseline justify-between gap-2 mb-1">
+        <label className="text-[12px] font-medium text-[var(--text-secondary)]">{label}</label>
+        {tag && (
+          <span className="text-[10px] uppercase tracking-wider text-[var(--text-muted)] shrink-0">{tag}</span>
+        )}
+      </div>
+      <select
+        value={value}
+        onChange={(e) => onPick(e.target.value)}
+        className="w-full border border-[var(--border-subtle)] rounded-[6px] px-3 py-2 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]"
+      >
+        <option value="">{placeholder}</option>
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+      </select>
+      {hint && (
+        <p className="text-[10.5px] text-[var(--text-muted)] mt-1">{hint}</p>
       )}
     </div>
   )
@@ -1399,7 +1404,27 @@ function ImagesSettings({ settings, updateSettings }: { settings: AppSettings, u
   const [editingPrompt, setEditingPrompt] = useState('')
   const customs = settings.image_custom_styles || []
   const defaultStyle = settings.image_default_style ?? 'None'
+  const deletedStyles = settings.image_deleted_styles || []
   const isComfy = (settings.image_provider || 'openai-compatible') === 'comfyui'
+
+  const handleDeleteStyle = (name: string, builtin: boolean) => {
+    const updates: Partial<AppSettings> = {}
+    if (builtin) {
+      // None can never be deleted; built-ins hide (restorable below) and
+      // drop any override so a restore returns the shipped text.
+      if (name === 'None' || deletedStyles.some((n) => n.toLowerCase() === name.toLowerCase())) return
+      updates.image_deleted_styles = [...deletedStyles, name]
+      if (settings.image_style_overrides?.[name] !== undefined) {
+        const next = { ...settings.image_style_overrides }
+        delete next[name]
+        updates.image_style_overrides = next
+      }
+    } else {
+      updates.image_custom_styles = customs.filter((x) => x.name !== name)
+    }
+    if (defaultStyle === name) updates.image_default_style = null
+    updateSettings(updates)
+  }
 
   // Shipped prompt text for built-ins (customized overrides come from settings).
   useEffect(() => {
@@ -1439,15 +1464,20 @@ function ImagesSettings({ settings, updateSettings }: { settings: AppSettings, u
     setTimeout(() => setTestResult({ status: 'idle' }), 5000)
   }
 
-  const allStyleNames = [...IMAGE_BUILTIN_STYLES, ...customs.map((c) => c.name)]
+  const allStyleNames = [
+    ...IMAGE_BUILTIN_STYLES.filter((n) => !deletedStyles.some((d) => d.toLowerCase() === n.toLowerCase())),
+    ...customs.map((c) => c.name),
+  ]
+  const deletedBuiltins = IMAGE_BUILTIN_STYLES.filter(
+    (n) => n !== 'None' && deletedStyles.some((d) => d.toLowerCase() === n.toLowerCase()),
+  )
 
   return (
     <div className="flex flex-col gap-8">
       <section>
         <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Image Generation</h3>
         <p className="text-[12px] text-[var(--text-secondary)] mb-3">
-          Default provider for Generate image and Regenerate. ComfyUI runs your own
-          imported workflow on your local instance — Margin only fills in the prompt.
+          Default provider for Imagine and Imagine again.
         </p>
         <label className="block text-[12px] font-medium text-[var(--text-secondary)] mb-1">Default provider</label>
         <select
@@ -1466,19 +1496,8 @@ function ImagesSettings({ settings, updateSettings }: { settings: AppSettings, u
           ))}
         </select>
         <div className="grid grid-cols-1 gap-3 mt-3">
-          {isGemini ? (
-            <>
-              <input
-                placeholder="Base URL (default: https://generativelanguage.googleapis.com/v1beta)"
-                value={settings.image_base_url || ''}
-                onChange={(e) => updateSettings({ image_base_url: e.target.value })}
-                className="border border-[var(--border-subtle)] rounded-[6px] px-3 py-2 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]"
-              />
-              <p className="text-[11px] text-[var(--text-muted)]">
-                Uses Google's Gemini API directly — leave the base URL empty unless you use a proxy. Get a key at AI Studio.
-              </p>
-            </>
-          ) : (
+          {/* Gemini always uses Google's default endpoint — no URL to configure. */}
+          {!isGemini && (
             <input
               placeholder={isComfy ? 'ComfyUI URL (e.g. http://127.0.0.1:8188)' : 'Base URL (e.g. https://api.openai.com)'}
               value={settings.image_base_url || ''}
@@ -1504,14 +1523,8 @@ function ImagesSettings({ settings, updateSettings }: { settings: AppSettings, u
             </>
           )}
         </div>
-        {isComfy && (
-          <>
-            <ComfySlotSection slot="text" settings={settings} updateSettings={updateSettings} />
-            <ComfySlotSection slot="edit" settings={settings} updateSettings={updateSettings} />
-          </>
-        )}
         <div className="flex items-center gap-2 mt-3">
-          <button onClick={handleTest} disabled={testResult.status === 'testing'} className="px-3 py-1.5 text-[12px] bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[4px] hover:border-[var(--text-secondary)] transition-colors disabled:opacity-50 cursor-pointer text-[var(--text)]">
+          <button onClick={handleTest} disabled={testResult.status === 'testing'} className="px-3 py-1.5 text-[12px] bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[6px] hover:border-[var(--text-secondary)] transition-colors disabled:opacity-50 cursor-pointer text-[var(--text)]">
             {testResult.status === 'testing' ? 'Testing...' : 'Test provider'}
           </button>
           {testResult.status === 'success' && <span className="text-[11px] text-[var(--text-accent)]">{testResult.msg}</span>}
@@ -1519,14 +1532,26 @@ function ImagesSettings({ settings, updateSettings }: { settings: AppSettings, u
         </div>
       </section>
 
+      {isComfy && (
+        <section>
+          <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">ComfyUI Workflows</h3>
+          <p className="text-[12px] text-[var(--text-secondary)] mb-3">
+            Your own workflows running on your local instance — one that dreams
+            up new images, one that reworks an existing image.
+          </p>
+          <div className="flex flex-col gap-3">
+            <ComfySlotSection slot="text" settings={settings} updateSettings={updateSettings} />
+            <ComfySlotSection slot="edit" settings={settings} updateSettings={updateSettings} />
+          </div>
+        </section>
+      )}
+
       <section>
         <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Styles</h3>
         <p className="text-[12px] text-[var(--text-secondary)] mb-3">
-          Every style shows its name and prompt. Built-ins can be customized too —
-          editing one saves an override; Reset restores the shipped text. The generation
-          dialog only selects from this list.
+          Extra direction appended to the image prompt for the style you pick.
         </p>
-        <div className="flex flex-col gap-2 mb-3">
+        <div className="border border-[var(--border-subtle)] rounded-[8px] divide-y divide-[var(--border-subtle)] mb-3">
           {allStyleNames.map((name) => {
             const custom = customs.find((c) => c.name === name)
             const isBuiltin = !custom
@@ -1539,13 +1564,14 @@ function ImagesSettings({ settings, updateSettings }: { settings: AppSettings, u
                   ?? builtinPrompts?.[name] ?? null)
               : (custom?.prompt ?? '')
             const isEditing = editingName === name
+            const isDefault = (defaultStyle ?? 'None') === name
             return (
-              <div key={name} className="border border-[var(--border-subtle)] rounded-[6px] p-2">
+              <div key={name} className="px-2.5 py-2 group">
                 <div className="flex items-center gap-2">
                   <input
                     type="radio"
                     name="image_default_style"
-                    checked={(defaultStyle ?? 'None') === name}
+                    checked={isDefault}
                     onChange={() => updateSettings({ image_default_style: name === 'None' ? null : name })}
                     className="accent-[var(--accent-brown)] shrink-0"
                     title="Use as default style"
@@ -1553,50 +1579,59 @@ function ImagesSettings({ settings, updateSettings }: { settings: AppSettings, u
                   <div className="flex-1 min-w-0">
                     <div className="text-[12.5px] font-medium text-[var(--text-heading)] truncate">
                       {name}
-                      {isBuiltin && name !== 'None' && (
+                      {isDefault ? (
                         <span className="ml-1.5 text-[10px] font-normal text-[var(--text-muted)]">
-                          built-in{overridden ? ' · customized' : ''}
+                          · default
                         </span>
-                      )}
+                      ) : overridden ? (
+                        <span className="ml-1.5 text-[10px] font-normal text-[var(--text-muted)]">
+                          · customized
+                        </span>
+                      ) : null}
                     </div>
                     {!isEditing && (
-                      <div className="text-[11px] text-[var(--text-secondary)] break-words">
+                      <div
+                        className="text-[11px] text-[var(--text-muted)] truncate"
+                        title={name === 'None' ? 'No style suffix — nothing is appended.' : (prompt || undefined)}
+                      >
                         {name === 'None' ? 'No style suffix — nothing is appended.' : (prompt || '—')}
                       </div>
                     )}
                   </div>
-                  {name !== 'None' && !isEditing && (
-                    <button
-                      onClick={() => { setEditingName(name); setEditingPrompt(prompt ?? '') }}
-                      className="px-2 py-1 text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-heading)] border border-[var(--border-subtle)] rounded-[4px] cursor-pointer shrink-0"
-                    >
-                      Edit
-                    </button>
-                  )}
-                  {overridden && !isEditing && (
-                    <button
-                      onClick={() => {
-                        const next = { ...(settings.image_style_overrides || {}) }
-                        delete next[name]
-                        updateSettings({ image_style_overrides: next })
-                      }}
-                      className="px-2 py-1 text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-heading)] border border-[var(--border-subtle)] rounded-[4px] cursor-pointer shrink-0"
-                    >
-                      Reset
-                    </button>
-                  )}
-                  {!isBuiltin && !isEditing && (
-                    <button
-                      onClick={() => {
-                        const next = customs.filter((x) => x.name !== name)
-                        const updates: Partial<AppSettings> = { image_custom_styles: next }
-                        if (defaultStyle === name) updates.image_default_style = null
-                        updateSettings(updates)
-                      }}
-                      className="px-2 py-1 text-[11px] text-[var(--text-secondary)] hover:text-red-500 border border-[var(--border-subtle)] rounded-[4px] cursor-pointer shrink-0"
-                    >
-                      Delete
-                    </button>
+                  {!isEditing && (
+                    <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {name !== 'None' && (
+                        <button
+                          onClick={() => { setEditingName(name); setEditingPrompt(prompt ?? '') }}
+                          title={`Edit ${name}`}
+                          className="flex items-center justify-center w-6 h-6 text-[var(--text-secondary)]/60 hover:text-[var(--text-heading)] hover:bg-[var(--bg-hover)] rounded-[4px] transition-all cursor-pointer"
+                        >
+                          <Pencil className="w-3 h-3" strokeWidth={2} />
+                        </button>
+                      )}
+                      {overridden && (
+                        <button
+                          onClick={() => {
+                            const next = { ...(settings.image_style_overrides || {}) }
+                            delete next[name]
+                            updateSettings({ image_style_overrides: next })
+                          }}
+                          title="Restore shipped text"
+                          className="flex items-center justify-center w-6 h-6 text-[var(--text-secondary)]/60 hover:text-[var(--text-heading)] hover:bg-[var(--bg-hover)] rounded-[4px] transition-all cursor-pointer"
+                        >
+                          <RotateCcw className="w-3 h-3" strokeWidth={2} />
+                        </button>
+                      )}
+                      {name !== 'None' && (
+                        <button
+                          onClick={() => handleDeleteStyle(name, isBuiltin)}
+                          title={`Delete ${name}`}
+                          className="flex items-center justify-center w-6 h-6 text-[var(--text-secondary)]/60 hover:text-red-500 hover:bg-[var(--bg-hover)] rounded-[4px] transition-all cursor-pointer"
+                        >
+                          <Trash2 className="w-3 h-3" strokeWidth={2} />
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
                 {isEditing && (
@@ -1605,7 +1640,7 @@ function ImagesSettings({ settings, updateSettings }: { settings: AppSettings, u
                       value={editingPrompt}
                       onChange={(e) => setEditingPrompt(e.target.value)}
                       rows={2}
-                      className="w-full border border-[var(--border-subtle)] rounded-[4px] px-2.5 py-1.5 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)] resize-y"
+                      className="w-full border border-[var(--border-subtle)] rounded-[6px] px-2.5 py-1.5 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)] resize-y"
                     />
                     <div className="flex gap-2">
                       <button
@@ -1626,13 +1661,13 @@ function ImagesSettings({ settings, updateSettings }: { settings: AppSettings, u
                           setEditingName(null)
                         }}
                         disabled={!editingPrompt.trim()}
-                        className="px-3 py-1 text-[11px] bg-[var(--accent-brown)] text-[var(--text-inverse)] rounded-[4px] hover:bg-[var(--accent-brown-hover)] transition-colors disabled:opacity-50 cursor-pointer"
+                        className="px-3 py-1 text-[11px] bg-[var(--accent-brown)] text-[var(--text-inverse)] rounded-[6px] hover:bg-[var(--accent-brown-hover)] transition-colors disabled:opacity-50 cursor-pointer"
                       >
                         Save
                       </button>
                       <button
                         onClick={() => setEditingName(null)}
-                        className="px-3 py-1 text-[11px] bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[4px] hover:border-[var(--text-secondary)] transition-colors cursor-pointer text-[var(--text)]"
+                        className="px-3 py-1 text-[11px] bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[6px] hover:border-[var(--text-secondary)] transition-colors cursor-pointer text-[var(--text)]"
                       >
                         Cancel
                       </button>
@@ -1643,21 +1678,45 @@ function ImagesSettings({ settings, updateSettings }: { settings: AppSettings, u
             )
           })}
         </div>
+        {deletedBuiltins.length > 0 && (
+          <p className="text-[11px] text-[var(--text-muted)] mb-2">
+            {deletedBuiltins.map((n, i) => (
+              <span key={n}>
+                {i > 0 && ' · '}
+                <button
+                  onClick={() => updateSettings({ image_deleted_styles: deletedStyles.filter((d) => d.toLowerCase() !== n.toLowerCase()) })}
+                  className="hover:text-[var(--text-heading)] underline underline-offset-2 cursor-pointer transition-colors"
+                >
+                  Restore {n}
+                </button>
+              </span>
+            ))}
+          </p>
+        )}
         {customs.length === 0 && (
           <p className="text-[12px] text-[var(--text-muted)] mb-2">No custom styles yet.</p>
         )}
-        <div className="flex flex-col gap-2 bg-[var(--bg-elevated)] p-3 rounded-[6px] border border-[var(--border-subtle)]">
+        <div className="flex flex-col gap-2 rounded-[8px] border border-[var(--border-subtle)] p-3">
           <input
             placeholder="Name (e.g. Fantasy)"
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
-            className="border border-[var(--border-subtle)] rounded-[4px] px-3 py-1.5 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]"
+            className="border border-[var(--border-subtle)] rounded-[6px] px-3 py-1.5 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]"
           />
           <input
             placeholder="Style prompt (appended to the generation prompt)"
             value={newPrompt}
             onChange={(e) => setNewPrompt(e.target.value)}
-            className="border border-[var(--border-subtle)] rounded-[4px] px-3 py-1.5 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && newName.trim() && newPrompt.trim()) {
+                const name = newName.trim()
+                if (allStyleNames.some((n) => n.toLowerCase() === name.toLowerCase())) return
+                updateSettings({ image_custom_styles: [...customs, { name, prompt: newPrompt.trim() }] })
+                setNewName('')
+                setNewPrompt('')
+              }
+            }}
+            className="border border-[var(--border-subtle)] rounded-[6px] px-3 py-1.5 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]"
           />
           <button
             onClick={() => {
@@ -1669,7 +1728,7 @@ function ImagesSettings({ settings, updateSettings }: { settings: AppSettings, u
               setNewPrompt('')
             }}
             disabled={!newName.trim() || !newPrompt.trim()}
-            className="self-start px-3 py-1.5 text-[12px] bg-[var(--accent-brown)] text-[var(--text-inverse)] rounded-[4px] hover:bg-[var(--accent-brown-hover)] transition-colors disabled:opacity-50 cursor-pointer"
+            className="self-start px-3 py-1.5 text-[12px] bg-[var(--accent-brown)] text-[var(--text-inverse)] rounded-[6px] hover:bg-[var(--accent-brown-hover)] transition-colors disabled:opacity-50 cursor-pointer"
           >
             Add style
           </button>

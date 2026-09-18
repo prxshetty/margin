@@ -1,8 +1,10 @@
+import type { ComponentType } from 'react'
 import type { Editor } from '@tiptap/core'
-import { ImagePlus, Sparkles, type LucideIcon } from 'lucide-react'
 import { insertStoredImage, uploadImageFile } from '../../lib/media'
 import { useEditorStore } from '../../stores/editorStore'
 import { useImageGenStore } from '../../stores/imageGenStore'
+import { toast } from '../../stores/toastStore'
+import { ImagineIcon, UploadIcon } from './brandIcons'
 
 export interface SlashCtx {
   editor: Editor
@@ -13,7 +15,7 @@ export interface SlashItem {
   id: string
   label: string
   hint: string
-  icon: LucideIcon
+  icon: ComponentType<{ className?: string }>
   keywords: string
   run: (ctx: SlashCtx) => void
 }
@@ -38,7 +40,7 @@ function pickAndUpload(editor: Editor) {
         }
         insertStoredImage(editor, path, file.name.replace(/\.[^.]+$/, ''))
       } catch (err) {
-        window.alert(`Image upload failed: ${err instanceof Error ? err.message : err}`)
+        toast.error(`Image upload failed: ${err instanceof Error ? err.message : err}`)
       }
     }
   }
@@ -51,22 +53,20 @@ function pickAndUpload(editor: Editor) {
 // already import via the paste path, so no URL mode is needed.
 export const ITEMS: SlashItem[] = [
   {
-    id: 'upload', label: 'Upload image', hint: 'Save to workspace assets', icon: ImagePlus, keywords: 'upload image picture photo asset file',
+    id: 'upload', label: 'Upload image', hint: 'PNG · JPG · GIF · WebP', icon: UploadIcon, keywords: 'upload image picture photo asset file png jpg gif webp',
     run: ({ editor, range }) => {
       editor.chain().focus().deleteRange(range).run()
       pickAndUpload(editor)
     },
   },
   {
-    id: 'generate', label: 'Generate image', hint: 'AI create from prompt', icon: Sparkles, keywords: 'generate imagine create picture ai art',
+    id: 'generate', label: 'Imagine', hint: 'Image from words', icon: ImagineIcon, keywords: 'generate imagine create picture ai art',
     run: ({ editor, range }) => {
       editor.chain().focus().deleteRange(range).run()
       const anchor = editor.state.selection.to
       useImageGenStore.getState().openDialog({
         initialPrompt: '',
-        referenceSrc: null,
         anchorPos: anchor,
-        regenNodePos: null,
       })
     },
   },

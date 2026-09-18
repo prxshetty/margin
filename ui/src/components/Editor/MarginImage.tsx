@@ -3,10 +3,11 @@ import type { PointerEvent as ReactPointerEvent } from 'react'
 import Image from '@tiptap/extension-image'
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
 import type { NodeViewProps } from '@tiptap/core'
-import { AlignCenter, AlignLeft, AlignRight, RotateCcw, Sparkles } from 'lucide-react'
-import { toDisplaySrc } from '../../lib/media'
-import { useImageGenStore } from '../../stores/imageGenStore'
+import { AlignCenter, AlignLeft, AlignRight, Pencil, ChevronsUpDown } from 'lucide-react'
+import { generateImage, toDisplaySrc } from '../../lib/media'
 import { useSettingsStore } from '../../stores/settingsStore'
+import { imageStyleOptions } from './ImageGenerateDialog'
+import { toast } from '../../stores/toastStore'
 import { parseImageMarkdown, serializeImageMarkdown, splitAltDims } from '../../lib/imageMarkdown'
 import type { ImageAlign } from '../../lib/imageMarkdown'
 
@@ -81,6 +82,7 @@ function MarginImageView({ editor, node, selected, updateAttributes, deleteNode,
   const height = numOrNull(node.attrs.height)
   const align = (node.attrs.align ?? null) as ImageAlign | null
   const storedCaption: string = node.attrs.title ?? ''
+  const liveSettings = useSettingsStore((s) => s.settings)
   const [captionDraft, setCaptionDraft] = useState(storedCaption)
   // The caption field only renders when a caption exists or the user
   // explicitly asked for one via the affordance below. Auto-showing it on
@@ -96,6 +98,18 @@ function MarginImageView({ editor, node, selected, updateAttributes, deleteNode,
   // (no broken logo) and caption, and keep the source visible as an
   // editable, hyperlink-styled path so the user can fix it.
   const [broken, setBroken] = useState(false)
+  // "Imagine again" request in flight — pill shows the Rewrite-style
+  // shimmer and controls are disabled until the swap lands or fails.
+  const [regenerating, setRegenerating] = useState(false)
+  // Pencil morphs the pill into a Rewrite-style input bar: the user
+  // describes the change they want, and empty never submits.
+  // The style pill only appears in the expanded (vertical) view.
+  const [editing, setEditing] = useState(false)
+  const [editPrompt, setEditPrompt] = useState('')
+  const [editStyle, setEditStyle] = useState('None')
+  const [editExpanded, setEditExpanded] = useState(false)
+  const editInputRef = useRef<HTMLInputElement>(null)
+  const editAreaRef = useRef<HTMLTextAreaElement>(null)
 
   // External updates (doc switch, AI edits) flow back into the drafts.
   useEffect(() => {
@@ -116,6 +130,14 @@ function MarginImageView({ editor, node, selected, updateAttributes, deleteNode,
   useEffect(() => {
     if (!selected && !storedCaption) setCaptionEditing(false)
   }, [selected, storedCaption])
+  // Deselecting closes the Imagine-again bar (never mid-flight).
+  useEffect(() => {
+    if (!selected && !regenerating) {
+      setEditing(false)
+      setEditExpanded(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected])
   // Opening the field via the affordance focuses it for immediate typing.
   useEffect(() => {
     if (captionEditing) captionRef.current?.focus()
@@ -146,6 +168,64 @@ function MarginImageView({ editor, node, selected, updateAttributes, deleteNode,
       height: parsed.height,
       align: parsed.align,
     })
+  }
+
+  // ── Imagine again (Rewrite-style input, required prompt) ──────────
+  // Pencil morphs the pill into an input bar that starts empty — the
+  // user describes the change they want, and empty never submits.
+  // The old image stays in place if generation fails.
+  const openImagineAgain = () => {
+    if (regenerating) return
+    const settings = useSettingsStore.getState().settings
+    setEditPrompt('')
+    const options = imageStyleOptions(settings?.image_custom_styles, settings?.image_deleted_styles)
+    const def = settings?.image_default_style ?? 'None'
+    setEditStyle(
+      options.find((o) => o.toLowerCase() === String(def).toLowerCase()) ?? 'None',
+    )
+    setEditing(true)
+    setEditExpanded(false)
+    setTimeout(() => editInputRef.current?.focus(), 30)
+  }
+
+  const cancelImagineAgain = () => {
+    if (regenerating) return
+    setEditing(false)
+    setEditExpanded(false)
+  }
+
+  const submitImagineAgain = async () => {
+    const prompt = editPrompt.trim()
+    if (regenerating || !prompt) return
+    setRegenerating(true)
+    try {
+      const { path } = await generateImage({
+        prompt,
+        styleName: editStyle === 'None' ? null : editStyle,
+        referencePath: src,
+      })
+      if (editor.isDestroyed) return
+      const targetSrc = src
+      let foundPos: number | null = null
+      editor.state.doc.descendants((node, pos) => {
+        if (node.type.name === 'image' && node.attrs.src === targetSrc) {
+          foundPos = pos
+          return false
+        }
+        return true
+      })
+      if (foundPos == null) {
+        console.warn('Margin: reference image no longer in doc — dropping regeneration')
+        return
+      }
+      editor.chain().focus().setNodeSelection(foundPos).updateAttributes('image', { src: path }).run()
+      setEditing(false)
+    } catch (err) {
+      console.error('Imagine again failed:', err)
+      toast.error(`Could not imagine another version: ${err instanceof Error ? err.message : 'Unknown error'}`)
+    } finally {
+      setRegenerating(false)
+    }
   }
 
   // ── Drag-to-resize ──────────────────────────────────────────────
@@ -340,63 +420,169 @@ function MarginImageView({ editor, node, selected, updateAttributes, deleteNode,
               />
             ))}
             {showChrome && (
-              <div className="margin-image__controls" onMouseDown={(e) => e.stopPropagation()}>
-                <button
-                  type="button"
-                  title="Reset to natural size"
-                  aria-label="Reset image to natural size"
-                  className="margin-image__btn"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => updateAttributes({ width: null, height: null })}
-                >
-                  <RotateCcw className="margin-image__btn-icon" />
-                </button>
-                <span className="margin-image__divider" />
-                {alignButtons.map(({ value, title, Icon }) => (
-                  <button
-                    key={value}
-                    type="button"
-                    title={title}
-                    aria-label={title}
-                    aria-pressed={align === value}
-                    className={`margin-image__btn${align === value ? ' margin-image__btn--active' : ''}`}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => updateAttributes({ align: align === value ? null : value })}
-                  >
-                    <Icon className="margin-image__btn-icon" />
-                  </button>
-                ))}
-                <span className="margin-image__divider" />
-                <button
-                  type="button"
-                  title="Regenerate image"
-                  aria-label="Regenerate image"
-                  className="margin-image__btn"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => {
-                    const pos = typeof getPos === 'function' ? getPos() : null
-                    // Prefill with the edit workflow's saved prompt text so the
-                    // user edits the real description (overwrite on submit is
-                    // unchanged). Falls back to alt, then empty.
-                    const settings = useSettingsStore.getState().settings
-                    const editWf = settings?.image_comfy_edit_workflow
-                    const editMap = settings?.image_comfy_edit_prompt_map
-                    const savedPrompt =
-                      editWf && editMap
-                        ? (editWf[editMap.nodeId]?.inputs?.[editMap.input] as unknown)
-                        : null
-                    useImageGenStore.getState().openDialog({
-                      initialPrompt: typeof savedPrompt === 'string' && savedPrompt.trim()
-                        ? savedPrompt.slice(0, 2000)
-                        : (alt ?? '').slice(0, 2000),
-                      referenceSrc: src,
-                      anchorPos: null,
-                      regenNodePos: typeof pos === 'number' ? pos : null,
-                    })
-                  }}
-                >
-                  <Sparkles className="margin-image__btn-icon" />
-                </button>
+              <div
+                className={`margin-image__controls${editing && editExpanded ? ' margin-image__controls--expanded' : ''}`}
+                style={editing && !editExpanded ? { minWidth: 264 } : undefined}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                {regenerating && (
+                  <div className="absolute inset-0 rounded-[8px] z-50 pointer-events-none">
+                    <div className="absolute inset-0 rounded-[8px] animate-spin-border" />
+                  </div>
+                )}
+                {editing ? (
+                  // ── Imagine-again input bar (Rewrite-style) ────────────
+                  // Collapsed: bare prompt + expand + send. Expanded stacks
+                  // the prompt on top with style + actions in the footer.
+                  editExpanded ? (
+                    <>
+                      <textarea
+                        ref={editAreaRef}
+                        rows={4}
+                        value={editPrompt}
+                        onChange={(e) => setEditPrompt(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape') {
+                            e.preventDefault()
+                            cancelImagineAgain()
+                          } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                            e.preventDefault()
+                            void submitImagineAgain()
+                          }
+                          e.stopPropagation()
+                        }}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        disabled={regenerating}
+                        placeholder="Describe changes"
+                        spellCheck={false}
+                        aria-label="Describe image changes"
+                        className="w-full bg-transparent text-[11.5px] leading-relaxed text-[var(--text-heading)] placeholder:text-[var(--text-muted)] outline-none px-1 resize-none disabled:opacity-60"
+                      />
+                      <div className="margin-image__controls-footer">
+                        <select
+                          value={editStyle}
+                          onChange={(e) => setEditStyle(e.target.value)}
+                          disabled={regenerating}
+                          title="Style"
+                          aria-label="Image style"
+                          onMouseDown={(e) => e.stopPropagation()}
+                          className="shrink-0 max-w-[120px] truncate px-1.5 py-0.5 text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-heading)] bg-transparent hover:bg-[var(--bg-hover)] rounded-full outline-none cursor-pointer disabled:opacity-60"
+                        >
+                          {imageStyleOptions(liveSettings?.image_custom_styles, liveSettings?.image_deleted_styles).map((n) => (
+                            <option key={n} value={n}>{n}</option>
+                          ))}
+                        </select>
+                        <div className="margin-image__controls-actions">
+                          <button
+                            type="button"
+                            title="Single line"
+                            aria-label="Collapse image prompt"
+                            className="margin-image__btn"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              setEditExpanded(false)
+                              setTimeout(() => editInputRef.current?.focus(), 30)
+                            }}
+                          >
+                            <ChevronsUpDown className="margin-image__btn-icon" />
+                          </button>
+                          <button
+                            type="button"
+                            title="Imagine again"
+                            aria-label="Imagine again"
+                            disabled={regenerating || !editPrompt.trim()}
+                            className="flex items-center justify-center w-6 h-6 text-[var(--accent-brown)] hover:text-[var(--accent-brown-hover)] hover:bg-[var(--bg-hover)] rounded-[5px] transition-colors cursor-pointer shrink-0 disabled:opacity-40"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => void submitImagineAgain()}
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className={`w-3.5 h-3.5 ${regenerating ? 'opacity-30' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M5 12h14M12 5l7 7-7 7" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <input
+                        ref={editInputRef}
+                        value={editPrompt}
+                        onChange={(e) => setEditPrompt(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault()
+                            void submitImagineAgain()
+                          } else if (e.key === 'Escape') {
+                            e.preventDefault()
+                            cancelImagineAgain()
+                          }
+                          e.stopPropagation()
+                        }}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        disabled={regenerating}
+                        placeholder="Describe changes"
+                        spellCheck={false}
+                        aria-label="Describe image changes"
+                        className="flex-1 bg-transparent text-[11.5px] text-[var(--text-heading)] placeholder:text-[var(--text-muted)] outline-none px-1 min-w-0 disabled:opacity-60"
+                      />
+                      <button
+                        type="button"
+                        title="Expand"
+                        aria-label="Expand image prompt"
+                        className="margin-image__btn"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          setEditExpanded(true)
+                          setTimeout(() => editAreaRef.current?.focus(), 30)
+                        }}
+                      >
+                        <ChevronsUpDown className="margin-image__btn-icon" />
+                      </button>
+                      <button
+                        type="button"
+                        title="Imagine again"
+                        aria-label="Imagine again"
+                        disabled={regenerating || !editPrompt.trim()}
+                        className="flex items-center justify-center w-6 h-6 text-[var(--accent-brown)] hover:text-[var(--accent-brown-hover)] hover:bg-[var(--bg-hover)] rounded-[5px] transition-colors cursor-pointer shrink-0 disabled:opacity-40"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => void submitImagineAgain()}
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className={`w-3.5 h-3.5 ${regenerating ? 'opacity-30' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M5 12h14M12 5l7 7-7 7" />
+                        </svg>
+                      </button>
+                    </>
+                  )
+                ) : (
+                  <>
+                    {alignButtons.map(({ value, title, Icon }) => (
+                      <button
+                        key={value}
+                        type="button"
+                        title={title}
+                        aria-label={title}
+                        aria-pressed={align === value}
+                        className={`margin-image__btn${align === value ? ' margin-image__btn--active' : ''}`}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => updateAttributes({ align: align === value ? null : value })}
+                      >
+                        <Icon className="margin-image__btn-icon" />
+                      </button>
+                    ))}
+                    <span className="margin-image__divider" />
+                    <button
+                      type="button"
+                      title="Imagine again"
+                      aria-label="Imagine again"
+                      disabled={regenerating}
+                      className="margin-image__btn disabled:opacity-40"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={openImagineAgain}
+                    >
+                      <Pencil className={`margin-image__btn-icon${regenerating ? ' opacity-30' : ''}`} />
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </div>

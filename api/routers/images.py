@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 
 from api.services.file_storage import storage
 from api.services.image_providers import (
-    EMPTY_REGEN_PROMPT,
     compose_final_prompt,
     extract_comfy_image_candidates,
     extract_comfy_seed_candidates,
@@ -91,8 +90,10 @@ def generate_image(req: GenerateImageRequest):
     prompt = (req.prompt or "").strip()
     ref_path = (req.reference_path or "").strip() or None
 
-    if not prompt and not ref_path:
-        raise HTTPException(status_code=400, detail="Prompt is required for text-to-image")
+    # Every entry point requires typed content — empty prompts are always
+    # a client error, never silently expanded server-side.
+    if not prompt:
+        raise HTTPException(status_code=400, detail="Prompt is required")
 
     settings = storage.get_settings()
 
@@ -113,8 +114,7 @@ def generate_image(req: GenerateImageRequest):
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Could not read reference image: {e}")
 
-    effective_prompt = prompt or EMPTY_REGEN_PROMPT
-    final_prompt = compose_final_prompt(effective_prompt, style_prompt)
+    final_prompt = compose_final_prompt(prompt, style_prompt)
 
     try:
         provider = get_image_provider(settings)

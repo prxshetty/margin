@@ -153,7 +153,7 @@ Image files live in your workspace's `assets/` folder and travel with it — int
 Interact with an image by selecting it:
 
 - **Resize** by dragging the edge dots; the size is remembered with the document. Hold **Shift** while dragging a corner dot to keep the original aspect ratio.
-- **Align** left, center, or right, or **reset** to natural size from the small toolbar.
+- **Align** left, center, or right from the small pill toolbar.
 - **Caption** it with the *Add a caption…* line underneath the image — it appears when the image is selected. Captions travel with the image.
 - **Edit the source** (`![alt](assets/... "caption")`) directly if you prefer writing Markdown by hand.
 
@@ -163,20 +163,20 @@ If an image breaks (renamed, moved, or deleted file), margin shows a placeholder
 
 ### AI image generation
 
-Besides uploading, margin can generate images from a prompt and regenerate existing ones. There are three operations and nothing else:
+Besides uploading, margin can imagine images from words. There are three operations and nothing else:
 
 - **Upload** — file or URL into `assets/`, as above.
-- **Generate** — prompt (plus an optional style) into a new image under `assets/generated/`, inserted at your cursor.
-- **Regenerate** — an existing image plus a prompt into a *new* file under `assets/generated/`; only the reference changes, so **undo restores the previous image** and old versions stay on disk.
+- **Imagine** — a prompt (plus an optional style) into a new image under `assets/generated/`, inserted at your cursor.
+- **Imagine again** — an existing image plus your change description into a *new* file under `assets/generated/`; only the reference changes, so **undo restores the previous image** and old versions stay on disk.
 
 Entry points:
 
-- Type `/` and pick **Generate image** for free-form generation.
-- Select text and click **Generate** in the bubble menu — the selection becomes the starting prompt (your text is never deleted).
-- Select an image and click **Regenerate** (✨) in its toolbar — the current image becomes the reference. Type your edit ("make the suit blue") over the prefilled prompt and submit. The dialog closes itself on success.
+- Type `/` and pick **Imagine** for free-form generation.
+- Select text and click **Imagine** in the bubble menu — the selection becomes the starting prompt (your text is never deleted). Expand the bar for a larger prompt and the style picker.
+- Select an image and click the pencil (✎) in its pill — the current image becomes the reference. Describe the change ("make the suit blue") and submit; empty never submits.
 
-Providers live in **Settings → Images**. Margin supports OpenAI-compatible endpoints, Stability, FAL, Google Gemini, and local ComfyUI — the editor never cares which one produced the image. Use **Test provider** after configuring. For ComfyUI, import your own API-format workflows into two slots: a **text-to-image workflow** for Generate and an **edit workflow** (with a `LoadImage` input) for Regenerate. Each slot also accepts an optional **seed mapping** so every run gets a fresh random seed; without one, the workflow's saved seed is reused verbatim. Your workflows are never modified — margin overlays prompt, reference, and seed onto a per-run copy.
+Providers live in **Settings → Images**. Margin supports OpenAI-compatible endpoints, Stability, FAL, Google Gemini, and local ComfyUI — the editor never cares which one produced the image. Use **Test provider** after configuring. For ComfyUI, import your own API-format workflows into two slots under **ComfyUI Workflows**: a **text-to-image workflow** for Imagine and an **image edit workflow** (with a `LoadImage` input) for Imagine again. Each slot also accepts an optional **seed mapping** so every run gets a fresh random seed; without one, the workflow's saved seed is reused verbatim. Your workflows are never modified — margin overlays prompt, reference, and seed onto a per-run copy.
 
-**Styles** append a suffix to your prompt. The shipped styles (`Cinematic`, `Illustration`) show their prompt text and can be customized with an override (Reset restores the original); add your own under Custom styles. `None` always means no suffix. The dialog only ever selects — all editing happens in Settings.
+**Styles** append extra direction to your prompt for the style you pick. The shipped styles (`Cinematic`, `Illustration`) can be edited, hidden (Restore brings them back), or reset to their shipped text; add your own below the list. `None` can never be deleted and always means no suffix.
 
 Every run is recorded under **History → Images** in the assistant sidebar (newest first, refetch on open): thumbnail, prompt, timestamp, seed, and provider. Click any entry for the full details — input and output images, submitted prompt, paths — plus Copy prompt and Open-folder actions. Delete individual entries with the hover × button, like chat sessions. Generation history lives in your workspace's `outputs/image_logs/` folder, per workspace like everything else.

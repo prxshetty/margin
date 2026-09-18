@@ -71,7 +71,7 @@ export function ImageDetailPopup({ log, onClose }: { log: ImageLogEntry; onClose
             <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
               {log.timestamp ? new Date(log.timestamp).toLocaleString() : ''}
               {log.provider ? ` · ${log.provider}` : ''}
-              {log.reference_path ? ' · regenerate' : ''}
+              {log.reference_path ? ' · imagined again' : ''}
             </p>
           </div>
           <button

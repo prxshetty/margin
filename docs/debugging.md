@@ -76,15 +76,15 @@ Only explicitly pasted/imported image URLs are downloaded into `assets/`. An ima
 
 ### Image looks too large after import
 
-New images render at natural size bounded by the editor width. Select the image and drag a handle (or reset) to persist a smaller width.
+New images render at natural size bounded by the editor width. Select the image and drag a handle to persist a smaller width.
 
 ### Image generation fails
 
 - **"Prompt is required" / unknown style / missing reference** — your request or style selection is wrong. Check the prompt and Settings → Images → Styles.
 - **"API key rejected", "not configured", stale mapping warnings** — your provider configuration is wrong. Re-check Settings → Images and use **Test provider**; for ComfyUI, re-import the workflow if you changed it (mappings go stale when nodes are renamed).
 - **Anything else (timeouts, execution failures, bad responses)** — the provider itself failed. Check the provider is reachable (local ComfyUI running? service status page?) and try again.
-- **Regenerate changed more than expected** — the full prompt in the dialog is what gets submitted. The prefilled text is your starting point; a bare instruction ("make it blue") gives the model little to anchor on, so results vary more. Keep the descriptive parts and edit the rest.
-- **Every regeneration looks oddly similar** — your workflow's saved seed is being reused. Register a seed mapping in Settings → Images so each run gets a fresh random seed; the submitted seed is recorded in History → Images.
+- **Imagine again changed more than expected** — only your typed change description plus the style is submitted alongside the reference image. A bare instruction ("make it blue") gives the model little to anchor on, so results vary more — describe the change relative to the current image.
+- **Every Imagine again looks oddly similar** — your workflow's saved seed is being reused. Register a seed mapping in Settings → Images so each run gets a fresh random seed; the submitted seed is recorded in History → Images.
 
 ### Generation history
 

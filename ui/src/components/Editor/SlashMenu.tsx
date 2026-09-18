@@ -37,12 +37,25 @@ export const SlashMenuView = forwardRef<SlashMenuHandle, SlashMenuProps>(
     const [active, setActive] = useState(0)
     const listRef = useRef<HTMLDivElement>(null)
 
-    const filtered = ITEMS.filter((item) =>
-      query
-        .split(/\s+/)
-        .filter(Boolean)
-        .every((w) => `${item.label} ${item.keywords}`.toLowerCase().includes(w)),
-    )
+    // Two-tier word-prefix matching (Notion/Raycast-style). Tier 1: every
+    // typed word starts the label itself (`/i` → Imagine, not Upload via
+    // its second word "image"). Tier 2 (fallback): any label/keyword word
+    // (`/pic` → Upload via "picture", `/gen` → Imagine via "generate").
+    const words = query
+      .split(/\s+/)
+      .filter(Boolean)
+    const labelWords = (s: string) => s.toLowerCase().split(/[\s_]+/)
+    const byLabelStart = ITEMS.filter((item) => {
+      const first = labelWords(item.label)[0] ?? ''
+      return words.every((w) => first.startsWith(w))
+    })
+    const byAnywhere = ITEMS.filter((item) => {
+      const haystack = [...labelWords(item.label), ...labelWords(item.keywords)]
+      return words.every((w) => haystack.some((h) => h.startsWith(w)))
+    })
+    const filtered = words.length === 0
+      ? ITEMS
+      : byLabelStart.length > 0 ? byLabelStart : byAnywhere
 
     useEffect(() => {
       setActive(0)

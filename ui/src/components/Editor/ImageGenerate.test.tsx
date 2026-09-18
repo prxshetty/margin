@@ -60,17 +60,17 @@ function imagePos(editor: EditorType): number {
 }
 
 describe('slash menu image entries', () => {
-  it('exposes Upload + Generate image', () => {
+  it('exposes Upload + Imagine', () => {
     const ids = ITEMS.map((i) => i.id)
     expect(ids).toContain('upload')
     expect(ids).toContain('generate')
     const gen = ITEMS.find((i) => i.id === 'generate')!
-    expect(gen.label).toMatch(/Generate image/)
+    expect(gen.label).toMatch(/Imagine/)
     expect(`${gen.label} ${gen.keywords}`.toLowerCase()).toContain('imagine')
   })
 })
 
-describe('regeneration src-only swap', () => {
+describe('imagine-again src-only swap', () => {
   it('changes only src, preserving width/height/align/caption', () => {
     const editor = createEditor()
     editor.commands.setContent('![Cabin|640](assets/generated/a.png "cap"){align=right}')

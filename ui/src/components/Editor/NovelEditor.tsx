@@ -22,6 +22,7 @@ import {
   uploadImageFile,
 } from '../../lib/media'
 import { EditorState } from '@tiptap/pm/state'
+import { toast } from '../../stores/toastStore'
 
 interface SlashState {
   query: string
@@ -35,7 +36,7 @@ async function handleImageFiles(editor: Editor, files: File[]): Promise<void> {
       const path = await uploadImageFile(file)
       insertStoredImage(editor, path, file.name.replace(/\.[^.]+$/, ''))
     } catch (err) {
-      window.alert(`Image upload failed: ${err instanceof Error ? err.message : err}`)
+      toast.error(`Image upload failed: ${err instanceof Error ? err.message : err}`)
     }
   }
 }
@@ -110,7 +111,18 @@ export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: bool
 
   const editor = useEditor({
     extensions: [
-      StarterKit,
+      StarterKit.configure({
+        // Links open in a new tab (never a redirect away from the editor),
+        // and clicking them while editing places the cursor instead of
+        // navigating — use Cmd/Ctrl+Click to follow.
+        link: {
+          openOnClick: false,
+          HTMLAttributes: {
+            target: '_blank',
+            rel: 'noopener noreferrer',
+          },
+        },
+      }),
       MarginImage,
       Markdown.configure({ html: false, tightLists: true }),
       AiDiffHighlightExtension,
@@ -156,6 +168,18 @@ export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: bool
       handleKeyDown: (_view, event) => {
         if (slashRef.current?.onKeyDown(event)) return true
         return false
+      },
+      // Plain clicks on links only place the cursor (openOnClick is off).
+      // Cmd/Ctrl+Click follows the link in a new tab instead, opened
+      // exactly as stored.
+      handleClick: (_view, _pos, event) => {
+        if (!event.metaKey && !event.ctrlKey) return false
+        const anchor = (event.target as HTMLElement | null)?.closest?.('a[href]')
+        const href = anchor?.getAttribute('href')
+        if (!anchor || !href) return false
+        event.preventDefault()
+        window.open(href, '_blank', 'noopener,noreferrer')
+        return true
       },
       handlePaste: (_view, event) => {
         const editor = editorRef.current

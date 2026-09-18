@@ -126,6 +126,7 @@ class FileStorageService:
             "image_model": "",
             "image_default_style": None,
             "image_custom_styles": [],
+            "image_deleted_styles": [],
             "image_style_overrides": {},
             "image_comfy_text_workflow": None,
             "image_comfy_text_prompt_map": None,

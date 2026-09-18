@@ -49,8 +49,6 @@ BUILTIN_STYLES: Dict[str, Optional[str]] = {
 #: a workflow + prompt mapping is configured — never silently broken.
 SELECTABLE_PROVIDERS = ("openai-compatible", "stability", "fal", "gemini", "comfyui")
 
-EMPTY_REGEN_PROMPT = "Create another version of this image."
-
 
 def _style_overrides(settings: Dict[str, Any]) -> Dict[str, str]:
     raw = settings.get("image_style_overrides") or {}

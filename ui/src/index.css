@@ -706,11 +706,48 @@ body {
   font-family: var(--font-editor-heading);
   color: var(--text-heading);
   font-weight: 600;
+  line-height: 1.25;
   margin: 1.5em 0 0.5em;
+}
+
+/* Tailwind's preflight resets all headings to inherit — without explicit
+   sizes every level renders at body size. em-based so each text style
+   keeps its own scale. */
+.prose h1 {
+  font-size: 1.7em;
+  letter-spacing: -0.01em;
+}
+
+.prose h2 {
+  font-size: 1.4em;
+  letter-spacing: -0.01em;
+}
+
+.prose h3 {
+  font-size: 1.15em;
+}
+
+.prose h4 {
+  font-size: 1em;
 }
 
 .prose strong {
   color: var(--text-heading);
+}
+
+/* Links read as links: theme accent + underline. (Preflight strips the
+   default blue/underline, which made hyperlinked words look like
+   plain text.) */
+.prose a {
+  color: var(--text-accent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.prose a:hover {
+  text-decoration-thickness: 2px;
 }
 
 .prose ul, .prose ol {
@@ -860,9 +897,11 @@ body {
   cursor: nesw-resize;
 }
 
-/* Selected-state mini controls: reset + alignment. Floated over the
+/* Selected-state mini pill: alignment + Imagine again. Floated over the
    image's bottom center so the bar stays glued to the image through
-   resizes and alignment flips instead of drifting with the layout. */
+   resizes and alignment flips instead of drifting with the layout.
+   Tokens mirror the text bubble exactly (WritingBubbleMenu pill): solid
+   elevated bg, subtle border, 8px radius, same shadow and padding. */
 .margin-image__controls {
   position: absolute;
   bottom: 8px;
@@ -871,13 +910,11 @@ body {
   display: flex;
   align-items: center;
   gap: 2px;
-  background: color-mix(in srgb, var(--bg-elevated) 88%, transparent);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  background: var(--bg-elevated);
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
-  padding: 2px 4px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  padding: 4px 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
   z-index: 3;
   white-space: nowrap;
 }
@@ -913,6 +950,29 @@ body {
   height: 14px;
   background: var(--border-subtle);
   margin: 0 2px;
+}
+
+/* Expanded Imagine-again bar: prompt stacks on top, quiet footer
+   (style left, expand + send right) below. Same surface tokens. */
+.margin-image__controls--expanded {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  min-width: 280px;
+  padding: 8px;
+}
+
+.margin-image__controls-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.margin-image__controls-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 
 .margin-image__caption {
@@ -983,11 +1043,11 @@ body {
 /* ── Slash menu ──────────────────────── */
 
 .slash-menu {
-  width: 15rem;
+  width: 12rem;
   background: var(--bg-elevated);
   border: 1px solid var(--border-subtle);
-  border-radius: 10px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
   overflow: hidden;
 }
 
@@ -1006,10 +1066,10 @@ body {
 .slash-menu__item {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
-  padding: 7px 9px;
-  border-radius: 7px;
+  padding: 6px 8px;
+  border-radius: 6px;
   cursor: pointer;
   text-align: left;
 }

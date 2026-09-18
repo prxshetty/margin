@@ -174,24 +174,16 @@ class TestGenerateEndpoint(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertTrue(r.json()["path"].startswith("assets/generated/"))
 
-    def test_empty_prompt_with_reference_regenerates(self):
+    def test_empty_prompt_with_reference_400(self):
         svc = _storage()
         ref = svc.save_generated_bytes(PNG)["path"]
         c = _client()
-        seen = {}
+        import api.routers.images as images_router
 
-        class P(FakeProvider):
-            def generate(self, prompt, reference_bytes=None):
-                seen["prompt"] = prompt
-                seen["ref"] = reference_bytes
-                return ip.GeneratedImage(data=PNG, mime_type="image/png")
-
-        r = _patched_post(c, svc, {"prompt": "", "reference_path": ref}, P())
-        self.assertEqual(r.status_code, 200, r.text)
-        # Style suffix depends on ambient user settings — assert the regen
-        # prefix only.
-        self.assertTrue(seen["prompt"].startswith(ip.EMPTY_REGEN_PROMPT))
-        self.assertIsNotNone(seen["ref"])
+        with patch.object(images_router, "storage", svc):
+            r = c.post("/api/images/generate",
+                       json={"prompt": "", "reference_path": ref})
+        self.assertEqual(r.status_code, 400)
 
     def test_unknown_style_400(self):
         svc = _storage()

@@ -1,14 +1,10 @@
 import { create } from 'zustand'
 
 export interface ImageGenDialogState {
-  /** Initial prompt (selection / alt / empty). */
+  /** Initial prompt (empty for the slash entry). */
   initialPrompt: string
-  /** Existing asset path when regenerating; null for fresh generates. */
-  referenceSrc: string | null
-  /** Document position anchor for fresh inserts (selection end / cursor). */
+  /** Document position anchor for the insert (cursor). */
   anchorPos: number | null
-  /** Node position for src-only regen swaps. */
-  regenNodePos: number | null
 }
 
 interface ImageGenStore {
