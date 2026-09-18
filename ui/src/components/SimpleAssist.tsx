@@ -534,14 +534,16 @@ export function SimpleAssist() {
   const handleHistoryOpen = () => {
     const opening = !showHistoryDropdown
     setShowHistoryDropdown(opening)
-    if (opening && historyView === 'images' && imageLogs === null) {
+    // Always refetch images on open — a generation may have landed since.
+    if (opening && historyView === 'images') {
       void fetchImageLogs()
     }
   }
 
   const handleHistoryViewChange = (view: 'chats' | 'images') => {
     setHistoryView(view)
-    if (view === 'images' && imageLogs === null) {
+    // Always refetch on tab switch — never show a stale cached list.
+    if (view === 'images') {
       void fetchImageLogs()
     }
   }
