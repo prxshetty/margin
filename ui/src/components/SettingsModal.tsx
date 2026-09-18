@@ -1452,7 +1452,13 @@ function ImagesSettings({ settings, updateSettings }: { settings: AppSettings, u
         <label className="block text-[12px] font-medium text-[var(--text-secondary)] mb-1">Default provider</label>
         <select
           value={settings.image_provider || 'openai-compatible'}
-          onChange={(e) => updateSettings({ image_provider: e.target.value })}
+          onChange={(e) => updateSettings({
+            image_provider: e.target.value,
+            // A base URL is never valid across providers (OpenAI endpoint vs
+            // ComfyUI instance vs Gemini override), so drop the stale value
+            // instead of sending the new provider to the old address.
+            image_base_url: '',
+          })}
           className="border border-[var(--border-subtle)] rounded-[6px] px-3 py-2 text-[13px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)] transition-colors w-[240px]"
         >
           {IMAGE_PROVIDERS.map((p) => (
