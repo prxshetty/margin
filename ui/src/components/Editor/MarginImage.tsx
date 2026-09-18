@@ -69,6 +69,7 @@ interface ResizeDrag {
   startY: number
   startW: number
   startH: number
+  ratio: number
   maxW: number
   w: number | null
   h: number | null
@@ -81,6 +82,12 @@ function MarginImageView({ editor, node, selected, updateAttributes, deleteNode,
   const align = (node.attrs.align ?? null) as ImageAlign | null
   const storedCaption: string = node.attrs.title ?? ''
   const [captionDraft, setCaptionDraft] = useState(storedCaption)
+  // The caption field only renders when a caption exists or the user
+  // explicitly asked for one via the affordance below. Auto-showing it on
+  // every selection trapped clicks just below the image inside the input,
+  // so clicking out couldn't deselect the node.
+  const [captionEditing, setCaptionEditing] = useState(false)
+  const captionRef = useRef<HTMLInputElement>(null)
   const sourceText = serializeImageMarkdown(
     alt ?? '', src, storedCaption || null, width, height, align,
   )
@@ -104,6 +111,15 @@ function MarginImageView({ editor, node, selected, updateAttributes, deleteNode,
     setBroken(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [src])
+  // Deselecting with no caption collapses the field again so the space
+  // below the image stays a plain click-out target next time.
+  useEffect(() => {
+    if (!selected && !storedCaption) setCaptionEditing(false)
+  }, [selected, storedCaption])
+  // Opening the field via the affordance focuses it for immediate typing.
+  useEffect(() => {
+    if (captionEditing) captionRef.current?.focus()
+  }, [captionEditing])
 
   const commitCaption = () => {
     const next = captionDraft.trim()
@@ -144,12 +160,15 @@ function MarginImageView({ editor, node, selected, updateAttributes, deleteNode,
     const img = imgRef.current
     if (!img) return
     const maxW = measureMaxWidth(img)
+    const startW = (width ?? img.clientWidth) || img.naturalWidth || maxW
+    const startH = (height ?? img.clientHeight) || img.naturalHeight || maxW
     dragRef.current = {
       mode,
       startX: e.clientX,
       startY: e.clientY,
-      startW: (width ?? img.clientWidth) || img.naturalWidth || maxW,
-      startH: (height ?? img.clientHeight) || img.naturalHeight || maxW,
+      startW,
+      startH,
+      ratio: startH > 0 ? startW / startH : 1,
       maxW,
       w: null,
       h: null,
@@ -174,8 +193,32 @@ function MarginImageView({ editor, node, selected, updateAttributes, deleteNode,
     if (d.mode === 'e' || d.mode === 'se') w = d.startW + dx * fx
     if (d.mode === 'w' || d.mode === 'sw') w = d.startW - dx * fx
     if (d.mode === 's' || d.mode === 'se' || d.mode === 'sw') h = d.startH + dy
+    // Shift-drag on a corner locks the starting aspect ratio. The dominant
+    // axis (larger proportional change) drives so both rightward and
+    // downward drags feel exact, and toggling Shift mid-drag just works.
+    // Height is intentionally NOT capped at the editor width here: for
+    // portrait ratios h grows faster than w, and pulling h back to maxW
+    // (plus recomputing w from it) is what caused the visible snap.
+    const locked = e.shiftKey && (d.mode === 'se' || d.mode === 'sw') && d.ratio > 0
+    if (locked) {
+      const scaleW = d.startW > 0 ? w / d.startW : 1
+      const scaleH = d.startH > 0 ? h / d.startH : 1
+      if (Math.abs(scaleW - 1) >= Math.abs(scaleH - 1)) {
+        h = w / d.ratio
+      } else {
+        w = h * d.ratio
+      }
+      // Re-clamp while preserving the ratio: fit w to the editor width,
+      // then only floor h (growing w with it) — never cap h at maxW.
+      w = Math.min(Math.max(w, MIN_SIZE), d.maxW)
+      h = w / d.ratio
+      if (h < MIN_SIZE) {
+        h = MIN_SIZE
+        w = h * d.ratio
+      }
+    }
     w = Math.round(Math.min(Math.max(w, MIN_SIZE), d.maxW))
-    h = Math.round(Math.min(Math.max(h, MIN_SIZE), d.maxW))
+    h = locked ? Math.round(Math.max(h, MIN_SIZE)) : Math.round(Math.min(Math.max(h, MIN_SIZE), d.maxW))
     img.style.width = `${w}px`
     img.style.height = `${h}px`
     d.w = w
@@ -357,11 +400,15 @@ function MarginImageView({ editor, node, selected, updateAttributes, deleteNode,
               </div>
             )}
           </div>
-          {(storedCaption || selected) && (
+          {(storedCaption || captionEditing) ? (
             <input
+              ref={captionRef}
               value={captionDraft}
               onChange={(e) => setCaptionDraft(e.target.value)}
-              onBlur={commitCaption}
+              onBlur={() => {
+                commitCaption()
+                if (!captionDraft.trim() && !storedCaption) setCaptionEditing(false)
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault()
@@ -369,6 +416,7 @@ function MarginImageView({ editor, node, selected, updateAttributes, deleteNode,
                 } else if (e.key === 'Escape') {
                   e.preventDefault()
                   setCaptionDraft(storedCaption)
+                  if (!storedCaption) setCaptionEditing(false)
                   ;(e.target as HTMLInputElement).blur()
                   editor.commands.focus()
                 }
@@ -379,6 +427,22 @@ function MarginImageView({ editor, node, selected, updateAttributes, deleteNode,
               aria-label="Image caption"
               className="margin-image__caption"
             />
+          ) : (
+            // Explicit affordance, not an input: a real <input> here would
+            // trap clicks just below the image and prevent deselecting.
+            // This button is only mounted while selected, so empty space
+            // around it still drops the selection.
+            selected && !broken && (
+              <button
+                type="button"
+                aria-label="Add image caption"
+                className="margin-image__caption-placeholder"
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={() => setCaptionEditing(true)}
+              >
+                Add a caption…
+              </button>
+            )
           )}
         </div>
       )}

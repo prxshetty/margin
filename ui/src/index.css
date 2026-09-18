@@ -753,11 +753,20 @@ body {
 /* ── Margin image node ───────────────── */
 
 .margin-image {
-  margin: 1.25em 0;
+  margin: 1.25em 0 1.75em;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 0.35em;
+  cursor: default;
+}
+
+/* Click-out affordance: the strip between this node and the next paragraph
+   is ProseMirror space (text cursor), not part of the image — the larger
+   bottom margin above keeps that target easy to hit. Inside the node the
+   cursor stays default so selected vs. text space reads clearly. */
+.ProseMirror {
+  cursor: text;
 }
 
 /* Alignment follows the persisted `{align=…}` suffix; unset = default. */
@@ -927,6 +936,29 @@ body {
 
 .margin-image__caption:focus {
   color: var(--text-heading);
+}
+
+/* Caption affordance: a button (not an input) so clicks on it mean "add a
+   caption" while clicks on empty space around it still deselect the node. */
+.margin-image__caption-placeholder {
+  width: 100%;
+  max-width: 36em;
+  margin: 0 auto;
+  background: transparent;
+  border: none;
+  outline: none;
+  text-align: center;
+  font-size: 0.82em;
+  font-style: italic;
+  color: var(--text-muted);
+  opacity: 0.7;
+  padding: 0.1em 0.5em;
+  cursor: pointer;
+}
+
+.margin-image__caption-placeholder:hover {
+  opacity: 1;
+  color: var(--text-secondary);
 }
 
 .margin-image__source {

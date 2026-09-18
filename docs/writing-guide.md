@@ -152,9 +152,9 @@ Image files live in your workspace's `assets/` folder and travel with it — int
 
 Interact with an image by selecting it:
 
-- **Resize** by dragging the edge dots; the size is remembered with the document.
+- **Resize** by dragging the edge dots; the size is remembered with the document. Hold **Shift** while dragging a corner dot to keep the original aspect ratio.
 - **Align** left, center, or right, or **reset** to natural size from the small toolbar.
-- **Caption** it with the italic line underneath — captions travel with the image.
+- **Caption** it with the *Add a caption…* line underneath the image — it appears when the image is selected. Captions travel with the image.
 - **Edit the source** (`![alt](assets/... "caption")`) directly if you prefer writing Markdown by hand.
 
 Underneath, an image is just Markdown text, so it behaves like everything else you write: it survives copy/paste, undo, and git, and the AI reads the same reference you see.
