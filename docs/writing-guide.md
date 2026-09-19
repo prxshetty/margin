@@ -130,9 +130,11 @@ Custom folders don't need manifests -- the Planner auto-indexes any folder conte
 
 Your chapter or manuscript files go in a folder of your choice (commonly `chapters/`). The folder name is arbitrary — what matters is the `CHAPTERS.md` manifest that tells the Planner these are manuscript files.
 
+Links stay editable: clicking a link places the cursor so you can edit it, while ⌘/Ctrl+Click follows it in a new tab.
+
 ## Images
 
-Chapters can include images — maps, mood boards, character sketches, scene references. **Paste** an image or an image URL, **drag and drop** a file into the editor, or type `/image` and pick **Upload image** from the menu to choose a file from your device — margin files it into your workspace's `assets/` folder, no separate upload step, and no upload size limit. The `/` menu only appears at the start of an empty line.
+Chapters can include images — maps, mood boards, character sketches, scene references. **Paste** an image or an image URL, **drag and drop** a file into the editor, or type `/image` and pick **Upload image** from the menu to choose a file from your device — margin files it into your workspace's `assets/` folder, no separate upload step, and no upload size limit. The `/` menu only appears at the start of an empty line, and it filters as you type — prefix matching across names and keywords finds the action without scrolling.
 
 Pasted image URLs stay in your document as text, and margin saves a local copy into `assets/` for the actual image — your document never depends on the remote server afterwards.
 
@@ -152,11 +154,31 @@ Image files live in your workspace's `assets/` folder and travel with it — int
 
 Interact with an image by selecting it:
 
-- **Resize** by dragging the edge dots; the size is remembered with the document.
-- **Align** left, center, or right, or **reset** to natural size from the small toolbar.
-- **Caption** it with the italic line underneath — captions travel with the image.
+- **Resize** by dragging the edge dots; the size is remembered with the document. Hold **Shift** while dragging a corner dot to keep the original aspect ratio.
+- **Align** left, center, or right from the small pill toolbar.
+- **Caption** it with the *Add a caption…* line underneath the image — it appears when the image is selected. Captions travel with the image.
 - **Edit the source** (`![alt](assets/... "caption")`) directly if you prefer writing Markdown by hand.
 
 Underneath, an image is just Markdown text, so it behaves like everything else you write: it survives copy/paste, undo, and git, and the AI reads the same reference you see.
 
 If an image breaks (renamed, moved, or deleted file), margin shows a placeholder and leaves your text untouched — see [Debugging](./debugging.md#image-issues) for common fixes.
+
+### AI image generation
+
+Besides uploading, margin can imagine images from words. There are three operations and nothing else:
+
+- **Upload** — file or URL into `assets/`, as above.
+- **Imagine** — a prompt (plus an optional style) into a new image under `assets/generated/`, inserted at your cursor.
+- **Imagine again** — an existing image plus your change description into a *new* file under `assets/generated/`; only the reference changes, so **undo restores the previous image** and old versions stay on disk.
+
+Entry points:
+
+- Type `/` and pick **Imagine** for free-form generation.
+- Select text and click **Imagine** in the bubble menu — the selection becomes the starting prompt (your text is never deleted). Expand the bar for a larger prompt and the style picker.
+- Select an image and click the pencil (✎) in its pill — the current image becomes the reference. Describe the change ("make the suit blue") and submit; empty never submits.
+
+Providers live in **Settings → Images**. Margin supports OpenAI-compatible endpoints, Stability, FAL, Google Gemini, and local ComfyUI — the editor never cares which one produced the image. Use **Test provider** after configuring. For ComfyUI, import your own API-format workflows into two slots under **ComfyUI Workflows**: a **text-to-image workflow** for Imagine and an **image edit workflow** (with a `LoadImage` input) for Imagine again. Each slot also accepts an optional **seed mapping** so every run gets a fresh random seed; without one, the workflow's saved seed is reused verbatim. Your workflows are never modified — margin overlays prompt, reference, and seed onto a per-run copy.
+
+**Styles** append extra direction to your prompt for the style you pick. The shipped styles (`Cinematic`, `Illustration`) can be edited, hidden (Restore brings them back), or reset to their shipped text; add your own below the list. `None` can never be deleted and always means no suffix.
+
+Every run is recorded under **History → Images** in the assistant sidebar (newest first, refetch on open): thumbnail, prompt, timestamp, seed, and provider. Click any entry for the full details — input and output images, submitted prompt, paths — plus Copy prompt and Open-folder actions. Delete individual entries with the hover × button, like chat sessions. Generation history lives in your workspace's `outputs/image_logs/` folder, per workspace like everything else.

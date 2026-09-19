@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { FolderPlus, FileText, Loader, Check, Plus, Trash2, Pencil, FolderSync } from 'lucide-react'
 import { useEditorStore, type FileEntry } from '../stores/editorStore'
 import { useSettingsStore } from '../stores/settingsStore'
+import { toast } from '../stores/toastStore'
 import { API_BASE } from '../lib/api'
 
 interface FolderNode {
@@ -267,7 +268,7 @@ export function FileSidebar({
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
-        window.alert(`Failed to create file: ${err.detail || res.statusText}`)
+        toast.error(`Failed to create file: ${err.detail || res.statusText}`)
         return
       }
       const data = await res.json()
@@ -275,7 +276,7 @@ export function FileSidebar({
       setContent(data.content)
       setCurrentFilePath(data.path)
     } catch (err) {
-      window.alert(`Failed to create file: ${err instanceof Error ? err.message : 'Unknown error'}`)
+      toast.error(`Failed to create file: ${err instanceof Error ? err.message : 'Unknown error'}`)
     }
   }, [addFile, setContent, setCurrentFilePath])
 
@@ -294,13 +295,13 @@ export function FileSidebar({
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
-        window.alert(`Failed to create folder: ${err.detail || res.statusText}`)
+        toast.error(`Failed to create folder: ${err.detail || res.statusText}`)
         return
       }
       const data = await res.json()
       addFile({ name: data.name, path: data.path, content: data.content, originalContent: data.content })
     } catch (err) {
-      window.alert(`Failed to create folder: ${err instanceof Error ? err.message : 'Unknown error'}`)
+      toast.error(`Failed to create folder: ${err instanceof Error ? err.message : 'Unknown error'}`)
     }
   }, [addFile])
 
@@ -315,7 +316,7 @@ export function FileSidebar({
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
-        window.alert(`Failed to delete file: ${err.detail || res.statusText}`)
+        toast.error(`Failed to delete file: ${err.detail || res.statusText}`)
         return
       }
       removeFile(path)
@@ -324,7 +325,7 @@ export function FileSidebar({
         setCurrentFilePath(null)
       }
     } catch (err) {
-      window.alert(`Failed to delete file: ${err instanceof Error ? err.message : 'Unknown error'}`)
+      toast.error(`Failed to delete file: ${err instanceof Error ? err.message : 'Unknown error'}`)
     }
   }, [currentFilePath, removeFile, setContent, setCurrentFilePath])
 
@@ -343,7 +344,7 @@ export function FileSidebar({
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
-        window.alert(`Failed to rename: ${err.detail || res.statusText}`)
+        toast.error(`Failed to rename: ${err.detail || res.statusText}`)
         return
       }
       const data = await res.json()
@@ -357,7 +358,7 @@ export function FileSidebar({
         }
       }
     } catch (err) {
-      window.alert(`Failed to rename: ${err instanceof Error ? err.message : 'Unknown error'}`)
+      toast.error(`Failed to rename: ${err instanceof Error ? err.message : 'Unknown error'}`)
     }
   }, [removeFile, addFile, setCurrentFilePath])
 

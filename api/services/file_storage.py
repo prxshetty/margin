@@ -193,7 +193,24 @@ class FileStorageService:
             "text_style": "system",
             "editor_stats": "both",
             "planner_include_outline": False,
-            "history_turns": 5
+            "history_turns": 5,
+            "image_provider": "openai-compatible",
+            "image_base_url": "",
+            "image_api_key": "",
+            "image_model": "",
+            "image_default_style": None,
+            "image_custom_styles": [],
+            "image_deleted_styles": [],
+            "image_style_overrides": {},
+            "image_comfy_text_workflow": None,
+            "image_comfy_text_prompt_map": None,
+            "image_comfy_text_seed_map": None,
+            "image_comfy_edit_workflow": None,
+            "image_comfy_edit_prompt_map": None,
+            "image_comfy_edit_image_map": None,
+            "image_comfy_edit_seed_map": None,
+            # Reserved for a future negative-prompt mapping; v1 ignores it.
+            "image_comfy_negative_map": None,
         }
 
         if self.settings_path.exists():
@@ -388,6 +405,12 @@ class FileStorageService:
         d.mkdir(parents=True, exist_ok=True)
         return d
 
+    def generated_dir(self) -> Path:
+        """Workspace assets/generated/ folder (created on demand)."""
+        d = self._media_dir() / "generated"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
     def _media_resolve(self, rel_path: str) -> Path:
         """Strictly resolve a path inside workspace/assets/ (no traversal)."""
         cleaned = (rel_path or "").replace("\\", "/").strip()
@@ -459,6 +482,37 @@ class FileStorageService:
         ext = full.suffix.lower().lstrip(".")
         return full, EXT_TO_MIME.get(ext, "application/octet-stream")
 
+    def save_generated_bytes(self, data: bytes,
+                             content_type: str = "") -> Dict[str, str]:
+        """Persist provider-generated image bytes to assets/generated/.
+
+        Separate from the upload path on purpose: uploads slugify the
+        user's filename into assets/, while generations use opaque ids
+        (prompts are long, unicode, often duplicated — never filesystem
+        metadata). Never overwrites: uuid4 collision retries.
+        Validates magic bytes the same way uploads do.
+        """
+        import uuid
+
+        if not data:
+            raise ValueError("Empty file")
+        sniffed = _sniff_image_ext(data[:12])
+        if sniffed is None:
+            raise ValueError("Not a supported image (png, jpg, webp, gif)")
+        ext = "jpg" if sniffed in ("jpg", "jpeg") else sniffed
+        if content_type:
+            main = content_type.split(";")[0].strip().lower()
+            if main.startswith("image/") and main != EXT_TO_MIME[ext]:
+                pass  # bytes win, same as uploads
+        gen_dir = self.generated_dir()
+        for _ in range(5):
+            fname = f"{uuid.uuid4().hex}.{ext}"
+            target = gen_dir / fname
+            if not target.exists():
+                target.write_bytes(data)
+                return {"name": fname, "path": f"assets/generated/{fname}"}
+        raise ValueError("Could not allocate a generated asset name")
+
     def get_simple_ai_logs(self) -> list:
         logs_dir = self.outputs_dir / "ai_logs"
         all_logs = []
@@ -514,6 +568,58 @@ class FileStorageService:
         # A deleted Margin session must not resume a stale harness
         # conversation: drop the mapping too.
         self.clear_harness_session(session_id)
+
+    def _image_logs_path(self):
+        return self.outputs_dir / "image_logs" / "images.json"
+
+    def get_image_logs(self) -> list:
+        """Per-workspace image generation history (prompt, seed, asset).
+        Separate from chat ai_logs — different shape, different consumer."""
+        path = self._image_logs_path()
+        if not path.exists():
+            return []
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                logs = data if isinstance(data, list) else []
+        except Exception:
+            return []
+        logs.sort(key=lambda x: x.get("timestamp", ""))
+        return logs
+
+    def save_image_log(self, log_entry: dict) -> None:
+        import uuid
+
+        path = self._image_logs_path()
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+        logs = self.get_image_logs()
+        entry = dict(log_entry)
+        entry.setdefault("id", uuid.uuid4().hex)
+        logs.append(entry)
+        logs = logs[-100:]
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(logs, f, indent=2)
+        except Exception:
+            pass
+
+    def delete_image_log(self, log_id: str) -> bool:
+        """Delete one image log entry by id."""
+        path = self._image_logs_path()
+        logs = self.get_image_logs()
+        kept = [e for e in logs
+                if not (isinstance(e, dict) and e.get("id") == log_id)]
+        if len(kept) == len(logs):
+            return False
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(kept, f, indent=2)
+        except Exception:
+            pass
+        return True
 
     def _harness_sessions_path(self):
         return self.outputs_dir / "harness_sessions.json"

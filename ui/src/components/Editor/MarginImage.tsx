@@ -3,8 +3,11 @@ import type { PointerEvent as ReactPointerEvent } from 'react'
 import Image from '@tiptap/extension-image'
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
 import type { NodeViewProps } from '@tiptap/core'
-import { AlignCenter, AlignLeft, AlignRight, RotateCcw } from 'lucide-react'
-import { toDisplaySrc } from '../../lib/media'
+import { AlignCenter, AlignLeft, AlignRight, Pencil, ChevronDown, ChevronsUpDown } from 'lucide-react'
+import { generateImage, toDisplaySrc } from '../../lib/media'
+import { useSettingsStore } from '../../stores/settingsStore'
+import { imageStyleOptions } from './ImageGenerateDialog'
+import { toast } from '../../stores/toastStore'
 import { parseImageMarkdown, serializeImageMarkdown, splitAltDims } from '../../lib/imageMarkdown'
 import type { ImageAlign } from '../../lib/imageMarkdown'
 
@@ -43,6 +46,10 @@ function numOrNull(v: unknown): number | null {
 
 const MIN_SIZE = 32
 
+// Filled submit — SimpleAssist's send treatment (solid accent idle, muted
+// disabled) in the 5px inner radius shared with the bubble's SendArrow.
+const SEND_PILL_CLASS = 'flex items-center justify-center w-6 h-6 rounded-[5px] border border-transparent cursor-pointer select-none shrink-0 transition-[background-color,transform,opacity] duration-150 active:scale-[0.9] bg-[var(--accent-brown)] hover:bg-[var(--accent-brown-hover)] text-[var(--text-inverse)] disabled:bg-[var(--bg-disabled)] disabled:text-[var(--text-disabled)] disabled:border-transparent'
+
 /**
  * Maximum drag width: the editor's content width, not the image frame's.
  * The frame shrink-wraps the image, so measuring it would freeze the clamp
@@ -67,6 +74,7 @@ interface ResizeDrag {
   startY: number
   startW: number
   startH: number
+  ratio: number
   maxW: number
   w: number | null
   h: number | null
@@ -78,7 +86,14 @@ function MarginImageView({ editor, node, selected, updateAttributes, deleteNode,
   const height = numOrNull(node.attrs.height)
   const align = (node.attrs.align ?? null) as ImageAlign | null
   const storedCaption: string = node.attrs.title ?? ''
+  const liveSettings = useSettingsStore((s) => s.settings)
   const [captionDraft, setCaptionDraft] = useState(storedCaption)
+  // The caption field only renders when a caption exists or the user
+  // explicitly asked for one via the affordance below. Auto-showing it on
+  // every selection trapped clicks just below the image inside the input,
+  // so clicking out couldn't deselect the node.
+  const [captionEditing, setCaptionEditing] = useState(false)
+  const captionRef = useRef<HTMLInputElement>(null)
   const sourceText = serializeImageMarkdown(
     alt ?? '', src, storedCaption || null, width, height, align,
   )
@@ -87,6 +102,18 @@ function MarginImageView({ editor, node, selected, updateAttributes, deleteNode,
   // (no broken logo) and caption, and keep the source visible as an
   // editable, hyperlink-styled path so the user can fix it.
   const [broken, setBroken] = useState(false)
+  // "Imagine again" request in flight — pill shows the Rewrite-style
+  // shimmer and controls are disabled until the swap lands or fails.
+  const [regenerating, setRegenerating] = useState(false)
+  // Pencil morphs the pill into a Rewrite-style input bar: the user
+  // describes the change they want, and empty never submits.
+  // The style pill only appears in the expanded (vertical) view.
+  const [editing, setEditing] = useState(false)
+  const [editPrompt, setEditPrompt] = useState('')
+  const [editStyle, setEditStyle] = useState('None')
+  const [editExpanded, setEditExpanded] = useState(false)
+  const editInputRef = useRef<HTMLInputElement>(null)
+  const editAreaRef = useRef<HTMLTextAreaElement>(null)
 
   // External updates (doc switch, AI edits) flow back into the drafts.
   useEffect(() => {
@@ -102,6 +129,23 @@ function MarginImageView({ editor, node, selected, updateAttributes, deleteNode,
     setBroken(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [src])
+  // Deselecting with no caption collapses the field again so the space
+  // below the image stays a plain click-out target next time.
+  useEffect(() => {
+    if (!selected && !storedCaption) setCaptionEditing(false)
+  }, [selected, storedCaption])
+  // Deselecting closes the Imagine-again bar (never mid-flight).
+  useEffect(() => {
+    if (!selected && !regenerating) {
+      setEditing(false)
+      setEditExpanded(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected])
+  // Opening the field via the affordance focuses it for immediate typing.
+  useEffect(() => {
+    if (captionEditing) captionRef.current?.focus()
+  }, [captionEditing])
 
   const commitCaption = () => {
     const next = captionDraft.trim()
@@ -130,6 +174,64 @@ function MarginImageView({ editor, node, selected, updateAttributes, deleteNode,
     })
   }
 
+  // ── Imagine again (Rewrite-style input, required prompt) ──────────
+  // Pencil morphs the pill into an input bar that starts empty — the
+  // user describes the change they want, and empty never submits.
+  // The old image stays in place if generation fails.
+  const openImagineAgain = () => {
+    if (regenerating) return
+    const settings = useSettingsStore.getState().settings
+    setEditPrompt('')
+    const options = imageStyleOptions(settings?.image_custom_styles, settings?.image_deleted_styles)
+    const def = settings?.image_default_style ?? 'None'
+    setEditStyle(
+      options.find((o) => o.toLowerCase() === String(def).toLowerCase()) ?? 'None',
+    )
+    setEditing(true)
+    setEditExpanded(false)
+    setTimeout(() => editInputRef.current?.focus(), 30)
+  }
+
+  const cancelImagineAgain = () => {
+    if (regenerating) return
+    setEditing(false)
+    setEditExpanded(false)
+  }
+
+  const submitImagineAgain = async () => {
+    const prompt = editPrompt.trim()
+    if (regenerating || !prompt) return
+    setRegenerating(true)
+    try {
+      const { path } = await generateImage({
+        prompt,
+        styleName: editStyle === 'None' ? null : editStyle,
+        referencePath: src,
+      })
+      if (editor.isDestroyed) return
+      const targetSrc = src
+      let foundPos: number | null = null
+      editor.state.doc.descendants((node, pos) => {
+        if (node.type.name === 'image' && node.attrs.src === targetSrc) {
+          foundPos = pos
+          return false
+        }
+        return true
+      })
+      if (foundPos == null) {
+        console.warn('Margin: reference image no longer in doc — dropping regeneration')
+        return
+      }
+      editor.chain().focus().setNodeSelection(foundPos).updateAttributes('image', { src: path }).run()
+      setEditing(false)
+    } catch (err) {
+      console.error('Imagine again failed:', err)
+      toast.error(`Could not imagine another version: ${err instanceof Error ? err.message : 'Unknown error'}`)
+    } finally {
+      setRegenerating(false)
+    }
+  }
+
   // ── Drag-to-resize ──────────────────────────────────────────────
   // The drag only paints inline styles; the node (and therefore the
   // Markdown) is updated once on release, keeping history to one step.
@@ -142,12 +244,15 @@ function MarginImageView({ editor, node, selected, updateAttributes, deleteNode,
     const img = imgRef.current
     if (!img) return
     const maxW = measureMaxWidth(img)
+    const startW = (width ?? img.clientWidth) || img.naturalWidth || maxW
+    const startH = (height ?? img.clientHeight) || img.naturalHeight || maxW
     dragRef.current = {
       mode,
       startX: e.clientX,
       startY: e.clientY,
-      startW: (width ?? img.clientWidth) || img.naturalWidth || maxW,
-      startH: (height ?? img.clientHeight) || img.naturalHeight || maxW,
+      startW,
+      startH,
+      ratio: startH > 0 ? startW / startH : 1,
       maxW,
       w: null,
       h: null,
@@ -172,8 +277,32 @@ function MarginImageView({ editor, node, selected, updateAttributes, deleteNode,
     if (d.mode === 'e' || d.mode === 'se') w = d.startW + dx * fx
     if (d.mode === 'w' || d.mode === 'sw') w = d.startW - dx * fx
     if (d.mode === 's' || d.mode === 'se' || d.mode === 'sw') h = d.startH + dy
+    // Shift-drag on a corner locks the starting aspect ratio. The dominant
+    // axis (larger proportional change) drives so both rightward and
+    // downward drags feel exact, and toggling Shift mid-drag just works.
+    // Height is intentionally NOT capped at the editor width here: for
+    // portrait ratios h grows faster than w, and pulling h back to maxW
+    // (plus recomputing w from it) is what caused the visible snap.
+    const locked = e.shiftKey && (d.mode === 'se' || d.mode === 'sw') && d.ratio > 0
+    if (locked) {
+      const scaleW = d.startW > 0 ? w / d.startW : 1
+      const scaleH = d.startH > 0 ? h / d.startH : 1
+      if (Math.abs(scaleW - 1) >= Math.abs(scaleH - 1)) {
+        h = w / d.ratio
+      } else {
+        w = h * d.ratio
+      }
+      // Re-clamp while preserving the ratio: fit w to the editor width,
+      // then only floor h (growing w with it) — never cap h at maxW.
+      w = Math.min(Math.max(w, MIN_SIZE), d.maxW)
+      h = w / d.ratio
+      if (h < MIN_SIZE) {
+        h = MIN_SIZE
+        w = h * d.ratio
+      }
+    }
     w = Math.round(Math.min(Math.max(w, MIN_SIZE), d.maxW))
-    h = Math.round(Math.min(Math.max(h, MIN_SIZE), d.maxW))
+    h = locked ? Math.round(Math.max(h, MIN_SIZE)) : Math.round(Math.min(Math.max(h, MIN_SIZE), d.maxW))
     img.style.width = `${w}px`
     img.style.height = `${h}px`
     d.w = w
@@ -295,40 +424,184 @@ function MarginImageView({ editor, node, selected, updateAttributes, deleteNode,
               />
             ))}
             {showChrome && (
-              <div className="margin-image__controls" onMouseDown={(e) => e.stopPropagation()}>
-                <button
-                  type="button"
-                  title="Reset to natural size"
-                  aria-label="Reset image to natural size"
-                  className="margin-image__btn"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => updateAttributes({ width: null, height: null })}
-                >
-                  <RotateCcw className="margin-image__btn-icon" />
-                </button>
-                <span className="margin-image__divider" />
-                {alignButtons.map(({ value, title, Icon }) => (
-                  <button
-                    key={value}
-                    type="button"
-                    title={title}
-                    aria-label={title}
-                    aria-pressed={align === value}
-                    className={`margin-image__btn${align === value ? ' margin-image__btn--active' : ''}`}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => updateAttributes({ align: align === value ? null : value })}
-                  >
-                    <Icon className="margin-image__btn-icon" />
-                  </button>
-                ))}
+              <div
+                className={`margin-image__controls${editing && editExpanded ? ' margin-image__controls--expanded' : ''}`}
+                style={editing && !editExpanded ? { minWidth: 264 } : undefined}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                {regenerating && (
+                  <div className="absolute inset-0 rounded-[8px] z-50 pointer-events-none">
+                    <div className="absolute inset-0 rounded-[8px] animate-spin-border" />
+                  </div>
+                )}
+                {editing ? (
+                  // ── Imagine-again input bar (Rewrite-style) ────────────
+                  // Collapsed: bare prompt + expand + send. Expanded stacks
+                  // the prompt on top with style + actions in the footer.
+                  editExpanded ? (
+                    <>
+                      <textarea
+                        ref={editAreaRef}
+                        rows={4}
+                        value={editPrompt}
+                        onChange={(e) => setEditPrompt(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape') {
+                            e.preventDefault()
+                            cancelImagineAgain()
+                          } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                            e.preventDefault()
+                            void submitImagineAgain()
+                          }
+                          e.stopPropagation()
+                        }}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        disabled={regenerating}
+                        placeholder="Describe changes"
+                        spellCheck={false}
+                        aria-label="Describe image changes"
+                        className="w-full bg-transparent text-[11.5px] leading-relaxed text-[var(--text-heading)] placeholder:text-[var(--text-muted)] outline-none px-1 resize-none disabled:opacity-60"
+                      />
+                      <div className="margin-image__controls-actions" style={{ alignSelf: 'flex-end' }}>
+                          <span className="relative flex items-center shrink-0">
+                            <select
+                              value={editStyle}
+                              onChange={(e) => setEditStyle(e.target.value)}
+                              disabled={regenerating}
+                              title="Style"
+                              aria-label="Image style"
+                              onMouseDown={(e) => e.stopPropagation()}
+                              className="h-6 shrink-0 max-w-[120px] truncate pl-1.5 pr-5 py-0 text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-heading)] bg-transparent hover:bg-[var(--bg-hover)] rounded-[5px] outline-none cursor-pointer disabled:opacity-60 appearance-none"
+                            >
+                              {imageStyleOptions(liveSettings?.image_custom_styles, liveSettings?.image_deleted_styles).map((n) => (
+                                <option key={n} value={n}>{n}</option>
+                              ))}
+                            </select>
+                            <ChevronDown className="absolute right-1 w-3 h-3 opacity-60 pointer-events-none" />
+                          </span>
+                          <button
+                            type="button"
+                            title="Single line"
+                            aria-label="Collapse image prompt"
+                            className="margin-image__btn"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              setEditExpanded(false)
+                              setTimeout(() => editInputRef.current?.focus(), 30)
+                            }}
+                          >
+                            <ChevronsUpDown className="margin-image__btn-icon" />
+                          </button>
+                          <button
+                            type="button"
+                            title="Imagine again"
+                            aria-label="Imagine again"
+                            disabled={regenerating || !editPrompt.trim()}
+                            className={SEND_PILL_CLASS}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => void submitImagineAgain()}
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className={`w-3.5 h-3.5 ${regenerating ? 'opacity-30' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <line x1="12" y1="19" x2="12" y2="5" />
+                              <polyline points="5 12 12 5 19 12" />
+                            </svg>
+                          </button>
+                        </div>
+                    </>
+                  ) : (
+                    <>
+                      <input
+                        ref={editInputRef}
+                        value={editPrompt}
+                        onChange={(e) => setEditPrompt(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault()
+                            void submitImagineAgain()
+                          } else if (e.key === 'Escape') {
+                            e.preventDefault()
+                            cancelImagineAgain()
+                          }
+                          e.stopPropagation()
+                        }}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        disabled={regenerating}
+                        placeholder="Describe changes"
+                        spellCheck={false}
+                        aria-label="Describe image changes"
+                        className="flex-1 bg-transparent text-[11.5px] text-[var(--text-heading)] placeholder:text-[var(--text-muted)] outline-none px-1 min-w-0 disabled:opacity-60"
+                      />
+                      <button
+                        type="button"
+                        title="Expand"
+                        aria-label="Expand image prompt"
+                        className="margin-image__btn"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          setEditExpanded(true)
+                          setTimeout(() => editAreaRef.current?.focus(), 30)
+                        }}
+                      >
+                        <ChevronsUpDown className="margin-image__btn-icon" />
+                      </button>
+                      <button
+                        type="button"
+                        title="Imagine again"
+                        aria-label="Imagine again"
+                        disabled={regenerating || !editPrompt.trim()}
+                        className={SEND_PILL_CLASS}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => void submitImagineAgain()}
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className={`w-3.5 h-3.5 ${regenerating ? 'opacity-30' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <line x1="12" y1="19" x2="12" y2="5" />
+                          <polyline points="5 12 12 5 19 12" />
+                        </svg>
+                      </button>
+                    </>
+                  )
+                ) : (
+                  <>
+                    {alignButtons.map(({ value, title, Icon }) => (
+                      <button
+                        key={value}
+                        type="button"
+                        title={title}
+                        aria-label={title}
+                        aria-pressed={align === value}
+                        className={`margin-image__btn${align === value ? ' margin-image__btn--active' : ''}`}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => updateAttributes({ align: align === value ? null : value })}
+                      >
+                        <Icon className="margin-image__btn-icon" />
+                      </button>
+                    ))}
+                    <span className="margin-image__divider" />
+                    <button
+                      type="button"
+                      title="Imagine again"
+                      aria-label="Imagine again"
+                      disabled={regenerating}
+                      className="margin-image__btn disabled:opacity-40"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={openImagineAgain}
+                    >
+                      <Pencil className={`margin-image__btn-icon${regenerating ? ' opacity-30' : ''}`} />
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </div>
-          {(storedCaption || selected) && (
+          {(storedCaption || captionEditing) ? (
             <input
+              ref={captionRef}
               value={captionDraft}
               onChange={(e) => setCaptionDraft(e.target.value)}
-              onBlur={commitCaption}
+              onBlur={() => {
+                commitCaption()
+                if (!captionDraft.trim() && !storedCaption) setCaptionEditing(false)
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault()
@@ -336,6 +609,7 @@ function MarginImageView({ editor, node, selected, updateAttributes, deleteNode,
                 } else if (e.key === 'Escape') {
                   e.preventDefault()
                   setCaptionDraft(storedCaption)
+                  if (!storedCaption) setCaptionEditing(false)
                   ;(e.target as HTMLInputElement).blur()
                   editor.commands.focus()
                 }
@@ -346,6 +620,22 @@ function MarginImageView({ editor, node, selected, updateAttributes, deleteNode,
               aria-label="Image caption"
               className="margin-image__caption"
             />
+          ) : (
+            // Explicit affordance, not an input: a real <input> here would
+            // trap clicks just below the image and prevent deselecting.
+            // This button is only mounted while selected, so empty space
+            // around it still drops the selection.
+            selected && !broken && (
+              <button
+                type="button"
+                aria-label="Add image caption"
+                className="margin-image__caption-placeholder"
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={() => setCaptionEditing(true)}
+              >
+                Add a caption…
+              </button>
+            )
           )}
         </div>
       )}

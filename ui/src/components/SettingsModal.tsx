@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { X, Plus, Trash2, CheckCircle, Play, Edit, Brain, ChevronRight, ChevronDown, Folder, FolderOpen, Pin, EyeOff, Eye, GitBranch, FolderPlus, Loader2 } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { X, Plus, Trash2, CheckCircle, Play, Edit, Brain, ChevronRight, ChevronDown, Folder, FolderOpen, Pin, EyeOff, Eye, GitBranch, FolderPlus, Loader2, Pencil, RotateCcw } from 'lucide-react'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useEditorStore } from '../stores/editorStore'
 import type { AppSettings } from '../stores/settingsStore'
@@ -90,7 +90,7 @@ const textStyles: { id: TextStyle; name: string; description: string; sample: st
 
 export function SettingsModal({ onClose }: SettingsModalProps) {
   const { settings, updateSettings } = useSettingsStore()
-  const [activeTab, setActiveTab] = useState<'general' | 'appearance' | 'context' | 'endpoints' | 'harnesses'>('general')
+  const [activeTab, setActiveTab] = useState<'general' | 'appearance' | 'context' | 'endpoints' | 'harnesses' | 'images'>('general')
   const [availableFiles, setAvailableFiles] = useState<{ name: string; path: string }[]>([])
 
   useEffect(() => {
@@ -118,15 +118,17 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
           <div className="w-[180px] border-r border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-4 flex flex-col gap-1">
             <TabButton active={activeTab === 'general'} onClick={() => setActiveTab('general')} label="General" />
             <TabButton active={activeTab === 'appearance'} onClick={() => setActiveTab('appearance')} label="Appearance" />
+            <TabButton active={activeTab === 'images'} onClick={() => setActiveTab('images')} label="Images" />
             <TabButton active={activeTab === 'context'} onClick={() => setActiveTab('context')} label="Context" />
             <TabButton active={activeTab === 'endpoints'} onClick={() => setActiveTab('endpoints')} label="Endpoints" />
-            <TabButton active={activeTab === 'harnesses'} onClick={() => setActiveTab('harnesses')} label="Harnesses" />
+            <TabButton active={activeTab === 'harnesses'} onClick={() => setActiveTab('harnesses')} label="Harness" />
           </div>
 
           {/* Content Area */}
           <div className="flex-1 p-8 overflow-y-auto bg-[var(--bg)] text-[var(--text)]">
             {activeTab === 'general' && <GeneralSettings settings={settings} updateSettings={updateSettings} />}
             {activeTab === 'appearance' && <AppearanceSettings settings={settings} updateSettings={updateSettings} />}
+            {activeTab === 'images' && <ImagesSettings settings={settings} updateSettings={updateSettings} />}
             {activeTab === 'context' && <ContextSettings settings={settings} updateSettings={updateSettings} availableFiles={availableFiles} />}
             {activeTab === 'endpoints' && <EndpointsSettings settings={settings} updateSettings={updateSettings} />}
             {activeTab === 'harnesses' && <HarnessesSettings settings={settings} updateSettings={updateSettings} />}
@@ -1332,6 +1334,642 @@ function HarnessModelPicker({ harnessId, value, onChange }: { harnessId: string;
       ))}
       <option value="__custom__">Custom...</option>
     </select>
+  )
+}
+
+const IMAGE_PROVIDERS = [
+  { id: 'openai-compatible', label: 'OpenAI-compatible' },
+  { id: 'stability', label: 'Stability' },
+  { id: 'fal', label: 'FAL' },
+  { id: 'gemini', label: 'Gemini (Google)' },
+  { id: 'comfyui', label: 'ComfyUI (local)' },
+] as const
+
+interface ComfyCandidate {
+  nodeId: string
+  classType: string
+  input: string
+  preview: string
+  kind: string
+  score: number
+}
+
+const IMAGE_BUILTIN_STYLES = ['None', 'Cinematic', 'Illustration']
+
+type ComfySlot = 'text' | 'edit'
+
+function ComfySlotSection({
+  slot, settings, updateSettings,
+}: {
+  slot: ComfySlot
+  settings: AppSettings
+  updateSettings: (u: Partial<AppSettings>) => void
+}) {
+  const wfKey = slot === 'text' ? 'image_comfy_text_workflow' : 'image_comfy_edit_workflow'
+  const promptKey = slot === 'text' ? 'image_comfy_text_prompt_map' : 'image_comfy_edit_prompt_map'
+  const seedKey = slot === 'text' ? 'image_comfy_text_seed_map' : 'image_comfy_edit_seed_map'
+  const [candidates, setCandidates] = useState<ComfyCandidate[] | null>(null)
+  const [imageCandidates, setImageCandidates] = useState<ComfyCandidate[] | null>(null)
+  const [seedCandidates, setSeedCandidates] = useState<ComfyCandidate[] | null>(null)
+  const [nodeCount, setNodeCount] = useState<number | null>(null)
+  const [importError, setImportError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const savedWorkflow = settings[wfKey] as Record<string, { class_type?: string; inputs?: Record<string, unknown> }> | null | undefined
+  const savedMap = settings[promptKey]
+  const savedImageMap = slot === 'edit' ? settings.image_comfy_edit_image_map : undefined
+  const savedSeedMap = settings[seedKey]
+  const savedNodeCount = savedWorkflow ? Object.keys(savedWorkflow).length : 0
+  const picked = savedMap ? `${savedMap.nodeId}:${savedMap.input}` : ''
+  const pickedImage = savedImageMap ? `${savedImageMap.nodeId}:${savedImageMap.input}` : ''
+  const pickedSeed = savedSeedMap ? `${savedSeedMap.nodeId}:${savedSeedMap.input}` : ''
+
+  // Non-blocking warning: a LoadImage node in the text slot means plain
+  // Imagine will hit ComfyUI validation on the stale default file.
+  const hasLoader =
+    (candidates || []).some((c) => c.classType === 'LoadImage') ||
+    (imageCandidates || []).some((c) => c.classType === 'LoadImage') ||
+    (savedWorkflow ? Object.values(savedWorkflow).some((n) => n?.class_type === 'LoadImage') : false)
+
+  const handleFile = async (file: File | undefined) => {
+    if (!file) return
+    setBusy(true)
+    setImportError(null)
+    try {
+      const text = await file.text()
+      let workflow: unknown
+      try {
+        workflow = JSON.parse(text)
+      } catch {
+        throw new Error('That file is not valid JSON — export your workflow as API format from ComfyUI.')
+      }
+      const res = await fetch(`${API_BASE}/api/images/comfy/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workflow }),
+      })
+      if (!res.ok) {
+        let detail = 'Workflow rejected'
+        try {
+          const data = await res.json()
+          if (data?.detail) detail = data.detail
+        } catch { /* ignore */ }
+        throw new Error(detail)
+      }
+      const data = await res.json()
+      // Import validated: persist workflow, clear this slot's mappings until
+      // the user confirms the inputs below.
+      updateSettings({
+        [wfKey]: workflow,
+        [promptKey]: null,
+        [seedKey]: null,
+        ...(slot === 'edit' ? { image_comfy_edit_image_map: null } : {}),
+      } as Partial<AppSettings>)
+      setCandidates(data.candidates || [])
+      setImageCandidates(data.image_candidates || [])
+      setSeedCandidates(data.seed_candidates || [])
+      setNodeCount(data.node_count ?? null)
+    } catch (e) {
+      setImportError(e instanceof Error ? e.message : 'Import failed')
+    } finally {
+      setBusy(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
+  const handlePick = (value: string) => {
+    if (!value) return
+    const cand = (candidates || []).find((c) => `${c.nodeId}:${c.input}` === value)
+    if (!cand) return
+    updateSettings({ [promptKey]: { nodeId: cand.nodeId, input: cand.input } } as Partial<AppSettings>)
+  }
+
+  const handlePickImage = (value: string) => {
+    if (!value) return
+    const cand = (imageCandidates || []).find((c) => `${c.nodeId}:${c.input}` === value)
+    if (!cand) return
+    updateSettings({ image_comfy_edit_image_map: { nodeId: cand.nodeId, input: cand.input } })
+  }
+
+  const handlePickSeed = (value: string) => {
+    if (!value) {
+      updateSettings({ [seedKey]: null } as Partial<AppSettings>)
+      return
+    }
+    const cand = (seedCandidates || []).find((c) => `${c.nodeId}:${c.input}` === value)
+    if (!cand) return
+    updateSettings({ [seedKey]: { nodeId: cand.nodeId, input: cand.input } } as Partial<AppSettings>)
+  }
+
+  const handleClear = () => {
+    updateSettings({
+      [wfKey]: null,
+      [promptKey]: null,
+      [seedKey]: null,
+      ...(slot === 'edit' ? { image_comfy_edit_image_map: null } : {}),
+    } as Partial<AppSettings>)
+    setCandidates(null)
+    setImageCandidates(null)
+    setSeedCandidates(null)
+    setNodeCount(null)
+    setImportError(null)
+  }
+
+  // Candidates for the dropdown: freshly analyzed first, otherwise rebuild
+  // labels from the saved workflow + mapping (enough to display the pick).
+  const options: { value: string; label: string }[] =
+    (candidates || []).map((c) => ({
+      value: `${c.nodeId}:${c.input}`,
+      label: `Node ${c.nodeId} — ${c.classType} — ${c.input}${c.preview ? ` (“${c.preview}”)` : ''}`,
+    }))
+  if (options.length === 0 && savedMap) {
+    options.push({
+      value: `${savedMap.nodeId}:${savedMap.input}`,
+      label: `Node ${savedMap.nodeId} — ${savedMap.input}`,
+    })
+  }
+
+  const refOptions: { value: string; label: string }[] =
+    (imageCandidates || []).map((c) => ({
+      value: `${c.nodeId}:${c.input}`,
+      label: `Node ${c.nodeId} — ${c.classType} — ${c.input}${c.preview ? ` (“${c.preview}”)` : ''}`,
+    }))
+  if (refOptions.length === 0 && savedImageMap) {
+    refOptions.push({
+      value: `${savedImageMap.nodeId}:${savedImageMap.input}`,
+      label: `Node ${savedImageMap.nodeId} — ${savedImageMap.input}`,
+    })
+  }
+
+  const seedOptions: { value: string; label: string }[] =
+    (seedCandidates || []).map((c) => ({
+      value: `${c.nodeId}:${c.input}`,
+      label: `Node ${c.nodeId} — ${c.classType} — ${c.input}${c.preview ? ` (“${c.preview}”)` : ''}`,
+    }))
+  if (seedOptions.length === 0 && savedSeedMap) {
+    seedOptions.push({
+      value: `${savedSeedMap.nodeId}:${savedSeedMap.input}`,
+      label: `Node ${savedSeedMap.nodeId} — ${savedSeedMap.input}`,
+    })
+  }
+
+  const title = slot === 'text' ? 'Text-to-image workflow' : 'Image edit workflow'
+  const blurb = slot === 'text'
+    ? 'Used by Imagine — Margin fills in the prompt input you map.'
+    : 'Used by Imagine again — Margin uploads the existing image and fills in both inputs.'
+
+  return (
+    <div className="rounded-[8px] border border-[var(--border-subtle)] bg-[var(--bg)] p-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-[12px] font-medium text-[var(--text-heading)]">{title}</div>
+        {savedWorkflow && (
+          <span className="text-[10.5px] text-[var(--text-muted)] shrink-0">{savedNodeCount} nodes</span>
+        )}
+      </div>
+      <p className="text-[11px] text-[var(--text-secondary)] mt-0.5">
+        {blurb} Import as <strong>API format</strong> (not graph format) —
+        Margin never edits your workflow and uses the first returned image.
+      </p>
+      <input
+        ref={fileRef}
+        type="file"
+        accept="application/json,.json"
+        className="hidden"
+        onChange={(e) => void handleFile(e.target.files?.[0])}
+      />
+      <div className="flex items-center gap-2 mt-2">
+        <button
+          onClick={() => fileRef.current?.click()}
+          disabled={busy}
+          className="px-3 py-1.5 text-[12px] bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[6px] hover:border-[var(--text-secondary)] transition-colors disabled:opacity-50 cursor-pointer text-[var(--text)]"
+        >
+          {busy ? 'Analyzing…' : savedWorkflow ? 'Re-import workflow…' : 'Import workflow.json…'}
+        </button>
+        {savedWorkflow && (
+          <button onClick={handleClear} className="px-2 py-1 text-[11px] text-[var(--text-muted)] hover:text-red-500 transition-colors cursor-pointer">
+            Clear
+          </button>
+        )}
+      </div>
+      {importError && <p className="text-[11px] text-red-500 mt-2">{importError}</p>}
+      {(options.length > 0 || nodeCount != null) && (
+        <ComfyMappingField
+          label={`Prompt input${nodeCount != null ? ` · ${nodeCount} nodes` : ''}`}
+          tag="required"
+          value={picked}
+          placeholder="Pick the positive-prompt input…"
+          options={options}
+          hint="Ranked by likelihood — confirm the right one for your workflow."
+          onPick={handlePick}
+        />
+      )}
+      {slot === 'text' && hasLoader && (options.length > 0 || nodeCount != null) && (
+        <p className="text-[11px] text-amber-600 mt-1">
+          This workflow contains an image loader — plain Imagine may fail
+          validation on its default file. Prefer a text-only workflow here,
+          or use the edit slot below for image inputs.
+        </p>
+      )}
+      {slot === 'edit' && (refOptions.length > 0 || nodeCount != null) && (
+        <ComfyMappingField
+          label="Reference image input"
+          tag="required"
+          value={pickedImage}
+          placeholder="Pick the LoadImage input…"
+          options={refOptions}
+          hint="Margin uploads the existing image automatically — nothing to upload by hand."
+          onPick={handlePickImage}
+        />
+      )}
+      {(seedOptions.length > 0 || nodeCount != null) && (
+        <ComfyMappingField
+          label="Seed input"
+          tag="optional"
+          value={pickedSeed}
+          placeholder="No seed mapping (reuse saved value)"
+          options={seedOptions}
+          hint="Randomized every run — your saved value is never changed."
+          onPick={handlePickSeed}
+        />
+      )}
+    </div>
+  )
+}
+
+function ComfyMappingField({ label, tag, value, placeholder, options, hint, onPick }: {
+  label: string
+  tag?: 'required' | 'optional'
+  value: string
+  placeholder: string
+  options: { value: string; label: string }[]
+  hint?: string
+  onPick: (value: string) => void
+}) {
+  return (
+    <div className="mt-3">
+      <div className="flex items-baseline justify-between gap-2 mb-1">
+        <label className="text-[12px] font-medium text-[var(--text-secondary)]">{label}</label>
+        {tag && (
+          <span className="text-[10px] uppercase tracking-wider text-[var(--text-muted)] shrink-0">{tag}</span>
+        )}
+      </div>
+      <select
+        value={value}
+        onChange={(e) => onPick(e.target.value)}
+        className="w-full border border-[var(--border-subtle)] rounded-[6px] px-3 py-2 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]"
+      >
+        <option value="">{placeholder}</option>
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+      </select>
+      {hint && (
+        <p className="text-[10.5px] text-[var(--text-muted)] mt-1">{hint}</p>
+      )}
+    </div>
+  )
+}
+
+function ImagesSettings({ settings, updateSettings }: { settings: AppSettings, updateSettings: (u: Partial<AppSettings>) => void }) {  const [testResult, setTestResult] = useState<{ status: 'idle' | 'testing' | 'success' | 'error', msg?: string }>({ status: 'idle' })
+  const [newName, setNewName] = useState('')
+  const [newPrompt, setNewPrompt] = useState('')
+  const [builtinPrompts, setBuiltinPrompts] = useState<Record<string, string | null> | null>(null)
+  const [editingName, setEditingName] = useState<string | null>(null)
+  const [editingPrompt, setEditingPrompt] = useState('')
+  const customs = settings.image_custom_styles || []
+  const defaultStyle = settings.image_default_style ?? 'None'
+  const deletedStyles = settings.image_deleted_styles || []
+  const isComfy = (settings.image_provider || 'openai-compatible') === 'comfyui'
+
+  const handleDeleteStyle = (name: string, builtin: boolean) => {
+    const updates: Partial<AppSettings> = {}
+    if (builtin) {
+      // None can never be deleted; built-ins hide (restorable below) and
+      // drop any override so a restore returns the shipped text.
+      if (name === 'None' || deletedStyles.some((n) => n.toLowerCase() === name.toLowerCase())) return
+      updates.image_deleted_styles = [...deletedStyles, name]
+      if (settings.image_style_overrides?.[name] !== undefined) {
+        const next = { ...settings.image_style_overrides }
+        delete next[name]
+        updates.image_style_overrides = next
+      }
+    } else {
+      updates.image_custom_styles = customs.filter((x) => x.name !== name)
+    }
+    if (defaultStyle === name) updates.image_default_style = null
+    updateSettings(updates)
+  }
+
+  // Shipped prompt text for built-ins (customized overrides come from settings).
+  useEffect(() => {
+    fetch(`${API_BASE}/api/images/styles`)
+      .then((res) => (res.ok ? res.json() : { styles: [] }))
+      .then((data) => {
+        const map: Record<string, string | null> = {}
+        for (const s of data.styles || []) {
+          if (s?.builtin) map[s.name] = s.default_prompt ?? s.prompt ?? null
+        }
+        setBuiltinPrompts(map)
+      })
+      .catch(() => setBuiltinPrompts({}))
+  }, [])
+  const isGemini = (settings.image_provider || 'openai-compatible') === 'gemini'
+
+  const handleTest = async () => {
+    setTestResult({ status: 'testing' })
+    try {
+      const res = await fetch(`${API_BASE}/api/settings/test-image-provider`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      if (!res.ok) {
+        let detail = 'Test failed'
+        try {
+          const data = await res.json()
+          if (data?.detail) detail = data.detail
+        } catch { /* ignore */ }
+        throw new Error(detail)
+      }
+      setTestResult({ status: 'success', msg: 'Provider reachable.' })
+    } catch (e) {
+      setTestResult({ status: 'error', msg: (e as Error).message })
+    }
+    setTimeout(() => setTestResult({ status: 'idle' }), 5000)
+  }
+
+  const allStyleNames = [
+    ...IMAGE_BUILTIN_STYLES.filter((n) => !deletedStyles.some((d) => d.toLowerCase() === n.toLowerCase())),
+    ...customs.map((c) => c.name),
+  ]
+  const deletedBuiltins = IMAGE_BUILTIN_STYLES.filter(
+    (n) => n !== 'None' && deletedStyles.some((d) => d.toLowerCase() === n.toLowerCase()),
+  )
+
+  return (
+    <div className="flex flex-col gap-8">
+      <section>
+        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Image Generation</h3>
+        <p className="text-[12px] text-[var(--text-secondary)] mb-3">
+          Default provider for Imagine and Imagine again.
+        </p>
+        <label className="block text-[12px] font-medium text-[var(--text-secondary)] mb-1">Default provider</label>
+        <select
+          value={settings.image_provider || 'openai-compatible'}
+          onChange={(e) => updateSettings({
+            image_provider: e.target.value,
+            // A base URL is never valid across providers (OpenAI endpoint vs
+            // ComfyUI instance vs Gemini override), so drop the stale value
+            // instead of sending the new provider to the old address.
+            image_base_url: '',
+          })}
+          className="border border-[var(--border-subtle)] rounded-[6px] px-3 py-2 text-[13px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)] transition-colors w-[240px]"
+        >
+          {IMAGE_PROVIDERS.map((p) => (
+            <option key={p.id} value={p.id}>{p.label}</option>
+          ))}
+        </select>
+        <div className="grid grid-cols-1 gap-3 mt-3">
+          {/* Gemini always uses Google's default endpoint — no URL to configure. */}
+          {!isGemini && (
+            <input
+              placeholder={isComfy ? 'ComfyUI URL (e.g. http://127.0.0.1:8188)' : 'Base URL (e.g. https://api.openai.com)'}
+              value={settings.image_base_url || ''}
+              onChange={(e) => updateSettings({ image_base_url: e.target.value })}
+              className="border border-[var(--border-subtle)] rounded-[6px] px-3 py-2 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]"
+            />
+          )}
+          {!isComfy && (
+            <>
+              <input
+                placeholder="API key"
+                type="password"
+                value={settings.image_api_key || ''}
+                onChange={(e) => updateSettings({ image_api_key: e.target.value })}
+                className="border border-[var(--border-subtle)] rounded-[6px] px-3 py-2 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]"
+              />
+              <input
+                placeholder={isGemini ? 'Model (e.g. gemini-3.1-flash-lite-image)' : 'Model (e.g. gpt-image-1)'}
+                value={settings.image_model || ''}
+                onChange={(e) => updateSettings({ image_model: e.target.value })}
+                className="border border-[var(--border-subtle)] rounded-[6px] px-3 py-2 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]"
+              />
+            </>
+          )}
+        </div>
+        <div className="flex items-center gap-2 mt-3">
+          <button onClick={handleTest} disabled={testResult.status === 'testing'} className="px-3 py-1.5 text-[12px] bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[6px] hover:border-[var(--text-secondary)] transition-colors disabled:opacity-50 cursor-pointer text-[var(--text)]">
+            {testResult.status === 'testing' ? 'Testing...' : 'Test provider'}
+          </button>
+          {testResult.status === 'success' && <span className="text-[11px] text-[var(--text-accent)]">{testResult.msg}</span>}
+          {testResult.status === 'error' && <span className="text-[11px] text-red-500">{testResult.msg}</span>}
+        </div>
+      </section>
+
+      {isComfy && (
+        <section>
+          <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">ComfyUI Workflows</h3>
+          <p className="text-[12px] text-[var(--text-secondary)] mb-3">
+            Your own workflows running on your local instance — one that dreams
+            up new images, one that reworks an existing image.
+          </p>
+          <div className="flex flex-col gap-3">
+            <ComfySlotSection slot="text" settings={settings} updateSettings={updateSettings} />
+            <ComfySlotSection slot="edit" settings={settings} updateSettings={updateSettings} />
+          </div>
+        </section>
+      )}
+
+      <section>
+        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Styles</h3>
+        <p className="text-[12px] text-[var(--text-secondary)] mb-3">
+          Extra direction appended to the image prompt for the style you pick.
+        </p>
+        <div className="border border-[var(--border-subtle)] rounded-[8px] divide-y divide-[var(--border-subtle)] mb-3">
+          {allStyleNames.map((name) => {
+            const custom = customs.find((c) => c.name === name)
+            const isBuiltin = !custom
+            const overridden = isBuiltin && name !== 'None'
+              && (settings.image_style_overrides || {})[name] !== undefined
+            const prompt = isBuiltin
+              ? (name === 'None'
+                ? null
+                : (settings.image_style_overrides || {})[name]
+                  ?? builtinPrompts?.[name] ?? null)
+              : (custom?.prompt ?? '')
+            const isEditing = editingName === name
+            const isDefault = (defaultStyle ?? 'None') === name
+            return (
+              <div key={name} className="px-2.5 py-2 group">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="image_default_style"
+                    checked={isDefault}
+                    onChange={() => updateSettings({ image_default_style: name === 'None' ? null : name })}
+                    className="accent-[var(--accent-brown)] shrink-0"
+                    title="Use as default style"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[12.5px] font-medium text-[var(--text-heading)] truncate">
+                      {name}
+                      {isDefault ? (
+                        <span className="ml-1.5 text-[10px] font-normal text-[var(--text-muted)]">
+                          · default
+                        </span>
+                      ) : overridden ? (
+                        <span className="ml-1.5 text-[10px] font-normal text-[var(--text-muted)]">
+                          · customized
+                        </span>
+                      ) : null}
+                    </div>
+                    {!isEditing && (
+                      <div
+                        className="text-[11px] text-[var(--text-muted)] truncate"
+                        title={name === 'None' ? 'No style suffix — nothing is appended.' : (prompt || undefined)}
+                      >
+                        {name === 'None' ? 'No style suffix — nothing is appended.' : (prompt || '—')}
+                      </div>
+                    )}
+                  </div>
+                  {!isEditing && (
+                    <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {name !== 'None' && (
+                        <button
+                          onClick={() => { setEditingName(name); setEditingPrompt(prompt ?? '') }}
+                          title={`Edit ${name}`}
+                          className="flex items-center justify-center w-6 h-6 text-[var(--text-secondary)]/60 hover:text-[var(--text-heading)] hover:bg-[var(--bg-hover)] rounded-[4px] transition-all cursor-pointer"
+                        >
+                          <Pencil className="w-3 h-3" strokeWidth={2} />
+                        </button>
+                      )}
+                      {overridden && (
+                        <button
+                          onClick={() => {
+                            const next = { ...(settings.image_style_overrides || {}) }
+                            delete next[name]
+                            updateSettings({ image_style_overrides: next })
+                          }}
+                          title="Restore shipped text"
+                          className="flex items-center justify-center w-6 h-6 text-[var(--text-secondary)]/60 hover:text-[var(--text-heading)] hover:bg-[var(--bg-hover)] rounded-[4px] transition-all cursor-pointer"
+                        >
+                          <RotateCcw className="w-3 h-3" strokeWidth={2} />
+                        </button>
+                      )}
+                      {name !== 'None' && (
+                        <button
+                          onClick={() => handleDeleteStyle(name, isBuiltin)}
+                          title={`Delete ${name}`}
+                          className="flex items-center justify-center w-6 h-6 text-[var(--text-secondary)]/60 hover:text-red-500 hover:bg-[var(--bg-hover)] rounded-[4px] transition-all cursor-pointer"
+                        >
+                          <Trash2 className="w-3 h-3" strokeWidth={2} />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+                {isEditing && (
+                  <div className="flex flex-col gap-2 mt-2">
+                    <textarea
+                      value={editingPrompt}
+                      onChange={(e) => setEditingPrompt(e.target.value)}
+                      rows={2}
+                      className="w-full border border-[var(--border-subtle)] rounded-[6px] px-2.5 py-1.5 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)] resize-y"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          if (isBuiltin) {
+                            updateSettings({
+                              image_style_overrides: {
+                                ...(settings.image_style_overrides || {}),
+                                [name]: editingPrompt.trim(),
+                              },
+                            })
+                          } else {
+                            updateSettings({
+                              image_custom_styles: customs.map((x) =>
+                                x.name === name ? { ...x, prompt: editingPrompt.trim() } : x),
+                            })
+                          }
+                          setEditingName(null)
+                        }}
+                        disabled={!editingPrompt.trim()}
+                        className="px-3 py-1 text-[11px] bg-[var(--accent-brown)] text-[var(--text-inverse)] rounded-[6px] hover:bg-[var(--accent-brown-hover)] transition-colors disabled:opacity-50 cursor-pointer"
+                      >
+                        Save
+                      </button>
+                      <button
+                        onClick={() => setEditingName(null)}
+                        className="px-3 py-1 text-[11px] bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[6px] hover:border-[var(--text-secondary)] transition-colors cursor-pointer text-[var(--text)]"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+        {deletedBuiltins.length > 0 && (
+          <p className="text-[11px] text-[var(--text-muted)] mb-2">
+            {deletedBuiltins.map((n, i) => (
+              <span key={n}>
+                {i > 0 && ' · '}
+                <button
+                  onClick={() => updateSettings({ image_deleted_styles: deletedStyles.filter((d) => d.toLowerCase() !== n.toLowerCase()) })}
+                  className="hover:text-[var(--text-heading)] underline underline-offset-2 cursor-pointer transition-colors"
+                >
+                  Restore {n}
+                </button>
+              </span>
+            ))}
+          </p>
+        )}
+        {customs.length === 0 && (
+          <p className="text-[12px] text-[var(--text-muted)] mb-2">No custom styles yet.</p>
+        )}
+        <div className="flex flex-col gap-2 rounded-[8px] border border-[var(--border-subtle)] p-3">
+          <input
+            placeholder="Name (e.g. Fantasy)"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            className="border border-[var(--border-subtle)] rounded-[6px] px-3 py-1.5 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]"
+          />
+          <input
+            placeholder="Style prompt (appended to the generation prompt)"
+            value={newPrompt}
+            onChange={(e) => setNewPrompt(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && newName.trim() && newPrompt.trim()) {
+                const name = newName.trim()
+                if (allStyleNames.some((n) => n.toLowerCase() === name.toLowerCase())) return
+                updateSettings({ image_custom_styles: [...customs, { name, prompt: newPrompt.trim() }] })
+                setNewName('')
+                setNewPrompt('')
+              }
+            }}
+            className="border border-[var(--border-subtle)] rounded-[6px] px-3 py-1.5 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]"
+          />
+          <button
+            onClick={() => {
+              const name = newName.trim()
+              if (!name || !newPrompt.trim()) return
+              if (allStyleNames.some((n) => n.toLowerCase() === name.toLowerCase())) return
+              updateSettings({ image_custom_styles: [...customs, { name, prompt: newPrompt.trim() }] })
+              setNewName('')
+              setNewPrompt('')
+            }}
+            disabled={!newName.trim() || !newPrompt.trim()}
+            className="self-start px-3 py-1.5 text-[12px] bg-[var(--accent-brown)] text-[var(--text-inverse)] rounded-[6px] hover:bg-[var(--accent-brown-hover)] transition-colors disabled:opacity-50 cursor-pointer"
+          >
+            Add style
+          </button>
+        </div>
+      </section>
+    </div>
   )
 }
 

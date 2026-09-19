@@ -7,6 +7,7 @@ import { streamSSE } from '../lib/stream-sse'
 import { applyHarnessResult } from '../lib/applyHarnessResult'
 import { scheduleFileRefresh } from '../lib/refreshFiles'
 import { HarnessIcon } from './HarnessIcon'
+import { ImageDetailPopup, type ImageLogEntry } from './ImageDetailPopup'
 import type { FileEntry } from '../stores/editorStore'
 
 interface SimpleLogEntry {
@@ -447,6 +448,10 @@ export function SimpleAssist() {
   const [activeSessionId, setActiveSessionId] = useState<string>(() => crypto.randomUUID())
   const [showHistoryDropdown, setShowHistoryDropdown] = useState(false)
   const [sessionLoadCount, setSessionLoadCount] = useState(3)
+  const [historyView, setHistoryView] = useState<'chats' | 'images'>('chats')
+  const [imageLogs, setImageLogs] = useState<ImageLogEntry[] | null>(null)
+  const [imageLoadCount, setImageLoadCount] = useState(10)
+  const [selectedImage, setSelectedImage] = useState<ImageLogEntry | null>(null)
   const [mode, setMode] = useState<'chat' | 'edit'>('edit')
   const [activeHarness, setActiveHarness] = useState('none')
   const [harnessList, setHarnessList] = useState<Array<{ id: string; name: string; installed: boolean; version: string | null }>>([])
@@ -511,6 +516,68 @@ export function SimpleAssist() {
     }
   }
 
+  const imageLogsFetchingRef = useRef(false)
+
+  const fetchImageLogs = useCallback(async () => {
+    // Dedup: rapid open/tab-switch sequences share one in-flight request.
+    if (imageLogsFetchingRef.current) return
+    imageLogsFetchingRef.current = true
+    try {
+      const res = await fetch(`${API_BASE}/api/images/logs`)
+      if (res.ok) {
+        const data = await res.json()
+        setImageLogs([...(data.logs || [])].reverse())
+      } else {
+        setImageLogs([])
+      }
+    } catch (err) {
+      console.error('Failed to fetch image logs:', err)
+      setImageLogs([])
+    } finally {
+      imageLogsFetchingRef.current = false
+    }
+  }, [])
+
+  const handleDeleteImageLog = async (e: React.MouseEvent, log: ImageLogEntry, i: number) => {
+    e.stopPropagation()
+    try {
+      const res = await fetch(
+        `${API_BASE}/api/images/logs/${encodeURIComponent(imageKey(log, i))}`,
+        { method: 'DELETE' },
+      )
+      if (!res.ok) console.warn('DELETE image log returned', res.status)
+    } catch (err) {
+      console.error('Failed to delete image log:', err)
+    }
+    // Don't leave the detail popup open on a deleted entry.
+    if (selectedImage != null) {
+      const same = selectedImage.id
+        ? selectedImage.id === log.id
+        : !log.id && selectedImage.timestamp === log.timestamp
+          && selectedImage.path === log.path
+      if (same) setSelectedImage(null)
+    }
+    await fetchImageLogs()
+  }
+
+  const handleHistoryOpen = () => {
+    const opening = !showHistoryDropdown
+    setShowHistoryDropdown(opening)
+    // Always refetch images on open — a generation may have landed since.
+    if (opening && historyView === 'images') {
+      void fetchImageLogs()
+    }
+  }
+
+  const handleHistoryViewChange = (view: 'chats' | 'images') => {
+    setHistoryView(view)
+    // Always refetch on tab switch — never show a stale cached list.
+    if (view === 'images') {
+      void fetchImageLogs()
+    }
+  }
+
+  const imageKey = (log: ImageLogEntry, i: number) => log.id || `img-${i}`
   const sessions = useMemo(() => {
     const map = new Map<string, { name: string; logCount: number; timestamp: string }>()
     const sessionLogs = new Map<string, SimpleLogEntry[]>()
@@ -595,6 +662,8 @@ export function SimpleAssist() {
   const workspaceDir = useEditorStore((s) => s.workspaceDir)
   useEffect(() => {
     setHistoryLogs([])
+    setImageLogs(null)
+    setHistoryView('chats')
     setActiveSessionId(crypto.randomUUID())
     setPlannerContextFiles([])
     setStreamingThinkingText('')
@@ -1415,7 +1484,7 @@ export function SimpleAssist() {
 
           <div className="relative">
             <button
-              onClick={() => setShowHistoryDropdown(!showHistoryDropdown)}
+              onClick={handleHistoryOpen}
               className="flex items-center justify-center w-7 h-7 text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 bg-[var(--bg-icon)]/20 rounded-[6px] transition-all cursor-pointer active:scale-[0.95]"
               title="History"
             >
@@ -1426,7 +1495,23 @@ export function SimpleAssist() {
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setShowHistoryDropdown(false)} />
                 <div className="absolute right-0 top-full mt-1.5 z-50 bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-[10px] overflow-hidden shadow-[0_4px_16px_rgba(0,0,0,0.06)] w-[220px] py-1 animate-scale-in">
-                  {sessions.length === 0 ? (
+                  {/* Chats / Images toggle */}
+                  <div className="flex gap-1 mx-2 mt-1 mb-1 p-0.5 rounded-[6px] border border-[var(--border-subtle)] bg-[var(--bg)]">
+                    {(['chats', 'images'] as const).map((view) => (
+                      <button
+                        key={view}
+                        onClick={() => handleHistoryViewChange(view)}
+                        className={`flex-1 rounded-[4px] px-2 py-1 text-[11px] capitalize transition-colors cursor-pointer ${historyView === view
+                          ? 'bg-[var(--accent-brown)] text-[var(--text-inverse)] font-medium'
+                          : 'text-[var(--text-secondary)] hover:text-[var(--text-heading)]'
+                          }`}
+                      >
+                        {view}
+                      </button>
+                    ))}
+                  </div>
+                  {historyView === 'chats' ? (
+                    sessions.length === 0 ? (
                     <div className="px-3 py-2 text-center text-[11px] text-[var(--text-muted)] font-sans">
                       No logs
                     </div>
@@ -1470,6 +1555,68 @@ export function SimpleAssist() {
                         </button>
                       )}
                     </>
+                  )
+                  ) : (
+                    /* Images view: thumbnail + light info; details in popup */
+                    <div className="max-h-[320px] overflow-y-auto">
+                      {imageLogs === null ? (
+                        <div className="px-3 py-2 text-center text-[11px] text-[var(--text-muted)] font-sans">
+                          Loading…
+                        </div>
+                      ) : imageLogs.length === 0 ? (
+                        <div className="px-3 py-2 text-center text-[11px] text-[var(--text-muted)] font-sans">
+                          No generated images yet
+                        </div>
+                      ) : (
+                        <>
+                          {imageLogs.slice(0, imageLoadCount).map((log, i) => (
+                            <div
+                              key={imageKey(log, i)}
+                              className="group flex items-center gap-1 px-2 py-1 mx-1 mb-0.5 rounded-[4px] hover:bg-[var(--bg-hover)] transition-colors"
+                            >
+                              <button
+                                onClick={() => { setSelectedImage(log); setShowHistoryDropdown(false) }}
+                                className="flex-1 min-w-0 flex items-center gap-2 text-left cursor-pointer"
+                              >
+                                {log.path ? (
+                                  <img
+                                    src={`${API_BASE}/api/workspace/media/${log.path}`}
+                                    alt=""
+                                    className="h-9 w-9 rounded-[4px] border border-[var(--border-subtle)] object-cover shrink-0"
+                                  />
+                                ) : (
+                                  <span className="h-9 w-9 rounded-[4px] border border-[var(--border-subtle)] bg-[var(--bg-hover)] shrink-0" />
+                                )}
+                                <span className="flex-1 min-w-0">
+                                  <span className="truncate block text-[11px] text-[var(--text-secondary)] pr-1">
+                                    {(log.prompt || log.final_prompt || 'Untitled').slice(0, 60)}
+                                  </span>
+                                  <span className="truncate block text-[10px] text-[var(--text-muted)] pr-1">
+                                    {log.timestamp ? new Date(log.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : ''}
+                                    {log.timestamp ? ` ${new Date(log.timestamp).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}` : ''}
+                                  </span>
+                                </span>
+                              </button>
+                              <button
+                                onClick={(e) => handleDeleteImageLog(e, log, i)}
+                                className="flex items-center justify-center w-5 h-5 text-[var(--text-secondary)]/60 hover:text-red-500 hover:bg-[var(--border-sidebar)]/60 rounded-[4px] transition-all cursor-pointer active:scale-[0.9] opacity-0 group-hover:opacity-100 shrink-0"
+                                title="Delete log entry"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ))}
+                          {imageLogs.length > imageLoadCount && (
+                            <button
+                              onClick={() => setImageLoadCount(c => c + 10)}
+                              className="w-full px-3 py-2 text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-heading)] text-center transition-colors hover:bg-[var(--bg-hover)] cursor-pointer"
+                            >
+                              Show {imageLogs.length - imageLoadCount} more...
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
                   )}
                 </div>
               </>
@@ -1780,6 +1927,10 @@ export function SimpleAssist() {
       <div className="shrink-0 mt-auto pt-2">
         {renderInputCard()}
       </div>
+
+      {selectedImage && (
+        <ImageDetailPopup log={selectedImage} onClose={() => setSelectedImage(null)} />
+      )}
     </div>
   )
 }

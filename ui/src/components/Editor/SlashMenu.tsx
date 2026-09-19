@@ -6,12 +6,7 @@ import {
   useState,
 } from 'react'
 import type { Editor } from '@tiptap/core'
-import {
-  ImagePlus,
-  type LucideIcon,
-} from 'lucide-react'
-import { insertStoredImage, uploadImageFile } from '../../lib/media'
-import { useEditorStore } from '../../stores/editorStore'
+import { ITEMS, type SlashItem } from './slashItems'
 
 export interface SlashMenuHandle {
   /** Returns true when the key was consumed by the menu. */
@@ -23,61 +18,6 @@ interface SlashMenuProps {
   query: string
   range: { from: number; to: number }
 }
-
-interface SlashCtx {
-  editor: Editor
-  range: { from: number; to: number }
-}
-
-interface SlashItem {
-  id: string
-  label: string
-  hint: string
-  icon: LucideIcon
-  keywords: string
-  run: (ctx: SlashCtx) => void
-}
-
-function pickAndUpload(editor: Editor) {
-  const fileAtPick = useEditorStore.getState().currentFilePath
-  const input = document.createElement('input')
-  input.type = 'file'
-  input.accept = 'image/png,image/jpeg,image/webp,image/gif'
-  input.multiple = true
-  input.onchange = async () => {
-    const files = Array.from(input.files ?? [])
-    for (const file of files) {
-      try {
-        const path = await uploadImageFile(file)
-        // Same invariant as paste-URL imports: never insert into a
-        // document the user has since switched away from.
-        if (editor.isDestroyed) return
-        if (useEditorStore.getState().currentFilePath !== fileAtPick) {
-          console.warn('Margin: upload target file changed mid-upload — dropping image')
-          return
-        }
-        insertStoredImage(editor, path, file.name.replace(/\.[^.]+$/, ''))
-      } catch (err) {
-        window.alert(`Image upload failed: ${err instanceof Error ? err.message : err}`)
-      }
-    }
-  }
-  input.click()
-}
-
-// Extensible item registry: add future entries here (each with label,
-// hint, icon, keywords, run) and they appear in the menu with no further
-// wiring. Image upload is currently the only entry — pasted image URLs
-// already import via the paste path, so no URL mode is needed.
-const ITEMS: SlashItem[] = [
-  {
-    id: 'upload', label: 'Upload image', hint: 'Save to workspace assets', icon: ImagePlus, keywords: 'upload image picture photo asset file',
-    run: ({ editor, range }) => {
-      editor.chain().focus().deleteRange(range).run()
-      pickAndUpload(editor)
-    },
-  },
-]
 
 /** Block-start `/query` state, Notion-style: only inside empty-ish paragraphs. */
 export function computeSlash(editor: Editor): { query: string; range: { from: number; to: number } } | null {
@@ -97,12 +37,25 @@ export const SlashMenuView = forwardRef<SlashMenuHandle, SlashMenuProps>(
     const [active, setActive] = useState(0)
     const listRef = useRef<HTMLDivElement>(null)
 
-    const filtered = ITEMS.filter((item) =>
-      query
-        .split(/\s+/)
-        .filter(Boolean)
-        .every((w) => `${item.label} ${item.keywords}`.toLowerCase().includes(w)),
-    )
+    // Two-tier word-prefix matching (Notion/Raycast-style). Tier 1: every
+    // typed word starts the label itself (`/i` → Imagine, not Upload via
+    // its second word "image"). Tier 2 (fallback): any label/keyword word
+    // (`/pic` → Upload via "picture", `/gen` → Imagine via "generate").
+    const words = query
+      .split(/\s+/)
+      .filter(Boolean)
+    const labelWords = (s: string) => s.toLowerCase().split(/[\s_]+/)
+    const byLabelStart = ITEMS.filter((item) => {
+      const first = labelWords(item.label)[0] ?? ''
+      return words.every((w) => first.startsWith(w))
+    })
+    const byAnywhere = ITEMS.filter((item) => {
+      const haystack = [...labelWords(item.label), ...labelWords(item.keywords)]
+      return words.every((w) => haystack.some((h) => h.startsWith(w)))
+    })
+    const filtered = words.length === 0
+      ? ITEMS
+      : byLabelStart.length > 0 ? byLabelStart : byAnywhere
 
     useEffect(() => {
       setActive(0)
