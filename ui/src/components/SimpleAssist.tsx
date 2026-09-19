@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { AtSign, ChevronDown, Code2, MousePointer2, Settings, Trash2 } from 'lucide-react'
 import { useEditorStore } from '../stores/editorStore'
 import { useSettingsStore } from '../stores/settingsStore'
+import { toast } from '../stores/toastStore'
 import { API_BASE } from '../lib/api'
 import { streamSSE } from '../lib/stream-sse'
 import { applyHarnessResult } from '../lib/applyHarnessResult'
@@ -439,6 +440,7 @@ export function SimpleAssist() {
       setTimeout(() => setCopiedId(null), 2000)
     } catch (err) {
       console.error('Failed to copy prompt text:', err)
+      toast.error('Could not copy to clipboard.')
     }
   }
 
@@ -513,6 +515,7 @@ export function SimpleAssist() {
       }
     } catch (err) {
       console.error('Failed to fetch simple logs:', err)
+      toast.error('Could not load chat history.')
     }
   }
 
@@ -532,6 +535,7 @@ export function SimpleAssist() {
       }
     } catch (err) {
       console.error('Failed to fetch image logs:', err)
+      toast.error('Could not load image history.')
       setImageLogs([])
     } finally {
       imageLogsFetchingRef.current = false
@@ -545,9 +549,13 @@ export function SimpleAssist() {
         `${API_BASE}/api/images/logs/${encodeURIComponent(imageKey(log, i))}`,
         { method: 'DELETE' },
       )
-      if (!res.ok) console.warn('DELETE image log returned', res.status)
+      if (!res.ok) {
+        console.warn('DELETE image log returned', res.status)
+        toast.error('Could not delete that history entry.')
+      }
     } catch (err) {
       console.error('Failed to delete image log:', err)
+      toast.error('Could not delete that history entry.')
     }
     // Don't leave the detail popup open on a deleted entry.
     if (selectedImage != null) {
@@ -655,7 +663,10 @@ export function SimpleAssist() {
     fetch(`${API_BASE}/api/harnesses`)
       .then(res => res.ok ? res.json() : { harnesses: [] })
       .then(data => setHarnessList(data.harnesses || []))
-      .catch(err => console.error('Failed to fetch harnesses:', err))
+      .catch(err => {
+        console.error('Failed to fetch harnesses:', err)
+        toast.error('Could not load agent harnesses.')
+      })
   }, [])
 
   // Reset all session state when the workspace directory changes
@@ -1530,9 +1541,13 @@ export function SimpleAssist() {
                               e.stopPropagation()
                               try {
                                 const res = await fetch(`${API_BASE}/api/assist/simple/session/${session.id}`, { method: 'DELETE' })
-                                if (!res.ok) console.warn('DELETE session returned', res.status)
+                                if (!res.ok) {
+                                  console.warn('DELETE session returned', res.status)
+                                  toast.error('Could not delete that session.')
+                                }
                               } catch (e) {
                                 console.error('Failed to delete session:', e)
+                                toast.error('Could not delete that session.')
                               }
                               if (activeSessionId === session.id) {
                                 setActiveSessionId(crypto.randomUUID())

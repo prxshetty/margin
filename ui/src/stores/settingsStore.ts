@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { API_BASE } from '../lib/api'
+import { toast } from './toastStore'
 
 export interface AppSettings {
   default_mode: string
@@ -68,6 +69,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       set({ settings: data, isLoading: false })
     } catch (e) {
       console.error('Failed to load settings', e)
+      toast.error('Could not load settings — defaults are in effect.')
       set({ isLoading: false })
     }
   },
@@ -81,6 +83,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       })
     } catch (e) {
       console.error('Failed to update settings', e)
+      toast.error('Could not save that setting — it may revert on reload.')
     }
   }
 }))

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { X } from 'lucide-react'
 import { API_BASE } from '../lib/api'
+import { toast } from '../stores/toastStore'
 
 export interface ImageLogEntry {
   id?: string
@@ -34,6 +35,7 @@ export function ImageDetailPopup({ log, onClose }: { log: ImageLogEntry; onClose
       setTimeout(() => setCopied(false), 2000)
     } catch (err) {
       console.error('Failed to copy image prompt:', err)
+      toast.error('Could not copy to clipboard.')
     }
   }
 

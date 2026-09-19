@@ -33,14 +33,23 @@ export function ImagineIcon({ className = 'w-3.5 h-3.5' }: BrandIconProps) {
   )
 }
 
-/** Link — chain/link glyph (stroke 1.5 to match UI chrome). */
-export function LinkIcon({ className = 'w-3.5 h-3.5' }: BrandIconProps) {
-    return (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" className={`${className} shrink-0`} aria-hidden="true">
-            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-        </svg>
-    )
+/** Link — chain-link mark (stroke 2). Sized down by default to sit evenly
+ *  beside the B / I / U / S / code text glyphs. */
+export function LinkIcon({ className = 'w-3 h-3' }: BrandIconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={`${className} shrink-0`}
+      aria-hidden="true"
+    >
+      <path d="m9 15l6-6m-4-3l.463-.536a5 5 0 0 1 7.071 7.072L18 13m-5 5l-.397.534a5.068 5.068 0 0 1-7.127 0a4.972 4.972 0 0 1 0-7.071L6 11" />
+    </svg>
+  )
 }
 
 /** Upload — file tray with an up arrow (stroke 1.5 to match UI chrome). */

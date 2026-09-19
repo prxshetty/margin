@@ -246,6 +246,7 @@ export function FileSidebar({
           }
         } catch (err) {
           console.error("Failed to fetch file content", err)
+          toast.error(`Could not open "${path}" — showing last known content.`)
         }
       }
 
