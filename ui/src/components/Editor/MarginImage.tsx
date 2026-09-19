@@ -46,6 +46,10 @@ function numOrNull(v: unknown): number | null {
 
 const MIN_SIZE = 32
 
+// Filled submit — SimpleAssist's send treatment (solid accent idle, muted
+// disabled) in the 5px inner radius shared with the bubble's SendArrow.
+const SEND_PILL_CLASS = 'flex items-center justify-center w-6 h-6 rounded-[5px] border border-transparent cursor-pointer select-none shrink-0 transition-[background-color,transform,opacity] duration-150 active:scale-[0.9] bg-[var(--accent-brown)] hover:bg-[var(--accent-brown-hover)] text-[var(--text-inverse)] disabled:bg-[var(--bg-disabled)] disabled:text-[var(--text-disabled)] disabled:border-transparent'
+
 /**
  * Maximum drag width: the editor's content width, not the image frame's.
  * The frame shrink-wraps the image, so measuring it would freeze the clamp
@@ -467,7 +471,7 @@ function MarginImageView({ editor, node, selected, updateAttributes, deleteNode,
                               title="Style"
                               aria-label="Image style"
                               onMouseDown={(e) => e.stopPropagation()}
-                              className="shrink-0 max-w-[120px] truncate pl-1.5 pr-5 py-0.5 text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-heading)] bg-transparent hover:bg-[var(--bg-hover)] rounded-[5px] outline-none cursor-pointer disabled:opacity-60 appearance-none"
+                              className="h-6 shrink-0 max-w-[120px] truncate pl-1.5 pr-5 py-0 text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-heading)] bg-transparent hover:bg-[var(--bg-hover)] rounded-[5px] outline-none cursor-pointer disabled:opacity-60 appearance-none"
                             >
                               {imageStyleOptions(liveSettings?.image_custom_styles, liveSettings?.image_deleted_styles).map((n) => (
                                 <option key={n} value={n}>{n}</option>
@@ -493,12 +497,13 @@ function MarginImageView({ editor, node, selected, updateAttributes, deleteNode,
                             title="Imagine again"
                             aria-label="Imagine again"
                             disabled={regenerating || !editPrompt.trim()}
-                            className="flex items-center justify-center w-6 h-6 text-[var(--accent-brown)] hover:text-[var(--accent-brown-hover)] hover:bg-[var(--bg-hover)] rounded-[5px] transition-colors cursor-pointer shrink-0 disabled:opacity-40"
+                            className={SEND_PILL_CLASS}
                             onMouseDown={(e) => e.preventDefault()}
                             onClick={() => void submitImagineAgain()}
                           >
                             <svg xmlns="http://www.w3.org/2000/svg" className={`w-3.5 h-3.5 ${regenerating ? 'opacity-30' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M5 12h14M12 5l7 7-7 7" />
+                              <line x1="12" y1="19" x2="12" y2="5" />
+                              <polyline points="5 12 12 5 19 12" />
                             </svg>
                           </button>
                         </div>
@@ -544,12 +549,13 @@ function MarginImageView({ editor, node, selected, updateAttributes, deleteNode,
                         title="Imagine again"
                         aria-label="Imagine again"
                         disabled={regenerating || !editPrompt.trim()}
-                        className="flex items-center justify-center w-6 h-6 text-[var(--accent-brown)] hover:text-[var(--accent-brown-hover)] hover:bg-[var(--bg-hover)] rounded-[5px] transition-colors cursor-pointer shrink-0 disabled:opacity-40"
+                        className={SEND_PILL_CLASS}
                         onMouseDown={(e) => e.preventDefault()}
                         onClick={() => void submitImagineAgain()}
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" className={`w-3.5 h-3.5 ${regenerating ? 'opacity-30' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M5 12h14M12 5l7 7-7 7" />
+                          <line x1="12" y1="19" x2="12" y2="5" />
+                          <polyline points="5 12 12 5 19 12" />
                         </svg>
                       </button>
                     </>

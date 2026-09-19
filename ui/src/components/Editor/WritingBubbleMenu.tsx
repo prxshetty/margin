@@ -1,7 +1,8 @@
-import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
+import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo } from 'react'
 import { BubbleMenu } from '@tiptap/react/menus'
 import type { Editor } from '@tiptap/core'
 import { NodeSelection } from '@tiptap/pm/state'
+import type { EditorState } from '@tiptap/pm/state'
 import { ChevronDown, Check, TextIcon, Heading1, Heading2, Heading3, ChevronsUpDown } from 'lucide-react'
 import { useEditorStore } from '../../stores/editorStore'
 import { useSettingsStore } from '../../stores/settingsStore'
@@ -176,10 +177,11 @@ const SURFACE_CLASS = `
     bg-[var(--bg-elevated)] border border-[var(--border-subtle)]
     rounded-[8px] shadow-[0_2px_8px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)]
 `
-const PILL_CLASS = `flex items-center gap-0.5 px-1.5 py-1 ${SURFACE_CLASS}`
-// The AI pill holds wide icon+label buttons, so it trims its own outer
-// padding — otherwise Cue (left) and Imagine (right) sit visibly inset.
-const AI_PILL_CLASS = `flex items-center gap-0.5 px-1 py-1 ${SURFACE_CLASS}`
+const PILL_CLASS = `flex items-center gap-0.5 px-1 py-1 ${SURFACE_CLASS}`
+// All pills share the same 4px outer padding on every side, so the right
+// edge sits exactly as tight as top/bottom. (The AI pill's wide icon+label
+// buttons would otherwise read visibly inset.)
+const AI_PILL_CLASS = PILL_CLASS
 const EXPANDED_CLASS = `flex flex-col items-stretch gap-1.5 w-[320px] p-2 ${SURFACE_CLASS}`
 const FIELD_TEXT_CLASS = `
     bg-transparent text-[11.5px] leading-relaxed text-[var(--text-heading)]
@@ -199,6 +201,9 @@ function ExpandToggle({ expanded, onToggle }: { expanded: boolean; onToggle: () 
     )
 }
 
+// Filled submit — SimpleAssist's send treatment (solid accent idle, muted
+// disabled) in the bubble's 5px inner radius so it sits flush with its
+// square siblings. (Also serves link apply.)
 function SendArrow({ title, disabled, dimmed, onSend }: {
     title: string
     disabled?: boolean
@@ -210,10 +215,11 @@ function SendArrow({ title, disabled, dimmed, onSend }: {
             onMouseDown={(e) => { e.preventDefault(); onSend() }}
             disabled={disabled}
             title={title}
-            className="flex items-center justify-center w-6 h-6 text-[var(--accent-brown)] hover:text-[var(--accent-brown-hover)] hover:bg-[var(--bg-hover)] rounded-[5px] transition-colors cursor-pointer shrink-0 disabled:opacity-40"
+            className="flex items-center justify-center w-6 h-6 rounded-[5px] border border-transparent cursor-pointer select-none shrink-0 transition-[background-color,transform,opacity] duration-150 active:scale-[0.9] bg-[var(--accent-brown)] hover:bg-[var(--accent-brown-hover)] text-[var(--text-inverse)] disabled:bg-[var(--bg-disabled)] disabled:text-[var(--text-disabled)] disabled:border-transparent"
         >
-            <svg xmlns="http://www.w3.org/2000/svg" className={`w-3.5 h-3.5 ${dimmed ? 'opacity-30' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M5 12h14M12 5l7 7-7 7" />
+            <svg xmlns="http://www.w3.org/2000/svg" className={`w-3.5 h-3.5 ${dimmed ? 'opacity-30' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="19" x2="12" y2="5" />
+                <polyline points="5 12 12 5 19 12" />
             </svg>
         </button>
     )
@@ -237,7 +243,7 @@ function StylePill({ value, onChange, disabled, options }: {
                 title="Style"
                 aria-label="Image style"
                 onMouseDown={(e) => e.stopPropagation()}
-                className="shrink-0 max-w-[120px] truncate pl-1.5 pr-5 py-0.5 text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-heading)] bg-transparent hover:bg-[var(--bg-hover)] rounded-[5px] outline-none cursor-pointer disabled:opacity-60 appearance-none"
+                className="h-6 shrink-0 max-w-[120px] truncate pl-1.5 pr-5 py-0 text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-heading)] bg-transparent hover:bg-[var(--bg-hover)] rounded-[5px] outline-none cursor-pointer disabled:opacity-60 appearance-none"
             >
                 {options.map((n) => (
                     <option key={n} value={n}>{n}</option>
@@ -275,6 +281,28 @@ export function WritingBubbleMenu() {
     // (Rewrite sits mid-pill, Imagine rightmost) so the input feels like it
     // grows out of the clicked button.
     const [origin, setOrigin] = useState<'rewrite' | 'imagine' | 'link' | null>(null)
+    // Morph plays on mode switches ONLY, never on show/hide. TipTap detaches
+    // the menu element on hide and re-attaches on show, which restarts CSS
+    // animations — leaving the class on would fade the bubble in on every
+    // selection. So the class is applied when mode changes and cleared when
+    // the animation ends; showing stays instant.
+    const [morphAnim, setMorphAnim] = useState('')
+    const isFirstMode = useRef(true)
+    // Layout effect so the class lands before paint — no one-frame flash of
+    // the un-animated input.
+    useLayoutEffect(() => {
+        if (isFirstMode.current) { isFirstMode.current = false; return }
+        setMorphAnim(
+            `bubble-morph-in ${origin === 'imagine'
+                ? 'bubble-morph-origin-imagine'
+                : origin === 'rewrite'
+                    ? 'bubble-morph-origin-rewrite'
+                    : origin === 'link'
+                        ? 'bubble-morph-origin-link'
+                        : ''
+            }`,
+        )
+    }, [mode, origin])
     const [instruction, setInstruction] = useState('')
     const [linkUrl, setLinkUrl] = useState('')
     const [isStreaming, setIsStreaming] = useState(false)
@@ -519,19 +547,16 @@ export function WritingBubbleMenu() {
         }
     }
 
-    if (!editor) return null
+    // Stable identity matters: the BubbleMenu wrapper re-dispatches
+    // updateOptions (a ProseMirror transaction) whenever this reference
+    // changes, so an inline arrow would spam a transaction on every render
+    // — including every selection tick.
+    const shouldShowBubble = useCallback(({ state }: { state: EditorState }) => {
+        if (state.selection instanceof NodeSelection) return false
+        return !state.selection.empty
+    }, [])
 
-    // Expressive morph origin: the input grows out of the entry button that
-    // opened it (Link left, Rewrite mid, Imagine right), anchored to the
-    // selection edge below. Returning to default re-centers.
-    const morphOriginClass =
-        origin === 'imagine'
-            ? 'bubble-morph-origin-imagine'
-            : origin === 'rewrite'
-                ? 'bubble-morph-origin-rewrite'
-                : origin === 'link'
-                    ? 'bubble-morph-origin-link'
-                    : ''
+    if (!editor) return null
 
     return (
         <BubbleMenu
@@ -546,18 +571,14 @@ export function WritingBubbleMenu() {
             // Image nodes have their own selected-state chrome (caption +
             // source line in MarginImage) — the text/AI bubble is meaningless
             // on a NodeSelection and would cover the image.
-            shouldShow={({ state }) => {
-                if (state.selection instanceof NodeSelection) return false
-                return !state.selection.empty
-            }}
+            shouldShow={shouldShowBubble}
             className="relative flex items-start gap-2 overflow-visible"
         >
             {/* Formatting bubble shows in default mode only — hidden while a
                 prompt is open so users don't split attention between the two.
                 The second slot morphs: AI actions by default, prompt input in
-                rewrite / imagine / link modes. Key remounts per mode so the
-                switch crossfades; expanded toggle keeps the key so it never
-                replays. */}
+                rewrite / imagine / link modes. Key remounts per mode; the
+                morph class itself is mode-switch-only (see morphAnim). */}
             <div className="flex items-start gap-2">
                 {mode === 'default' && (
                     <div className={PILL_CLASS}>
@@ -578,7 +599,11 @@ export function WritingBubbleMenu() {
                     </div>
                 )}
 
-                <div key={mode} className={`relative flex items-start bubble-morph-in ${morphOriginClass}`}>
+                <div
+                    key={mode}
+                    onAnimationEnd={() => setMorphAnim('')}
+                    className={`relative flex items-start ${morphAnim}`}
+                >
                 {(isStreaming || imagineBusy) && (
                     <div className="absolute inset-0 rounded-[8px] z-50 pointer-events-none">
                         <div className="absolute inset-0 rounded-[8px] animate-spin-border" />
