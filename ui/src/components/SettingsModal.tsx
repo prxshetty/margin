@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { X, Plus, Trash2, CheckCircle, Play, Edit, Brain, ChevronRight, ChevronDown, Folder, FolderOpen, Pin, EyeOff, Eye, Pencil, RotateCcw } from 'lucide-react'
 import { useSettingsStore } from '../stores/settingsStore'
+import { toast } from '../stores/toastStore'
 import { useEditorStore } from '../stores/editorStore'
 import type { AppSettings } from '../stores/settingsStore'
 import { API_BASE } from '../lib/api'
@@ -95,7 +96,10 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
     fetch(`${API_BASE}/api/workspace/files`)
       .then(res => res.json())
       .then(data => setAvailableFiles(data))
-      .catch(err => console.error(err))
+      .catch(err => {
+        console.error(err)
+        toast.error('Could not list workspace files for context pinning.')
+      })
   }, [])
 
   if (!settings) return null
@@ -172,6 +176,7 @@ function GeneralSettings({ settings, updateSettings }: { settings: AppSettings, 
       }
     } catch (err) {
       console.error('Failed to pick folder', err)
+      toast.error('Could not open the folder picker.')
     } finally {
       setIsPicking(false)
     }

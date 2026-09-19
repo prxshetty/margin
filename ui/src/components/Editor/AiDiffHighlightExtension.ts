@@ -108,7 +108,10 @@ export const AiDiffHighlightExtension = Extension.create<AiDiffHighlightOptions>
                     if (state.aiPendingEdit?.harness) {
                       // Harness run: persist merged doc (AI + preserved user edits)
                       import('../../lib/applyHarnessResult').then(({ resolveHarnessReview }) => {
-                        resolveHarnessReview(true).catch((err) => console.error('Failed to accept harness changes:', err))
+                        resolveHarnessReview(true).catch((err) => {
+                          console.error('Failed to accept harness changes:', err)
+                          import('../../stores/toastStore').then(({ toast }) => toast.error('Could not accept those changes.'))
+                        })
                       })
                       return
                     }
@@ -122,7 +125,10 @@ export const AiDiffHighlightExtension = Extension.create<AiDiffHighlightOptions>
                     if (state.aiPendingEdit?.harness) {
                       // Harness run: remove AI changes, keep user changes (incl. disk)
                       import('../../lib/applyHarnessResult').then(({ resolveHarnessReview }) => {
-                        resolveHarnessReview(false).catch((err) => console.error('Failed to reject harness changes:', err))
+                        resolveHarnessReview(false).catch((err) => {
+                          console.error('Failed to reject harness changes:', err)
+                          import('../../stores/toastStore').then(({ toast }) => toast.error('Could not reject those changes.'))
+                        })
                       })
                       return
                     }
