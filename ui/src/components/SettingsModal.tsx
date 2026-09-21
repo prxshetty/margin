@@ -259,7 +259,7 @@ function TabButton({ active, onClick, label, icon: Icon }: { active: boolean, on
   return (
     <button
       onClick={onClick}
-      className={`text-left px-3 py-2 rounded-[6px] text-[13px] transition-colors cursor-pointer ${active
+      className={`flex items-center gap-2.5 text-left px-3 py-2 rounded-[8px] text-[13px] transition-colors cursor-pointer ${active
         ? 'bg-[var(--bg-hover)] text-[var(--text-heading)] font-medium'
         : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]/50'
         }`}
@@ -270,7 +270,7 @@ function TabButton({ active, onClick, label, icon: Icon }: { active: boolean, on
   )
 }
 
-function GeneralSettings({ settings, updateSettings }: { settings: AppSettings, updateSettings: (u: Partial<AppSettings>) => void }) {
+function GeneralSettings({ settings, updateSettings, query }: { settings: AppSettings, updateSettings: (u: Partial<AppSettings>) => void, query: string }) {
   const [workspacePath, setWorkspacePath] = useState(settings.linked_workspace_dir || '')
   const [isPickingExisting, setIsPickingExisting] = useState(false)
   const [linkStatus, setLinkStatus] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null)
