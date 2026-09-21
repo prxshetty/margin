@@ -95,6 +95,44 @@ function FileIcon({ className = '' }: { className?: string }) {
   )
 }
 
+function FolderClosedIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2Z" />
+    </svg>
+  )
+}
+
+function FolderOpenIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="m3.882 18.043l4.041-5.623a4 4 0 0 1 3.249-1.665h8.752M3.882 18.043a3.65 3.65 0 0 0 2.777 1.277h8.343a4 4 0 0 0 3.405-1.9l2.918-4.734a1.287 1.287 0 0 0-1.115-1.931h-.286M3.882 18.043A3.65 3.65 0 0 1 3 15.661V7.424A2.744 2.744 0 0 1 5.744 4.68h2.653c.607 0 1.189.24 1.618.67l.911.91a1.83 1.83 0 0 0 1.294.537l4.044-.001a3.66 3.66 0 0 1 3.66 3.66v.299" />
+    </svg>
+  )
+}
+
+// Tree guides: curved elbow per row (top → mid with a rounded corner,
+// then a horizontal stub into the icon). Strict-ancestor verticals run
+// full height; the elbow's below-mid segment is omitted for last children
+// so the line terminates instead of dangling.
+function TreeGuides({ depth, guides, isLast }: { depth: number; guides: boolean[]; isLast: boolean }) {
+  if (depth === 0) return null
+  const elbowX = (depth - 1) * 12 + 27
+  return (
+    <>
+      {guides.slice(0, depth - 1).map((on, i) =>
+        on ? (
+          <span key={i} aria-hidden="true" className="absolute top-0 bottom-0 w-px bg-[var(--border-subtle)]/70" style={{ left: `${i * 12 + 27}px` }} />
+        ) : null
+      )}
+      <span aria-hidden="true" className="absolute top-0 h-1/2 w-[5px] border-l border-b border-[var(--border-subtle)]/70 rounded-bl-[5px]" style={{ left: `${elbowX}px` }} />
+      {!isLast && (
+        <span aria-hidden="true" className="absolute top-1/2 bottom-0 w-px bg-[var(--border-subtle)]/70" style={{ left: `${elbowX}px` }} />
+      )}
+    </>
+  )
+}
+
 export function FileSidebar({
   onSaveCurrentFile,
   filesPanelOpen,
@@ -448,16 +486,16 @@ export function FileSidebar({
 
       {/* File list — always show section headers once a workspace is linked */}
       {!loading && workspaceDir && (
-        <div className="flex flex-col gap-3.5 px-1">
+        <div className="flex flex-col gap-0 px-1">
           {rootFiles.length > 0 && (
-            <div className="flex flex-col gap-0.5">
+            <div className="flex flex-col gap-0">
               {rootFiles.map((file) => (
                 <FileRow key={file.path} file={file} depth={0} onSelect={handleFileClick} onDelete={handleDeleteFile} onRename={handleRenameFile} />
               ))}
             </div>
           )}
 
-          {treeNodes.map((node) => (
+          {treeNodes.map((node, i) => (
             <TreeNodeComponent
               key={node.path}
               node={node}
@@ -468,6 +506,8 @@ export function FileSidebar({
               handleFileClick={handleFileClick}
               handleDeleteFile={handleDeleteFile}
               handleRenameFile={handleRenameFile}
+              guides={[]}
+              isLast={i === treeNodes.length - 1}
             />
           ))}
 
@@ -489,34 +529,34 @@ function FolderRow({
   depth,
   isExpanded,
   onToggle,
-  onAddFile
+  onAddFile,
+  guides = [],
+  isLast = true,
 }: {
   name: string
   depth: number
   isExpanded: boolean
   onToggle: () => void
   onAddFile: () => void
+  guides?: boolean[]
+  isLast?: boolean
 }) {
   return (
     <div
       onClick={onToggle}
-      style={{ paddingLeft: `${depth * 12 + 6}px` }}
-      className="group flex items-center justify-between py-1.5 pr-2 rounded-[6px] text-[10px] font-bold uppercase tracking-[0.1em] text-[var(--text-secondary)]/70 hover:bg-[var(--border-sidebar)]/20 hover:text-[var(--text)] transition-colors duration-150 cursor-pointer select-none"
+      style={{ paddingLeft: `${depth * 12 + 20}px` }}
+      className={`group relative flex items-center gap-1 pr-2.5 py-2 rounded-[6px] text-xs transition-colors duration-150 cursor-pointer select-none ${isExpanded
+        ? 'text-[var(--text)] hover:bg-[var(--border-sidebar)]/30'
+        : 'text-[var(--text-secondary)] hover:bg-[var(--border-sidebar)]/30 hover:text-[var(--text)]'
+        }`}
+      title={isExpanded ? 'Collapse folder' : 'Expand folder'}
     >
-      <div className="flex items-center gap-1 min-w-0 flex-1">
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className={`w-3.5 h-3.5 shrink-0 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}
-        >
-          <path d="m9 18 6-6-6-6" />
-        </svg>
-        <span className="truncate select-none">{name}/</span>
+      <TreeGuides depth={depth} guides={guides} isLast={isLast} />
+      <div className="flex items-center gap-1.5 flex-1 min-w-0 text-left">
+        {isExpanded
+          ? <FolderOpenIcon className="w-4 h-4 shrink-0 text-[var(--text-secondary)]" />
+          : <FolderClosedIcon className="w-4 h-4 shrink-0 text-[var(--text-secondary)]/60" />}
+        <span className="truncate font-sans font-medium">{name}</span>
       </div>
       <button
         onClick={(e) => {
@@ -541,6 +581,8 @@ function TreeNodeComponent({
   handleFileClick,
   handleDeleteFile,
   handleRenameFile,
+  guides = [],
+  isLast = true,
 }: {
   node: TreeNode
   depth: number
@@ -550,6 +592,8 @@ function TreeNodeComponent({
   handleFileClick: (path: string) => void
   handleDeleteFile: (path: string) => void
   handleRenameFile: (path: string) => void
+  guides?: boolean[]
+  isLast?: boolean
 }) {
   if (node.type === 'file') {
     return (
@@ -559,6 +603,8 @@ function TreeNodeComponent({
         onSelect={handleFileClick}
         onDelete={handleDeleteFile}
         onRename={handleRenameFile}
+        guides={guides}
+        isLast={isLast}
       />
     )
   }
@@ -573,10 +619,12 @@ function TreeNodeComponent({
         isExpanded={isExpanded}
         onToggle={() => toggleFolder(node.path)}
         onAddFile={() => handleCreateFile(node.path)}
+        guides={guides}
+        isLast={isLast}
       />
       {isExpanded && (
-        <div className="flex flex-col gap-0.5">
-          {node.children.map((child) => (
+        <div className="flex flex-col gap-0">
+          {node.children.map((child, i) => (
             <TreeNodeComponent
               key={child.path}
               node={child}
@@ -587,6 +635,8 @@ function TreeNodeComponent({
               handleFileClick={handleFileClick}
               handleDeleteFile={handleDeleteFile}
               handleRenameFile={handleRenameFile}
+              guides={[...guides, i < node.children.length - 1]}
+              isLast={i === node.children.length - 1}
             />
           ))}
         </div>
@@ -609,12 +659,16 @@ function FileRow({
   onSelect,
   onDelete,
   onRename,
+  guides = [],
+  isLast = true,
 }: {
   file: FileEntry
   depth?: number
   onSelect: (path: string) => void
   onDelete?: (path: string) => void
   onRename?: (path: string) => void
+  guides?: boolean[]
+  isLast?: boolean
 }) {
   const isActive = useEditorStore((s) => s.currentFilePath === file.path)
 
@@ -622,11 +676,12 @@ function FileRow({
     <div
       onClick={() => onSelect(file.path)}
       style={{ paddingLeft: `${depth * 12 + 20}px` }}
-      className={`group flex items-center gap-1 pr-2.5 py-2 rounded-[6px] text-xs transition-colors duration-150 cursor-pointer ${isActive
-        ? 'bg-[var(--border-sidebar)]/40 text-[var(--text)]'
+      className={`group relative flex items-center gap-1 pr-2.5 py-2 rounded-[6px] text-xs transition-colors duration-150 cursor-pointer ${isActive
+        ? 'text-[var(--text)]'
         : 'text-[var(--text-secondary)] hover:bg-[var(--border-sidebar)]/30 hover:text-[var(--text)]'
         }`}
     >
+      <TreeGuides depth={depth} guides={guides} isLast={isLast} />
       <div
         className="flex items-center gap-1.5 flex-1 min-w-0 text-left"
         title={file.path}
