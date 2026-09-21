@@ -182,10 +182,16 @@ const PILL_CLASS = `flex items-center gap-0.5 px-1 py-1 ${SURFACE_CLASS}`
 // edge sits exactly as tight as top/bottom. (The AI pill's wide icon+label
 // buttons would otherwise read visibly inset.)
 const AI_PILL_CLASS = PILL_CLASS
-const EXPANDED_CLASS = `flex flex-col items-stretch gap-1.5 w-[320px] p-2 ${SURFACE_CLASS}`
+// Expanded shares the pill's exact 4px outer padding — otherwise
+// expand/contract shifts the text caret and box edges sideways.
+const EXPANDED_CLASS = `flex flex-col items-stretch gap-1.5 w-[320px] px-1 py-1 ${SURFACE_CLASS}`
+// py-0.5 keeps the first text line at the same distance from the top
+// border in both states: the collapsed input vertically centers its line
+// in the 24px row (~6.6px from the border), so the expanded textarea
+// needs the same inset instead of starting flush at the container edge.
 const FIELD_TEXT_CLASS = `
     bg-transparent text-[11.5px] leading-relaxed text-[var(--text-heading)]
-    placeholder:text-[var(--text-muted)] outline-none px-1 min-w-0 disabled:opacity-60
+    placeholder:text-[var(--text-muted)] outline-none px-1 py-0.5 min-w-0 disabled:opacity-60
 `
 
 // ─── Morph micro-controls ─────────────────────────────────────────────────────
