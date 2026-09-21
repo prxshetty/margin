@@ -38,24 +38,18 @@ function EndpointMark({ className }: { className: string }) {
   )
 }
 
-// agy ships as a PNG (white glyph, transparent bg): render as a CSS mask
-// filled with `currentColor` — same theme behavior, background stays clear.
+// agy ships as a PNG (white glyph on a BLACK background, no alpha), so
+// CSS masks can't cut the glyph reliably — render the file directly as a
+// rounded tile instead. Reads as the app icon in every theme, no masking
+// fragility, no extra asset to go stale (bundled via the import above).
 function AgyMark({ className }: { className: string }) {
   return (
-    <span
+    <img
+      src={agyLogo}
+      alt=""
       aria-hidden="true"
-      className={`${className} shrink-0 inline-block`}
-      style={{
-        backgroundColor: 'currentColor',
-        WebkitMaskImage: `url(${agyLogo})`,
-        maskImage: `url(${agyLogo})`,
-        WebkitMaskSize: 'contain',
-        maskSize: 'contain',
-        WebkitMaskRepeat: 'no-repeat',
-        maskRepeat: 'no-repeat',
-        WebkitMaskPosition: 'center',
-        maskPosition: 'center',
-      }}
+      draggable={false}
+      className={`${className} shrink-0 rounded-[4px] object-cover`}
     />
   )
 }
