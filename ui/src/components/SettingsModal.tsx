@@ -401,11 +401,10 @@ function GeneralSettings({ settings, updateSettings, query }: { settings: AppSet
   }
 
   return (
-    <div className="flex flex-col gap-8">
-      {/* Active Workspace Banner */}
-      <section>
-        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Active Workspace</h3>
-        <p className="text-[12px] text-[var(--text-secondary)] mb-2">The currently loaded project directory for your novel manuscripts, characters, and styles.</p>
+    <div className="flex flex-col gap-6">
+      <FilterSection query={query} keywords="workspace active directory loaded">
+        <section>
+          <SectionLabel description="The currently loaded project directory for your novel manuscripts, characters, and styles.">Active workspace</SectionLabel>
         <div className="p-3 rounded-[6px] border border-[var(--border-subtle)] bg-[var(--bg-elevated)]/50 flex items-center justify-between text-[12px] max-w-xl">
           <div className="flex items-center gap-2 overflow-hidden">
             <Folder size={15} className="text-[var(--text-secondary)] shrink-0" />
@@ -423,17 +422,12 @@ function GeneralSettings({ settings, updateSettings, query }: { settings: AppSet
             </button>
           )}
         </div>
-      </section>
+        </section>
+      </FilterSection>
 
-      {/* Create New Workspace */}
-      <section className="border-t border-[var(--border-subtle)] pt-6">
-        <div className="flex items-center gap-2 mb-1">
-          <FolderPlus size={15} className="text-[var(--accent-brown)]" />
-          <h3 className="text-[13px] font-medium text-[var(--text-heading)]">Create New Workspace</h3>
-        </div>
-        <p className="text-[12px] text-[var(--text-secondary)] mb-3">
-          Scaffold a clean, structured novel project with chapter templates, character sheets, and style guides.
-        </p>
+      <FilterSection query={query} keywords="create workspace new git scaffold">
+        <section>
+          <SectionLabel description="Scaffold a clean, structured novel project with chapter templates, character sheets, and style guides.">Create workspace</SectionLabel>
         <div className="flex flex-col gap-3 max-w-xl">
           <div className="flex gap-2 w-full">
             <input
@@ -521,101 +515,115 @@ function GeneralSettings({ settings, updateSettings, query }: { settings: AppSet
           )}
         </div>
       </section>
+      </FilterSection>
 
-      {/* Link Existing Workspace */}
-      <section className="border-t border-[var(--border-subtle)] pt-6">
-        <div className="flex items-center gap-2 mb-1">
-          <FolderOpen size={15} className="text-[var(--text-secondary)]" />
-          <h3 className="text-[13px] font-medium text-[var(--text-heading)]">Link Existing Workspace</h3>
-        </div>
-        <p className="text-[12px] text-[var(--text-secondary)] mb-3">Link an existing novel directory on your computer.</p>
-        <div className="flex flex-col gap-2 max-w-xl">
-          <div className="flex gap-2 w-full">
-            <input
-              type="text"
-              placeholder={isWindows ? 'e.g. C:\\Users\\name\\my-novel' : 'e.g. /Users/name/my-novel'}
-              value={workspacePath}
-              onChange={(e) => setWorkspacePath(e.target.value)}
-              className="flex-1 border border-[var(--border-subtle)] rounded-[6px] px-3 py-1.5 text-[13px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)] transition-colors min-w-0"
-            />
-            <button
-              type="button"
-              onClick={handleBrowseExisting}
-              disabled={isPickingExisting}
-              className="shrink-0 px-3 py-1.5 rounded-[6px] text-[12px] border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[var(--text-heading)] hover:bg-[var(--bg-hover)] transition-colors font-medium cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
-            >
-              {isPickingExisting ? (
-                <>
-                  <Loader2 size={13} className="animate-spin" />
-                  <span>Browsing...</span>
-                </>
-              ) : (
-                <>
-                  <FolderOpen size={13} />
-                  <span>Browse...</span>
-                </>
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={handleLink}
-              className="shrink-0 px-3 py-1.5 rounded-[6px] text-[12px] bg-[var(--accent-brown)] text-[var(--text-inverse)] hover:bg-[var(--accent-brown)]/90 transition-colors font-medium cursor-pointer"
-            >
-              Link Path
-            </button>
-          </div>
-          {linkStatus && (
-            <div className={`p-2.5 rounded-[6px] text-[12px] border ${
-              linkStatus.type === 'success' ? 'bg-green-500/10 border-green-500/30 text-green-700 dark:text-green-300' :
-              linkStatus.type === 'info'    ? 'bg-blue-500/10 border-blue-500/30 text-blue-700 dark:text-blue-300' :
-                                             'bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-300'
-            }`}>
-              {linkStatus.message}
+      <FilterSection query={query} keywords="workspace directory folder path link browse">
+        <section>
+          <SectionLabel description="Link an absolute directory path on your system containing your novel project.">Workspace</SectionLabel>
+          <SectionCard>
+            <div className="p-4 flex flex-col gap-2">
+            <div className="flex gap-2 w-full mt-1">
+              <input
+                type="text"
+                placeholder={isWindows ? 'e.g. C:\\Users\\name\\my-novel' : 'e.g. /Users/username/my-novel'}
+                value={workspacePath}
+                onChange={(e) => setWorkspacePath(e.target.value)}
+                className="flex-1 border border-[var(--border-subtle)] rounded-[8px] px-3 py-1.5 text-[13px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)] transition-colors min-w-0"
+              />
+              <button
+                onClick={handleBrowseExisting}
+                disabled={isPickingExisting}
+                className="shrink-0 px-3 py-1.5 rounded-[8px] text-[12px] border border-[var(--border-subtle)] text-[var(--text-heading)] hover:bg-[var(--bg-hover)] transition-colors font-medium cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+              >
+                {isPickingExisting ? (
+                  <>
+                    <Loader2 size={13} className="animate-spin" />
+                    <span>Browsing...</span>
+                  </>
+                ) : (
+                  <span>Browse</span>
+                )}
+              </button>
+              <button
+                onClick={handleLink}
+                className="shrink-0 px-3 py-1.5 rounded-[8px] text-[12px] bg-[var(--accent-brown)] text-[var(--text-inverse)] hover:bg-[var(--accent-brown)]/90 transition-colors font-medium cursor-pointer"
+              >
+                Link Path
+              </button>
             </div>
-          )}
-        </div>
-      </section>
+            {linkStatus && (
+              <div className={`p-2.5 rounded-[6px] text-[12px] border ${
+                linkStatus.type === 'success' ? 'bg-green-500/10 border-green-500/30 text-green-700 dark:text-green-300' :
+                linkStatus.type === 'info'    ? 'bg-blue-500/10 border-blue-500/30 text-blue-700 dark:text-blue-300' :
+                                                'bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-300'
+              }`}>
+                {linkStatus.message}
+              </div>
+            )}
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[11px] text-[var(--text-muted)]">
+                {settings.linked_workspace_dir
+                  ? `Active Workspace: ${settings.linked_workspace_dir}`
+                  : 'Using default sample workspace in the repository.'}
+              </p>
+              {settings.linked_workspace_dir && (
+                <button
+                  onClick={handleClear}
+                  className="shrink-0 text-[11px] text-[var(--text-secondary)] hover:text-red-500 transition-colors cursor-pointer"
+                >
+                  Reset to default
+                </button>
+              )}
+              </div>
+            </div>
+          </SectionCard>
+        </section>
+      </FilterSection>
 
-      {/* Default Mode */}
-      <section className="border-t border-[var(--border-subtle)] pt-6">
-        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Default Mode</h3>
-        <p className="text-[12px] text-[var(--text-secondary)] mb-3">Choose the default interface mode for new sessions.</p>
-        <div className="flex gap-2">
-          {[
-            { value: 'edit', label: 'Edit Document' },
-            { value: 'chat', label: 'Conversational Chat' }
-          ].map(modeOpt => (
-            <button
-              key={modeOpt.value}
-              onClick={() => updateSettings({ default_mode: modeOpt.value })}
-              className={`px-3 py-1.5 rounded-[4px] text-[12px] border transition-colors cursor-pointer ${settings.default_mode === modeOpt.value ? 'bg-[var(--accent-brown)] text-[var(--text-inverse)] border-[var(--accent-brown)] font-medium' : 'bg-[var(--bg)] text-[var(--text-secondary)] border-[var(--border-subtle)] hover:border-[var(--text-secondary)] hover:text-[var(--text-heading)]'}`}
-            >
-              {modeOpt.label}
-            </button>
-          ))}
-        </div>
-      </section>
-
-      {/* Default Verbosity */}
-      <section>
-        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Default Verbosity</h3>
-        <p className="text-[12px] text-[var(--text-secondary)] mb-3">Control the target length of endpoint responses and edits. Endpoints only — harnesses manage their own output length.</p>
-        <select
-          value={settings.default_verbosity || 'balanced'}
-          onChange={(e) => updateSettings({ default_verbosity: e.target.value })}
-          className="border border-[var(--border-subtle)] rounded-[6px] px-3 py-2 text-[13px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)] transition-colors w-[200px]"
-        >
-          <option value="none">No Limit</option>
-          <option value="concise">Concise (250 tokens)</option>
-          <option value="balanced">Balanced (500 tokens)</option>
-          <option value="expansive">Expansive (1000 tokens)</option>
-        </select>
-      </section>
+      <FilterSection query={query} keywords="mode edit chat default interface">
+        <section>
+          <SectionLabel description="Default mode and response length for new sessions.">Interface</SectionLabel>
+          <SectionCard>
+            <Row
+              label="Default mode"
+              description="The default interface mode for new sessions."
+              control={
+                <Dropdown
+                  value={settings.default_mode || 'edit'}
+                  onChange={(v) => updateSettings({ default_mode: v })}
+                  options={[
+                    { value: 'edit', label: 'Edit' },
+                    { value: 'chat', label: 'Chat' },
+                  ]}
+                  rootClassName="w-[190px]"
+                />
+              }
+            />
+            <Row
+              label="Default verbosity"
+              description="Target length of endpoint responses and edits. Endpoints only."
+              control={
+                <Dropdown
+                  value={settings.default_verbosity || 'balanced'}
+                  onChange={(v) => updateSettings({ default_verbosity: v })}
+                  options={[
+                    { value: 'none', label: 'No Limit' },
+                    { value: 'concise', label: 'Concise (250 tokens)' },
+                    { value: 'balanced', label: 'Balanced (500 tokens)' },
+                    { value: 'expansive', label: 'Expansive (1000 tokens)' },
+                  ]}
+                  rootClassName="w-[190px]"
+                />
+              }
+            />
+          </SectionCard>
+        </section>
+      </FilterSection>
     </div>
   )
 }
 
-function AppearanceSettings({ settings, updateSettings }: { settings: AppSettings, updateSettings: (u: Partial<AppSettings>) => void }) {
+function AppearanceSettings({ settings, updateSettings, query }: { settings: AppSettings, updateSettings: (u: Partial<AppSettings>) => void, query: string }) {
   const selectedFamily = settings.theme_family || 'sand'
   const selectedMode = settings.theme || 'light'
   const selectedTextStyle = settings.text_style || 'system'
