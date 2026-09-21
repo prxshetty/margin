@@ -27,13 +27,13 @@ function OpenaiMark({ className }: { className: string }) {
   )
 }
 
-// Endpoint mark: same single-color, theme-adaptive treatment as the
-// harness glyphs — `currentColor` + shared TONE so size and color stay
-// consistent wherever HarnessIcon is used.
+// Endpoint mark (API plug): same single-color, theme-adaptive treatment
+// as the harness glyphs — `currentColor` + shared TONE so size and color
+// stay consistent wherever HarnessIcon is used.
 function EndpointMark({ className }: { className: string }) {
   return (
-    <svg viewBox="0 0 32 32" aria-hidden="true" className={className} fill="currentColor">
-      <path d="M22 12a3.98 3.98 0 0 0-2.891 1.25l-3.16-1.755c.028-.162.05-.325.05-.495c0-1.654-1.345-3-3-3s-3 1.346-3 3a2.99 2.99 0 0 0 1.468 2.565l-.896 4.478A2.995 2.995 0 0 0 8 21c0 1.654 1.346 3 3 3s3-1.346 3-3c0-.087-.018-.168-.026-.253l4.932-2.243C19.64 19.41 20.746 20 22 20c2.206 0 4-1.794 4-4s-1.794-4-4-4m-9.001-2a1 1 0 1 1-.001 2.002a1 1 0 0 1 0-2.002m-2 12a1 1 0 1 1 .92-1.39l.001.002q.077.18.079.388a1 1 0 0 1-1 1m2.156-3.078a3 3 0 0 0-.624-.487l.897-4.478c.59-.086 1.12-.34 1.546-.716L18.143 15A4 4 0 0 0 18 16c0 .235.03.462.07.687zM22.002 18c-1.103 0-2-.897-2-2s.897-2 2-2s2 .898 2 2s-.897 2-2 2m5.089-6.592c.617 1.49.912 3.05.909 4.592a12.1 12.1 0 0 1-.9 4.548l1.792.896A14.1 14.1 0 0 0 30 16a13.9 13.9 0 0 0-1.061-5.357C26.71 5.263 21.492 2.007 16 2a13.9 13.9 0 0 0-5.36 1.066l.766 1.848A11.9 11.9 0 0 1 16 4c4.707.006 9.18 2.797 11.09 7.408m-6.497 15.679c-1.503.622-3.06.915-4.594.913c-4.707-.006-9.18-2.797-11.09-7.408A11.9 11.9 0 0 1 4 16c.003-1.563.313-3.108.9-4.547l-1.793-.897A14.1 14.1 0 0 0 2 16a13.96 13.96 0 0 0 8.643 12.928A14.1 14.1 0 0 0 16 30c1.789.002 3.606-.34 5.36-1.066zM25 23c-1.12 0-2 .88-2 2s.88 2 2 2s2-.88 2-2s-.88-2-2-2M7 5c-1.12 0-2 .88-2 2s.88 2 2 2s2-.88 2-2s-.88-2-2-2" />
+    <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="none">
+      <path fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M5.5 13L7 11.5l5.5 5.5l-1.5 1.5c-.75.75-3.5 2-5.5 0s-.75-4.75 0-5.5ZM3 21l2.5-2.5m13-7.5L17 12.5L11.5 7L13 5.5c.75-.75 3.5-2 5.5 0s.75 4.75 0 5.5Zm-6-3l-2 2M21 3l-2.5 2.5m-2.5 6l-2 2" />
     </svg>
   )
 }
