@@ -448,7 +448,7 @@ export function FileSidebar({
                 className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-[8px] text-[11px] text-[var(--text)] hover:bg-[var(--border-sidebar)]/40 transition-colors cursor-pointer"
               >
                 <span className="font-sans font-medium">Files Panel</span>
-                {filesPanelOpen && <Check className="w-3.5 h-3.5 text-[var(--text-secondary)]" strokeWidth={2.5} />}
+                {filesPanelOpen && <Check size={14} className="shrink-0 text-[var(--accent-brown)]" />}
               </button>
               <button
                 onClick={() => {
@@ -457,7 +457,7 @@ export function FileSidebar({
                 className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-[8px] text-[11px] text-[var(--text)] hover:bg-[var(--border-sidebar)]/40 transition-colors cursor-pointer"
               >
                 <span className="font-sans font-medium">AI Assist</span>
-                {aiPanelOpen && <Check className="w-3.5 h-3.5 text-[var(--text-secondary)]" strokeWidth={2.5} />}
+                {aiPanelOpen && <Check size={14} className="shrink-0 text-[var(--accent-brown)]" />}
               </button>
             </div>
           )}
