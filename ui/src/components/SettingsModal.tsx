@@ -1698,7 +1698,7 @@ function ComfySlotSection({
     : 'Used by Imagine again — Margin uploads the existing image and fills in both inputs.'
 
   return (
-    <div className="rounded-[8px] border border-[var(--border-subtle)] bg-[var(--bg)] p-3">
+    <div className="rounded-[12px] border border-[var(--border-subtle)] bg-[var(--bg)] p-3">
       <div className="flex items-center justify-between gap-2">
         <div className="text-[12px] font-medium text-[var(--text-heading)]">{title}</div>
         {savedWorkflow && (
@@ -1792,16 +1792,11 @@ function ComfyMappingField({ label, tag, value, placeholder, options, hint, onPi
           <span className="text-[10px] uppercase tracking-wider text-[var(--text-muted)] shrink-0">{tag}</span>
         )}
       </div>
-      <select
+      <Dropdown
         value={value}
-        onChange={(e) => onPick(e.target.value)}
-        className="w-full border border-[var(--border-subtle)] rounded-[6px] px-3 py-2 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]"
-      >
-        <option value="">{placeholder}</option>
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>{o.label}</option>
-        ))}
-      </select>
+        onChange={onPick}
+        options={[{ value: '', label: placeholder }, ...options]}
+      />
       {hint && (
         <p className="text-[10.5px] text-[var(--text-muted)] mt-1">{hint}</p>
       )}
@@ -1809,11 +1804,12 @@ function ComfyMappingField({ label, tag, value, placeholder, options, hint, onPi
   )
 }
 
-function ImagesSettings({ settings, updateSettings }: { settings: AppSettings, updateSettings: (u: Partial<AppSettings>) => void }) {  const [testResult, setTestResult] = useState<{ status: 'idle' | 'testing' | 'success' | 'error', msg?: string }>({ status: 'idle' })
+function ImagesSettings({ settings, updateSettings, query }: { settings: AppSettings, updateSettings: (u: Partial<AppSettings>) => void, query: string }) {  const [testResult, setTestResult] = useState<{ status: 'idle' | 'testing' | 'success' | 'error', msg?: string }>({ status: 'idle' })
   const [newName, setNewName] = useState('')
   const [newPrompt, setNewPrompt] = useState('')
   const [builtinPrompts, setBuiltinPrompts] = useState<Record<string, string | null> | null>(null)
   const [editingName, setEditingName] = useState<string | null>(null)
+  const [showAddStyle, setShowAddStyle] = useState(false)
   const [editingPrompt, setEditingPrompt] = useState('')
   const customs = settings.image_custom_styles || []
   const defaultStyle = settings.image_default_style ?? 'None'
@@ -1870,11 +1866,12 @@ function ImagesSettings({ settings, updateSettings }: { settings: AppSettings, u
         } catch { /* ignore */ }
         throw new Error(detail)
       }
-      setTestResult({ status: 'success', msg: 'Provider reachable.' })
+      setTestResult({ status: 'idle' })
+      toast.success('Image provider reachable.')
     } catch (e) {
-      setTestResult({ status: 'error', msg: (e as Error).message })
+      setTestResult({ status: 'idle' })
+      toast.error(e instanceof Error ? e.message : 'Image provider test failed.')
     }
-    setTimeout(() => setTestResult({ status: 'idle' }), 5000)
   }
 
   const allStyleNames = [
@@ -1933,35 +1930,26 @@ function ImagesSettings({ settings, updateSettings }: { settings: AppSettings, u
             </>
           )}
         </div>
-        <div className="flex items-center gap-2 mt-3">
+        <div className="flex items-center justify-end gap-2 mt-3">
           <button onClick={handleTest} disabled={testResult.status === 'testing'} className="px-3 py-1.5 text-[12px] bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[6px] hover:border-[var(--text-secondary)] transition-colors disabled:opacity-50 cursor-pointer text-[var(--text)]">
             {testResult.status === 'testing' ? 'Testing...' : 'Test provider'}
           </button>
-          {testResult.status === 'success' && <span className="text-[11px] text-[var(--text-accent)]">{testResult.msg}</span>}
-          {testResult.status === 'error' && <span className="text-[11px] text-red-500">{testResult.msg}</span>}
         </div>
-      </section>
-
-      {isComfy && (
-        <section>
-          <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">ComfyUI Workflows</h3>
-          <p className="text-[12px] text-[var(--text-secondary)] mb-3">
-            Your own workflows running on your local instance — one that dreams
-            up new images, one that reworks an existing image.
-          </p>
-          <div className="flex flex-col gap-3">
+        {isComfy && (
+          <div className="flex flex-col gap-3 border-t border-[var(--border-subtle)]/60 pt-3">
             <ComfySlotSection slot="text" settings={settings} updateSettings={updateSettings} />
             <ComfySlotSection slot="edit" settings={settings} updateSettings={updateSettings} />
           </div>
+        )}
+            </div>
+          </SectionCard>
         </section>
-      )}
+      </FilterSection>
 
-      <section>
-        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Styles</h3>
-        <p className="text-[12px] text-[var(--text-secondary)] mb-3">
-          Extra direction appended to the image prompt for the style you pick.
-        </p>
-        <div className="border border-[var(--border-subtle)] rounded-[8px] divide-y divide-[var(--border-subtle)] mb-3">
+      <FilterSection query={query} keywords="styles style custom default prompt">
+        <section>
+          <SectionLabel description="Extra direction appended to the image prompt for the style you pick.">Styles</SectionLabel>
+          <div className="border border-[var(--border-subtle)] rounded-[12px] divide-y divide-[var(--border-subtle)]/60 mb-3 overflow-hidden">
           {allStyleNames.map((name) => {
             const custom = customs.find((c) => c.name === name)
             const isBuiltin = !custom
@@ -1978,22 +1966,14 @@ function ImagesSettings({ settings, updateSettings }: { settings: AppSettings, u
             return (
               <div key={name} className="px-2.5 py-2 group">
                 <div className="flex items-center gap-2">
-                  <input
-                    type="radio"
-                    name="image_default_style"
-                    checked={isDefault}
-                    onChange={() => updateSettings({ image_default_style: name === 'None' ? null : name })}
-                    className="accent-[var(--accent-brown)] shrink-0"
+                  <div
+                    className="flex-1 min-w-0 cursor-pointer"
                     title="Use as default style"
-                  />
-                  <div className="flex-1 min-w-0">
+                    onClick={() => updateSettings({ image_default_style: name === 'None' ? null : name })}
+                  >
                     <div className="text-[12.5px] font-medium text-[var(--text-heading)] truncate">
                       {name}
-                      {isDefault ? (
-                        <span className="ml-1.5 text-[10px] font-normal text-[var(--text-muted)]">
-                          · default
-                        </span>
-                      ) : overridden ? (
+                      {overridden ? (
                         <span className="ml-1.5 text-[10px] font-normal text-[var(--text-muted)]">
                           · customized
                         </span>
@@ -2008,11 +1988,12 @@ function ImagesSettings({ settings, updateSettings }: { settings: AppSettings, u
                       </div>
                     )}
                   </div>
+                  {isDefault && <Check size={13} className="shrink-0 text-[var(--accent-brown)]" />}
                   {!isEditing && (
                     <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                       {name !== 'None' && (
                         <button
-                          onClick={() => { setEditingName(name); setEditingPrompt(prompt ?? '') }}
+                          onClick={(e) => { e.stopPropagation(); setEditingName(name); setEditingPrompt(prompt ?? '') }}
                           title={`Edit ${name}`}
                           className="flex items-center justify-center w-6 h-6 text-[var(--text-secondary)]/60 hover:text-[var(--text-heading)] hover:bg-[var(--bg-hover)] rounded-[4px] transition-all cursor-pointer"
                         >
@@ -2021,7 +2002,8 @@ function ImagesSettings({ settings, updateSettings }: { settings: AppSettings, u
                       )}
                       {overridden && (
                         <button
-                          onClick={() => {
+                          onClick={(e) => {
+                            e.stopPropagation()
                             const next = { ...(settings.image_style_overrides || {}) }
                             delete next[name]
                             updateSettings({ image_style_overrides: next })
@@ -2034,7 +2016,7 @@ function ImagesSettings({ settings, updateSettings }: { settings: AppSettings, u
                       )}
                       {name !== 'None' && (
                         <button
-                          onClick={() => handleDeleteStyle(name, isBuiltin)}
+                          onClick={(e) => { e.stopPropagation(); handleDeleteStyle(name, isBuiltin) }}
                           title={`Delete ${name}`}
                           className="flex items-center justify-center w-6 h-6 text-[var(--text-secondary)]/60 hover:text-red-500 hover:bg-[var(--bg-hover)] rounded-[4px] transition-all cursor-pointer"
                         >
@@ -2103,47 +2085,66 @@ function ImagesSettings({ settings, updateSettings }: { settings: AppSettings, u
             ))}
           </p>
         )}
-        {customs.length === 0 && (
-          <p className="text-[12px] text-[var(--text-muted)] mb-2">No custom styles yet.</p>
+        {!showAddStyle ? (
+          <div className="flex justify-end">
+            <button
+              onClick={() => setShowAddStyle(true)}
+              className="flex items-center gap-1 px-2 py-1 text-[12px] text-[var(--text-secondary)] hover:text-[var(--text-heading)] transition-colors cursor-pointer"
+            >
+              <Plus size={13} /> Add style
+            </button>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2 rounded-[12px] border border-[var(--border-subtle)] p-3">
+            <input
+              placeholder="Name (e.g. Fantasy)"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              className="border border-[var(--border-subtle)] rounded-[6px] px-3 py-1.5 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]"
+            />
+            <input
+              placeholder="Style prompt (appended to the generation prompt)"
+              value={newPrompt}
+              onChange={(e) => setNewPrompt(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && newName.trim() && newPrompt.trim()) {
+                  const name = newName.trim()
+                  if (allStyleNames.some((n) => n.toLowerCase() === name.toLowerCase())) return
+                  updateSettings({ image_custom_styles: [...customs, { name, prompt: newPrompt.trim() }] })
+                  setNewName('')
+                  setNewPrompt('')
+                  setShowAddStyle(false)
+                }
+              }}
+              className="border border-[var(--border-subtle)] rounded-[6px] px-3 py-1.5 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]"
+            />
+            <div className="flex items-center justify-end gap-2">
+              <button
+                onClick={() => {
+                  const name = newName.trim()
+                  if (!name || !newPrompt.trim()) return
+                  if (allStyleNames.some((n) => n.toLowerCase() === name.toLowerCase())) return
+                  updateSettings({ image_custom_styles: [...customs, { name, prompt: newPrompt.trim() }] })
+                  setNewName('')
+                  setNewPrompt('')
+                  setShowAddStyle(false)
+                }}
+                disabled={!newName.trim() || !newPrompt.trim()}
+                className="px-3 py-1.5 text-[12px] bg-[var(--accent-brown)] text-[var(--text-inverse)] rounded-[8px] hover:bg-[var(--accent-brown-hover)] transition-colors disabled:opacity-50 cursor-pointer"
+              >
+                Add style
+              </button>
+              <button
+                onClick={() => { setShowAddStyle(false); setNewName(''); setNewPrompt('') }}
+                className="px-3 py-1.5 text-[12px] bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[8px] hover:border-[var(--text-secondary)] transition-colors cursor-pointer text-[var(--text)]"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
         )}
-        <div className="flex flex-col gap-2 rounded-[8px] border border-[var(--border-subtle)] p-3">
-          <input
-            placeholder="Name (e.g. Fantasy)"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            className="border border-[var(--border-subtle)] rounded-[6px] px-3 py-1.5 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]"
-          />
-          <input
-            placeholder="Style prompt (appended to the generation prompt)"
-            value={newPrompt}
-            onChange={(e) => setNewPrompt(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && newName.trim() && newPrompt.trim()) {
-                const name = newName.trim()
-                if (allStyleNames.some((n) => n.toLowerCase() === name.toLowerCase())) return
-                updateSettings({ image_custom_styles: [...customs, { name, prompt: newPrompt.trim() }] })
-                setNewName('')
-                setNewPrompt('')
-              }
-            }}
-            className="border border-[var(--border-subtle)] rounded-[6px] px-3 py-1.5 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]"
-          />
-          <button
-            onClick={() => {
-              const name = newName.trim()
-              if (!name || !newPrompt.trim()) return
-              if (allStyleNames.some((n) => n.toLowerCase() === name.toLowerCase())) return
-              updateSettings({ image_custom_styles: [...customs, { name, prompt: newPrompt.trim() }] })
-              setNewName('')
-              setNewPrompt('')
-            }}
-            disabled={!newName.trim() || !newPrompt.trim()}
-            className="self-start px-3 py-1.5 text-[12px] bg-[var(--accent-brown)] text-[var(--text-inverse)] rounded-[6px] hover:bg-[var(--accent-brown-hover)] transition-colors disabled:opacity-50 cursor-pointer"
-          >
-            Add style
-          </button>
-        </div>
-      </section>
+        </section>
+      </FilterSection>
     </div>
   )
 }
