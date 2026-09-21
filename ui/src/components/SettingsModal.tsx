@@ -629,68 +629,91 @@ function AppearanceSettings({ settings, updateSettings, query }: { settings: App
   const selectedTextStyle = settings.text_style || 'system'
   const selectedStats = settings.editor_stats || 'both'
 
-  return (
-    <div className="flex flex-col gap-8">
-      <section>
-            <h4 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Mode</h4>
-            <p className="text-[12px] text-[var(--text-secondary)] mb-3">Choose the interface color mode.</p>
-            <div className="inline-flex rounded-[7px] border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-1">
-              {themeModes.map(({ id, label }) => (
-                <button
-                  key={id}
-                  onClick={() => updateSettings({ theme: id })}
-                  className={`flex items-center gap-1.5 rounded-[5px] px-3 py-1.5 text-[12px] transition-colors cursor-pointer ${selectedMode === id
-                    ? 'bg-[var(--accent-brown)] text-[var(--text-inverse)] font-medium'
-                    : 'text-[var(--text-secondary)] hover:text-[var(--text-heading)]'
-                    }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </section>
+  const modePreview: Record<ThemeMode, { bg: string; bar: string; dot: string }> = {
+    light: { bg: '#FFFFFF', bar: '#E7E2DA', dot: '#734F2D' },
+    dark: { bg: '#1C1917', bar: '#44403C', dot: '#D6CDBF' },
+    system: { bg: 'linear-gradient(to right, #FFFFFF 50%, #1C1917 50%)', bar: '#A8A29E', dot: '#734F2D' },
+  }
 
-          <section>
-            <h4 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Theme</h4>
-            <p className="text-[12px] text-[var(--text-secondary)] mb-3">Select a color palette for your workspace.</p>
-            <div className="grid grid-cols-2 gap-3">
-              {themeFamilies.map((themeFamily) => {
-                const active = selectedFamily === themeFamily.id
+  return (
+    <div className="flex flex-col gap-6">
+      <FilterSection query={query} keywords="mode light dark system color appearance theme">
+        <section>
+          <SectionLabel description="Choose the interface color mode.">Color mode</SectionLabel>
+          <SectionCard>
+            <div className="p-4">
+              <div className="grid grid-cols-3 gap-3">
+              {themeModes.map(({ id, label }) => {
+                const active = selectedMode === id
+                const preview = modePreview[id]
                 return (
                   <button
-                    key={themeFamily.id}
-                    onClick={() => updateSettings({ theme_family: themeFamily.id })}
-                    className={`relative text-left rounded-[8px] border p-2.5 transition-colors cursor-pointer flex flex-col justify-between h-full ${active
-                      ? 'border-[var(--accent-brown)] bg-[var(--bg-hover)]'
-                      : 'border-[var(--border-subtle)] bg-[var(--bg)] hover:border-[var(--text-secondary)]'
-                      }`}
+                    key={id}
+                    onClick={() => updateSettings({ theme: id })}
+                    className="flex flex-col items-center gap-1.5 cursor-pointer group"
                   >
-                    <div className="flex items-start justify-between gap-3 w-full">
-                      <div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[13px] font-medium text-[var(--text-heading)]">{themeFamily.name}</span>
-                        </div>
-                        <div className="mt-0.5 text-[11px] leading-relaxed text-[var(--text-secondary)] min-h-[32px]">{themeFamily.description}</div>
-                      </div>
-                    </div>
-                    <div className="mt-2.5 flex gap-1.5 w-full">
-                      {themeFamily.swatches.map((swatch) => (
-                        <span
-                          key={swatch}
-                          className="h-4 flex-1 rounded-[3px] border border-black/10"
-                          style={{ backgroundColor: swatch }}
-                        />
-                      ))}
-                    </div>
+                    <span
+                      className={`w-full h-20 rounded-[10px] border transition-colors relative overflow-hidden ${active ? 'border-[var(--accent-brown)]' : 'border-[var(--border-subtle)] group-hover:border-[var(--text-secondary)]'}`}
+                      style={{ background: preview.bg }}
+                    >
+                      <span className="absolute left-2.5 right-2.5 top-2.5 h-1.5 rounded-full" style={{ background: preview.bar }} />
+                      <span className="absolute left-2.5 right-2.5 top-6 h-1.5 rounded-full w-2/3" style={{ background: preview.bar }} />
+                      <span className="absolute right-2.5 bottom-2.5 w-3 h-3 rounded-full" style={{ background: preview.dot }} />
+                    </span>
+                    <span className={`flex items-center gap-1 text-[12px] ${active ? 'text-[var(--text-heading)] font-medium' : 'text-[var(--text-secondary)]'}`}>
+                      {active && <Check size={12} className="text-[var(--accent-brown)]" />}
+                      {label}
+                    </span>
                   </button>
                 )
               })}
+              </div>
             </div>
-          </section>
+          </SectionCard>
+        </section>
+      </FilterSection>
 
-      <section>
-          <h4 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Text Style</h4>
-          <p className="text-[12px] text-[var(--text-secondary)] mb-3">Change the typography and spacing of the writing surface.</p>
+      <FilterSection query={query} keywords="theme palette color sand notion sage blue rose">
+        <section>
+          <SectionLabel description="Select a color palette for your workspace.">Palette</SectionLabel>
+          <div className="grid grid-cols-2 gap-3">
+            {themeFamilies.map((themeFamily) => {
+              const active = selectedFamily === themeFamily.id
+              return (
+                <button
+                  key={themeFamily.id}
+                  onClick={() => updateSettings({ theme_family: themeFamily.id })}
+                  className={`relative text-left rounded-[12px] border p-3 transition-colors cursor-pointer flex flex-col justify-between h-full ${active
+                    ? 'border-[var(--border-subtle)] bg-[var(--bg-elevated)]/40'
+                    : 'border-[var(--border-subtle)] hover:border-[var(--text-secondary)]'
+                    }`}
+                >
+                  {active && (
+                    <span className="absolute top-2.5 right-2.5 text-[var(--accent-brown)]"><Check size={14} /></span>
+                  )}
+                  <div className="pr-6">
+                    <span className="text-[13px] font-medium text-[var(--text-heading)]">{themeFamily.name}</span>
+                    <div className="mt-0.5 text-[11px] leading-relaxed text-[var(--text-secondary)] min-h-[32px]">{themeFamily.description}</div>
+                  </div>
+                  <div className="mt-2.5 flex gap-1.5 w-full">
+                    {themeFamily.swatches.map((swatch) => (
+                      <span
+                        key={swatch}
+                        className="h-4 flex-1 rounded-[3px] border border-black/10"
+                        style={{ backgroundColor: swatch }}
+                      />
+                    ))}
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        </section>
+      </FilterSection>
+
+      <FilterSection query={query} keywords="text font typography serif sans style">
+        <section>
+          <SectionLabel description="Change the typography and spacing of the writing surface.">Text style</SectionLabel>
           <div className="grid grid-cols-2 gap-3">
             {textStyles.map(({ id, name, description }) => {
               const active = selectedTextStyle === id
@@ -698,42 +721,51 @@ function AppearanceSettings({ settings, updateSettings, query }: { settings: App
                 <button
                   key={id}
                   onClick={() => updateSettings({ text_style: id })}
-                  className={`text-left rounded-[8px] border p-2.5 transition-colors cursor-pointer flex flex-col justify-between h-full ${active
-                    ? 'border-[var(--accent-brown)] bg-[var(--bg-hover)]'
-                    : 'border-[var(--border-subtle)] bg-[var(--bg)] hover:border-[var(--text-secondary)]'
+                  className={`relative text-left rounded-[12px] border p-3 transition-colors cursor-pointer ${active
+                    ? 'border-[var(--border-subtle)] bg-[var(--bg-elevated)]/40'
+                    : 'border-[var(--border-subtle)] hover:border-[var(--text-secondary)]'
                     }`}
                 >
-                  <div className="flex items-start justify-between gap-3 w-full">
-                    <div className={`min-w-0 theme-font-preview-${id}`}>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[13px] font-medium text-[var(--text-heading)]">{name}</span>
-                      </div>
-                      <div className="mt-0.5 text-[11px] leading-relaxed text-[var(--text-secondary)] min-h-[32px]">{description}</div>
-                    </div>
-                    <span className={`text-[15px] font-medium text-[var(--text-heading)] opacity-60 mt-0.5 shrink-0 theme-font-preview-${id}`}>
-                      Aa
-                    </span>
+                  {active && (
+                    <span className="absolute top-2.5 right-2.5 text-[var(--accent-brown)]"><Check size={14} /></span>
+                  )}
+                  <div className={`min-w-0 pr-6 theme-font-preview-${id}`}>
+                    <span className="text-[13px] font-medium text-[var(--text-heading)]">{name}</span>
+                    <div className="mt-0.5 text-[11px] leading-relaxed text-[var(--text-secondary)] min-h-[32px]">{description}</div>
                   </div>
+                  <span className={`block mt-1 text-[22px] leading-none text-[var(--text-heading)] opacity-70 theme-font-preview-${id}`}>
+                    Aa
+                  </span>
                 </button>
               )
             })}
           </div>
         </section>
+      </FilterSection>
 
-      <section>
-            <h4 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Editor Statistics</h4>
-            <p className="text-[12px] text-[var(--text-secondary)] mb-3">Display word and/or character counts in the editor.</p>
-            <select
-              value={selectedStats}
-              onChange={(e) => updateSettings({ editor_stats: e.target.value as any })}
-              className="border border-[var(--border-subtle)] rounded-[6px] px-3 py-2 text-[13px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)] transition-colors w-[200px]"
-            >
-              <option value="both">Words & Characters</option>
-              <option value="words">Words Only</option>
-              <option value="characters">Characters Only</option>
-              <option value="none">None</option>
-            </select>
-          </section>
+      <FilterSection query={query} keywords="stats word character count editor">
+        <section>
+          <SectionLabel description="Display word and/or character counts in the editor.">Editor</SectionLabel>
+          <SectionCard>
+            <Row
+              label="Editor statistics"
+              control={
+                <Dropdown
+                  value={selectedStats}
+                  onChange={(v) => updateSettings({ editor_stats: v as any })}
+                  options={[
+                    { value: 'both', label: 'Words & Characters' },
+                    { value: 'words', label: 'Words Only' },
+                    { value: 'characters', label: 'Characters Only' },
+                    { value: 'none', label: 'None' },
+                  ]}
+                  rootClassName="w-[190px]"
+                />
+              }
+            />
+          </SectionCard>
+        </section>
+      </FilterSection>
     </div>
   )
 }
