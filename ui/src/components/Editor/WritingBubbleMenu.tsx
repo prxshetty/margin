@@ -13,6 +13,7 @@ import { applyHarnessResult } from '../../lib/applyHarnessResult'
 import { generateImage, insertStoredImageAt } from '../../lib/media'
 import { imageStyleOptions } from './ImageGenerateDialog'
 import { CueIcon, RewriteIcon, ImagineIcon, LinkIcon } from './brandIcons'
+import { Dropdown } from '../Dropdown'
 
 // ─── Node selector (paragraph / heading) ─────────────────────────────────────
 const NODE_ITEMS = [
@@ -237,26 +238,18 @@ function StylePill({ value, onChange, disabled, options }: {
     disabled?: boolean
     options: string[]
 }) {
-    // appearance-none hides the native arrow (which sizes to the longest
-    // option and leaves a dead gap after short names) — the pinned chevron
-    // keeps a tight, consistent text→chevron spacing instead.
     return (
-        <span className="relative flex items-center shrink-0">
-            <select
-                value={value}
-                onChange={(e) => onChange(e.target.value)}
-                disabled={disabled}
-                title="Style"
-                aria-label="Image style"
-                onMouseDown={(e) => e.stopPropagation()}
-                className="h-6 shrink-0 max-w-[120px] truncate pl-1.5 pr-5 py-0 text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-heading)] bg-transparent hover:bg-[var(--bg-hover)] rounded-[5px] outline-none cursor-pointer disabled:opacity-60 appearance-none"
-            >
-                {options.map((n) => (
-                    <option key={n} value={n}>{n}</option>
-                ))}
-            </select>
-            <ChevronDown className="absolute right-1 w-3 h-3 opacity-60 pointer-events-none" />
-        </span>
+        <Dropdown
+            value={value}
+            onChange={onChange}
+            disabled={disabled}
+            variant="minimal"
+            freezeSelection
+            menuContentWidth
+            title="Style"
+            options={options.map((n) => ({ value: n, label: n }))}
+            rootClassName="shrink-0 max-w-[120px]"
+        />
     )
 }
 
