@@ -1346,53 +1346,48 @@ function HarnessesSettings({ settings, updateSettings, query }: { settings: AppS
   }
 
   return (
-    <div className="flex flex-col gap-8">
-      <section>
-        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Default Harness</h3>
-        <p className="text-[12px] text-[var(--text-secondary)] mb-3">
-          External agent runtimes (Claude Code, Codex, ...) run locally with your own subscription.
-          Select None to use the configured endpoint instead. Authenticate each CLI in your own terminal.
-        </p>
+    <div className="flex flex-col gap-6">
+      <FilterSection query={query} keywords="harness default none agent terminal executable model context">
+        <section>
+          <SectionLabel description="External agent runtimes (Claude Code, Codex, ...) run locally with your own subscription. Select None to use the configured endpoint instead. Authenticate each CLI in your own terminal.">Agent harness</SectionLabel>
 
-        <div className="flex flex-col gap-2">
-          <label className={`flex items-center gap-3 p-3 cursor-pointer border rounded-[6px] transition-colors ${selected === 'none' ? 'border-[var(--text-secondary)] bg-[var(--bg-hover)]' : 'border-[var(--border-subtle)] hover:bg-[var(--bg-hover)]'}`}>
-            <input
-              type="radio"
-              name="default_harness"
-              checked={selected === 'none'}
-              onChange={() => updateSettings({ default_harness: 'none' })}
-              className="accent-[var(--accent-brown)]"
-            />
-            <div className="flex flex-col min-w-0">
+          <div className="flex flex-col gap-2">
+          <div
+            onClick={() => updateSettings({ default_harness: 'none' })}
+            className={`relative flex items-center gap-3 p-3 cursor-pointer border rounded-[12px] transition-colors ${selected === 'none' ? 'border-[var(--border-subtle)] bg-[var(--bg-elevated)]/40' : 'border-[var(--border-subtle)] hover:border-[var(--text-secondary)]'}`}
+          >
+            {selected === 'none' && (
+              <span className="absolute top-2.5 right-2.5 text-[var(--accent-brown)]"><Check size={14} /></span>
+            )}
+            <div className="flex flex-col min-w-0 pr-6">
               <span className="text-[13px] font-medium text-[var(--text-heading)]">None — use endpoint</span>
               <span className="text-[11px] text-[var(--text-secondary)]">Default. No local agent involved.</span>
             </div>
-          </label>
+          </div>
 
           {isLoading && (
-            <p className="text-[12px] text-[var(--text-muted)] p-2">Detecting installed harnesses...</p>
+            <p className="flex items-center justify-center gap-2 text-[12px] text-[var(--text-muted)] p-2">
+              <Loader size={14} className="animate-spin" />
+              Detecting installed harnesses...
+            </p>
           )}
 
           {discovered.map(h => (
-            <div key={h.id} className={`flex flex-col border rounded-[6px] transition-colors ${selected === h.id ? 'border-[var(--text-secondary)] bg-[var(--bg-hover)]' : 'border-[var(--border-subtle)]'}`}>
-              <label className="flex items-center gap-3 p-3 cursor-pointer">
-                <input
-                  type="radio"
-                  name="default_harness"
-                  checked={selected === h.id}
-                  onChange={() => updateSettings({ default_harness: h.id })}
-                  className="accent-[var(--accent-brown)]"
-                />
-                <div className="flex flex-col min-w-0 flex-1">
+            <div key={h.id} className={`relative flex flex-col border rounded-[12px] transition-colors ${selected === h.id ? 'border-[var(--border-subtle)] bg-[var(--bg-elevated)]/40' : 'border-[var(--border-subtle)] hover:border-[var(--text-secondary)]'}`}>
+              {selected === h.id && (
+                <span className="absolute top-2.5 right-2.5 text-[var(--accent-brown)]"><Check size={14} /></span>
+              )}
+              <div onClick={() => updateSettings({ default_harness: h.id })} className="flex items-center gap-3 p-3 cursor-pointer">
+                <div className="flex flex-col min-w-0 flex-1 pr-6">
                   <span className="text-[13px] font-medium text-[var(--text-heading)] flex items-center gap-2">
                     <HarnessIcon id={h.id} className="w-4 h-4" />
                     {h.name}
                   </span>
                   <span className="text-[11px] text-[var(--text-secondary)]">
-                    {h.installed ? '✓ Ready' : '✕ Not installed — install and authenticate its CLI, then reopen Settings'}
+                    {h.installed ? 'Ready' : '✕ Not installed — install and authenticate its CLI, then reopen Settings'}
                   </span>
                 </div>
-              </label>
+              </div>
               <div className="px-3 pb-3 flex items-center gap-2">
                 <span className="text-[11px] text-[var(--text-muted)] shrink-0">Custom executable:</span>
                 <input
@@ -1422,8 +1417,9 @@ function HarnessesSettings({ settings, updateSettings, query }: { settings: AppS
               </div>
             </div>
           ))}
-        </div>
-      </section>
+          </div>
+        </section>
+      </FilterSection>
     </div>
   )
 }
@@ -1466,25 +1462,26 @@ function HarnessModelPicker({ harnessId, value, onChange }: { harnessId: string;
   }
 
   return (
-    <select
+    <Dropdown
       value={value}
-      onChange={(e) => {
-        if (e.target.value === '__custom__') {
+      onChange={(v) => {
+        if (v === '__custom__') {
           setCustomMode(true)
         } else {
-          onChange(e.target.value)
+          onChange(v)
         }
       }}
-      className="flex-1 min-w-0 border border-[var(--border-subtle)] rounded-[4px] px-2.5 py-1 text-[11px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)] font-mono"
-    >
-      <option value="">Harness default</option>
-      {models.map(m => (
-        <option key={m.id} value={m.id} title={m.name}>
-          {m.id}{m.name !== m.id ? ` — ${m.name}` : ''}
-        </option>
-      ))}
-      <option value="__custom__">Custom...</option>
-    </select>
+      options={[
+        { value: '', label: 'Harness default' },
+        ...models.map(m => ({
+          value: m.id,
+          label: m.name !== m.id ? `${m.id} — ${m.name}` : m.id,
+          title: m.name,
+        })),
+        { value: '__custom__', label: 'Custom...' },
+      ]}
+      rootClassName="flex-1 min-w-0 font-mono"
+    />
   )
 }
 
