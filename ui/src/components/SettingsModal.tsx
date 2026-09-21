@@ -773,11 +773,13 @@ function AppearanceSettings({ settings, updateSettings, query }: { settings: App
 function ContextSettings({
   settings,
   updateSettings,
-  availableFiles
+  availableFiles,
+  query
 }: {
   settings: AppSettings,
   updateSettings: (u: Partial<AppSettings>) => void,
   availableFiles: { name: string; path: string }[]
+  query: string
 }) {
   const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({})
   const harnessActive = (settings.default_harness || 'none') !== 'none'
@@ -808,40 +810,42 @@ function ContextSettings({
   }
 
   return (
-    <div className="flex flex-col gap-8">
-      <section className="border-b border-[var(--border-subtle)] pb-6">
-        <PromptsSettings />
-      </section>
+    <div className="flex flex-col gap-6">
+      <FilterSection query={query} keywords="agent prompt prompts writer planner chat harness">
+        <section>
+          <SectionLabel description="Edit the instructions each agent runs on. Changes apply to the next request.">Agent prompts</SectionLabel>
+          <SectionCard className="p-4">
+            <PromptsSettings />
+          </SectionCard>
+        </section>
+      </FilterSection>
 
-      <section className="border-b border-[var(--border-subtle)] pb-6">
-        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Session Memory</h3>
-        <p className="text-[12px] text-[var(--text-secondary)] mb-3">
-          How much past history travels with each endpoint request — prior chat turns and recent edits. Harnesses keep their own conversation per session and continue it automatically, so this setting doesn't apply to them.
-        </p>
-        <div className="flex flex-col gap-4">
-          <div className="flex items-center gap-2">
-            <span className="text-[12px] text-[var(--text-secondary)] min-w-[130px]">Max History Depth:</span>
-            <input
-              type="number"
-              min="1"
-              max="10"
-              value={settings.history_turns ?? 5}
-              onChange={(e) => updateSettings({ history_turns: Math.max(1, Math.min(10, parseInt(e.target.value) || 1)) })}
-              className="w-16 border border-[var(--border-subtle)] rounded-[6px] px-2 py-1 text-[13px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]"
+      <FilterSection query={query} keywords="memory session history turns">
+        <section>
+          <SectionLabel description="How much past history travels with each endpoint request.">Session memory</SectionLabel>
+          <SectionCard>
+            <Row
+              label="Max history depth"
+              description="Past turns traveling with each endpoint request. Harness sessions keep their own conversation."
+              control={
+                <input
+                  type="number"
+                  min="1"
+                  max="10"
+                  value={settings.history_turns ?? 5}
+                  onChange={(e) => updateSettings({ history_turns: Math.max(1, Math.min(10, parseInt(e.target.value) || 1)) })}
+                  className="w-16 border border-[var(--border-subtle)] rounded-[8px] px-2 py-1.5 text-[13px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]"
+                />
+              }
             />
-            <span className="text-[11px] text-[var(--text-muted)]">
-              The maximum number of recent conversation turns to retain.
-            </span>
-          </div>
-        </div>
-      </section>
+          </SectionCard>
+        </section>
+      </FilterSection>
 
-      <section>
-        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Context & Reference Files</h3>
-        <p className="text-[12px] text-[var(--text-secondary)] mb-3">
-          All workspace files are available for the planner to reference. <strong>Pin</strong> a file to always include it. <strong>Cross out</strong> a folder or file to prevent the AI from reading it.
-        </p>
-        <div className="border border-[var(--border-subtle)] rounded-[6px] max-h-[300px] overflow-y-auto p-2 flex flex-col gap-1.5">
+      <FilterSection query={query} keywords="context reference files pin block">
+        <section>
+          <SectionLabel description={<>All workspace files are available for the planner to reference. <strong>Pin</strong> a file to always include it. <strong>Cross out</strong> a folder or file to prevent the AI from reading it.</>}>Reference files</SectionLabel>
+          <div className="border border-[var(--border-subtle)] rounded-[12px] max-h-[300px] overflow-y-auto p-2 flex flex-col gap-1.5">
           {availableFiles.length === 0 ? (
             <p className="text-[12px] text-[var(--text-secondary)] p-2 text-center">No files in workspace.</p>
           ) : (
@@ -987,27 +991,29 @@ function ContextSettings({
           )}
         </div>
       </section>
+      </FilterSection>
       <p className="text-[11px] text-[var(--text-muted)] leading-relaxed -mt-4">
         Endpoint models only — agent harnesses read your workspace files directly.
       </p>
 
-      <section>
-        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Include Document Structure</h3>
-        <p className="text-[12px] text-[var(--text-secondary)] mb-3">
-          Provide a structural outline (paragraph previews) of the active document to the endpoint planner. Helps the AI maintain broader story awareness, but consumes more memory. Keep off when using a smaller local AI for faster, more focused responses.
-          {harnessActive && ' Disabled while a harness is the default — harnesses read the workspace directly.'}
-        </p>
-        <label className={`flex items-center gap-2 select-none ${harnessActive ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
-          <input
-            type="checkbox"
-            checked={!!settings.planner_include_outline}
-            disabled={harnessActive}
-            onChange={(e) => updateSettings({ planner_include_outline: e.target.checked })}
-            className="accent-[var(--accent-brown)]"
-          />
-          <span className="text-[13px] text-[var(--text-secondary)] font-medium">Send Document Outline to AI</span>
-        </label>
-      </section>
+      <FilterSection query={query} keywords="outline document structure planner">
+        <section>
+          <SectionLabel description={<>Provide a structural outline (paragraph previews) of the active document to the endpoint planner. Broader story awareness at the cost of memory.{harnessActive ? ' Disabled while a harness is the default.' : ''}</>}>Document outline</SectionLabel>
+          <SectionCard>
+            <Row
+              label="Send document outline to AI"
+              control={
+                <Toggle
+                  checked={!!settings.planner_include_outline}
+                  disabled={harnessActive}
+                  label="Send document outline to AI"
+                  onChange={(next) => updateSettings({ planner_include_outline: next })}
+                />
+              }
+            />
+          </SectionCard>
+        </section>
+      </FilterSection>
     </div>
   )
 }
@@ -2170,7 +2176,6 @@ function PromptsSettings() {
   const [savedContent, setSavedContent] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
-  const [error, setError] = useState('')
 
   const entry = PROMPT_ENTRIES.find(e => e.id === selectedId)!
 
@@ -2178,7 +2183,6 @@ function PromptsSettings() {
     // Reset + fetch on prompt switch; matches the data-fetch pattern used elsewhere here.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsLoading(true)
-    setError('')
     fetch(`${API_BASE}/api/assist/prompts/${encodeURIComponent(entry.file)}`)
       .then(res => {
         if (!res.ok) throw new Error(`Could not load ${entry.file}`)
@@ -2188,7 +2192,7 @@ function PromptsSettings() {
         setContent(data.content || '')
         setSavedContent(data.content || '')
       })
-      .catch(err => setError((err as Error).message))
+      .catch(err => toast.error((err as Error).message))
       .finally(() => setIsLoading(false))
   }, [entry.file])
 
@@ -2196,7 +2200,6 @@ function PromptsSettings() {
 
   const handleSave = async () => {
     setIsSaving(true)
-    setError('')
     try {
       const res = await fetch(`${API_BASE}/api/assist/prompts/${encodeURIComponent(entry.file)}`, {
         method: 'POST',
@@ -2205,27 +2208,22 @@ function PromptsSettings() {
       })
       if (!res.ok) throw new Error('Save failed')
       setSavedContent(content)
+      toast.success('Prompt saved.')
     } catch (e) {
-      setError((e as Error).message)
+      toast.error((e as Error).message)
     } finally {
       setIsSaving(false)
     }
   }
 
   return (
-    <div className="flex flex-col gap-8">
-      <section>
-        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Agent Prompts</h3>
-        <p className="text-[12px] text-[var(--text-secondary)] mb-3">Edit the instructions each agent runs on. Changes apply to the next request.</p>
-        <select
+    <div className="flex flex-col gap-2">
+        <Dropdown
           value={selectedId}
-          onChange={(e) => setSelectedId(e.target.value)}
-          className="border border-[var(--border-subtle)] rounded-[6px] px-3 py-2 text-[13px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)] transition-colors w-[280px] mb-1"
-        >
-          {PROMPT_ENTRIES.map(e => (
-            <option key={e.id} value={e.id}>{e.label} — {e.file}</option>
-          ))}
-        </select>
+          onChange={setSelectedId}
+          options={PROMPT_ENTRIES.map(e => ({ value: e.id, label: e.label, title: e.file }))}
+          rootClassName="w-[280px] mb-1"
+        />
         <p className="text-[11px] text-[var(--text-muted)] mb-3">{entry.description}</p>
         {isLoading ? (
           <p className="text-[12px] text-[var(--text-muted)]">Loading {entry.file}...</p>
@@ -2237,22 +2235,25 @@ function PromptsSettings() {
               spellCheck={false}
               className="w-full h-[300px] border border-[var(--border-subtle)] rounded-[6px] p-3 text-[12px] text-[var(--text)] bg-[var(--bg-input)] outline-none focus:border-[var(--text-secondary)] transition-colors resize-y font-mono leading-relaxed"
             />
-            <div className="flex items-center gap-3 mt-2">
+            <div className="flex items-center justify-between gap-3 mt-2">
               <button
                 onClick={handleSave}
                 disabled={!dirty || isSaving}
-                className="px-3 py-1.5 text-[12px] bg-[var(--accent-brown)] text-[var(--text-inverse)] rounded-[4px] hover:bg-[var(--accent-brown-hover)] transition-colors disabled:opacity-50 cursor-pointer font-medium"
+                className="px-3 py-1.5 text-[12px] bg-[var(--accent-brown)] text-[var(--text-inverse)] rounded-[8px] hover:bg-[var(--accent-brown-hover)] transition-colors disabled:opacity-50 cursor-pointer font-medium"
               >
-                {isSaving ? 'Saving...' : 'Save'}
+                Save
               </button>
-              {dirty
-                ? <span className="text-[11px] text-[var(--text-muted)]">Unsaved changes</span>
-                : <span className="text-[11px] text-[var(--text-accent)]">Saved</span>}
-              {error && <span className="text-[11px] text-red-500">{error}</span>}
+              {isSaving ? (
+                <span className="flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
+                  <Loader2 size={12} className="animate-spin" />
+                  Saving…
+                </span>
+              ) : dirty ? (
+                <span className="text-[11px] text-[var(--text-muted)]">Unsaved changes</span>
+              ) : null}
             </div>
           </>
         )}
-      </section>
     </div>
   )
 }
