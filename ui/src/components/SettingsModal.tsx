@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { X, Plus, Trash2, CheckCircle, Play, Edit, Brain, ChevronRight, ChevronDown, Folder, FolderOpen, Pin, EyeOff, Eye, GitBranch, FolderPlus, Loader2, Pencil, RotateCcw } from 'lucide-react'
+import { X, Plus, Trash2, Check, CheckCircle, Play, Edit, Brain, ChevronRight, ChevronDown, Folder, FolderOpen, Pin, EyeOff, Eye, GitBranch, FolderPlus, Loader2, Pencil, RotateCcw, Search, SlidersHorizontal, Palette, Image as ImageIcon, BookOpen, SquareTerminal, Loader, Loader2 } from 'lucide-react'
 import openaiLogoRaw from '../../../assets/imagine/openai.svg?raw'
 import stabilityLogoRaw from '../../../assets/imagine/stability-ai.svg?raw'
 import falLogoRaw from '../../../assets/imagine/fal-ai.svg?raw'
@@ -11,6 +11,7 @@ import { useEditorStore } from '../stores/editorStore'
 import type { AppSettings } from '../stores/settingsStore'
 import { API_BASE } from '../lib/api'
 import { HarnessIcon } from './HarnessIcon'
+import { Dropdown } from './Dropdown'
 
 interface SettingsModalProps {
   onClose: () => void
@@ -94,10 +95,83 @@ const textStyles: { id: TextStyle; name: string; description: string; sample: st
   }
 ]
 
+type SettingsTabId = 'general' | 'appearance' | 'context' | 'endpoints' | 'harnesses' | 'images'
+
+const TABS: { id: SettingsTabId; label: string; icon: React.ComponentType<{ size?: number | string; className?: string }>; title: string; keywords: string }[] = [
+  { id: 'general', label: 'General', icon: SlidersHorizontal, title: 'General', keywords: 'general workspace directory folder path mode verbosity' },
+  { id: 'appearance', label: 'Appearance', icon: Palette, title: 'Appearance', keywords: 'appearance theme light dark system color font text style stats palette' },
+  { id: 'images', label: 'Imagine', icon: ImageIcon, title: 'Imagine', keywords: 'images image imagine provider comfyui comfy styles style model key' },
+  { id: 'context', label: 'Context', icon: BookOpen, title: 'Context', keywords: 'context agent prompt prompts memory session files reference outline' },
+  { id: 'endpoints', label: 'Endpoints', icon: EndpointLogo, title: 'Endpoints', keywords: 'endpoints endpoint api provider model url key' },
+  { id: 'harnesses', label: 'Harness', icon: SquareTerminal, title: 'Harness', keywords: 'harness terminal executable model context agent' },
+]
+
+// Forgiving multi-term match: every query token must appear in the haystack.
+function matchesQuery(query: string, haystack: string): boolean {
+  const q = query.trim().toLowerCase()
+  if (!q) return true
+  const hay = haystack.toLowerCase()
+  return q.split(/\s+/).every((token) => hay.includes(token))
+}
+
+// Hides a section when a search query is active and doesn't match.
+function FilterSection({ keywords, query, children }: { keywords: string; query: string; children: React.ReactNode }) {
+  if (!matchesQuery(query, keywords)) return null
+  return <>{children}</>
+}
+
+function SectionCard({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+  // No overflow-hidden here: it would clip floating Dropdown menus. Rounded
+  // corners are preserved by rounding the first/last child instead.
+  return (
+    <div className={`rounded-[12px] border border-[var(--border-subtle)] bg-[var(--bg-elevated)]/40 divide-y divide-[var(--border-subtle)]/60 [&>*:first-child]:rounded-t-[11px] [&>*:last-child]:rounded-b-[11px] ${className}`}>
+      {children}
+    </div>
+  )
+}
+
+function SectionLabel({ children, description }: { children: React.ReactNode; description?: React.ReactNode }) {
+  return (
+    <div className="mb-2">
+      <h4 className="text-[15px] font-medium text-[var(--text-heading)]">{children}</h4>
+      {description && <p className="text-[12px] text-[var(--text-secondary)] mt-0.5">{description}</p>}
+    </div>
+  )
+}
+
+function Row({ label, description, control }: { label: string; description?: string; control: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-4 px-4 py-3">
+      <div className="min-w-0">
+        <div className="text-[13px] font-medium text-[var(--text-heading)]">{label}</div>
+        {description && <div className="text-[12px] text-[var(--text-secondary)] mt-0.5">{description}</div>}
+      </div>
+      <div className="shrink-0">{control}</div>
+    </div>
+  )
+}
+
+function Toggle({ checked, onChange, disabled, label }: { checked: boolean; onChange: (next: boolean) => void; disabled?: boolean; label: string }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={`relative w-9 h-5 rounded-full transition-colors shrink-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${checked ? 'bg-[var(--accent-brown)]' : 'bg-[var(--border-subtle)]'}`}
+    >
+      <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${checked ? 'left-[18px]' : 'left-0.5'}`} />
+    </button>
+  )
+}
+
 export function SettingsModal({ onClose }: SettingsModalProps) {
   const { settings, updateSettings } = useSettingsStore()
-  const [activeTab, setActiveTab] = useState<'general' | 'appearance' | 'context' | 'endpoints' | 'harnesses' | 'images'>('general')
+  const [activeTab, setActiveTab] = useState<SettingsTabId>('general')
   const [availableFiles, setAvailableFiles] = useState<{ name: string; path: string }[]>([])
+  const [query, setQuery] = useState('')
 
   useEffect(() => {
     fetch(`${API_BASE}/api/workspace/files`)
@@ -109,38 +183,71 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
       })
   }, [])
 
+  const visibleTabs = TABS.filter((t) => matchesQuery(query, `${t.label} ${t.keywords}`))
+
+  // When searching filters the current tab out, jump to the first match.
+  useEffect(() => {
+    if (query.trim() && visibleTabs.length > 0 && !visibleTabs.some((t) => t.id === activeTab)) {
+      setActiveTab(visibleTabs[0].id)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query])
+
   if (!settings) return null
+
+  const active = TABS.find((t) => t.id === activeTab) ?? TABS[0]
 
   return (
     <div className="fixed inset-0 bg-black/15 dark:bg-black/45 backdrop-blur-[2px] z-[100] flex items-center justify-center p-4 font-sans">
-      <div className="bg-[var(--bg)] border border-[var(--border-subtle)] w-full max-w-3xl rounded-[8px] shadow-none flex flex-col h-[600px] max-h-[85vh] overflow-hidden transform transition-all animate-scale-in">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border-subtle)]">
-          <h2 className="text-[15px] font-medium text-[var(--text-heading)]">Workspace Settings</h2>
-          <button onClick={onClose} className="text-[var(--text-secondary)] hover:text-[var(--text-heading)] transition-colors cursor-pointer">
-            <X size={18} />
-          </button>
-        </div>
-
+      <div className="bg-[var(--bg)] border border-[var(--border-subtle)] w-full max-w-4xl rounded-[16px] shadow-none flex flex-col h-[720px] max-h-[90vh] overflow-hidden transform transition-all animate-scale-in">
         <div className="flex flex-1 overflow-hidden">
           {/* Sidebar Tabs */}
-          <div className="w-[180px] border-r border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-4 flex flex-col gap-1">
-            <TabButton active={activeTab === 'general'} onClick={() => setActiveTab('general')} label="General" />
-            <TabButton active={activeTab === 'appearance'} onClick={() => setActiveTab('appearance')} label="Appearance" />
-            <TabButton active={activeTab === 'images'} onClick={() => setActiveTab('images')} label="Images" />
-            <TabButton active={activeTab === 'context'} onClick={() => setActiveTab('context')} label="Context" />
-            <TabButton active={activeTab === 'endpoints'} onClick={() => setActiveTab('endpoints')} label="Endpoints" />
-            <TabButton active={activeTab === 'harnesses'} onClick={() => setActiveTab('harnesses')} label="Harness" />
+          <div className="w-[240px] border-r border-[var(--border-subtle)] p-3 flex flex-col gap-1 shrink-0">
+            <div className="relative mb-2">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)] pointer-events-none" />
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search settings"
+                className="w-full border border-[var(--border-subtle)] rounded-[8px] pl-8 pr-7 py-1.5 text-[12px] bg-[var(--bg-input)] text-[var(--text)] placeholder:text-[var(--text-muted)] outline-none focus:border-[var(--text-secondary)] transition-colors"
+              />
+              {query && (
+                <button
+                  onClick={() => setQuery('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--text-heading)] transition-colors cursor-pointer"
+                  title="Clear search"
+                >
+                  <X size={13} />
+                </button>
+              )}
+            </div>
+            {visibleTabs.map((t) => (
+              <TabButton key={t.id} active={activeTab === t.id} onClick={() => setActiveTab(t.id)} label={t.label} icon={t.icon} />
+            ))}
+            {query.trim() && visibleTabs.length === 0 && (
+              <p className="text-[12px] text-[var(--text-muted)] px-3 py-2">No matching settings.</p>
+            )}
           </div>
 
           {/* Content Area */}
-          <div className="flex-1 p-8 overflow-y-auto bg-[var(--bg)] text-[var(--text)]">
-            {activeTab === 'general' && <GeneralSettings settings={settings} updateSettings={updateSettings} />}
-            {activeTab === 'appearance' && <AppearanceSettings settings={settings} updateSettings={updateSettings} />}
-            {activeTab === 'images' && <ImagesSettings settings={settings} updateSettings={updateSettings} />}
-            {activeTab === 'context' && <ContextSettings settings={settings} updateSettings={updateSettings} availableFiles={availableFiles} />}
-            {activeTab === 'endpoints' && <EndpointsSettings settings={settings} updateSettings={updateSettings} />}
-            {activeTab === 'harnesses' && <HarnessesSettings settings={settings} updateSettings={updateSettings} />}
+          <div className="flex-1 px-10 py-8 overflow-y-auto bg-[var(--bg)] text-[var(--text)] relative">
+            <button
+              onClick={onClose}
+              className="absolute top-5 right-6 flex items-center justify-center w-8 h-8 rounded-full border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:border-[var(--text-secondary)] transition-colors cursor-pointer"
+              title="Close settings"
+            >
+              <X size={15} />
+            </button>
+            <div className="mb-5">
+              <h2 className="text-[20px] font-medium text-[var(--text-heading)]">{active.title}</h2>
+            </div>
+            {activeTab === 'general' && <GeneralSettings settings={settings} updateSettings={updateSettings} query={query} />}
+            {activeTab === 'appearance' && <AppearanceSettings settings={settings} updateSettings={updateSettings} query={query} />}
+            {activeTab === 'images' && <ImagesSettings settings={settings} updateSettings={updateSettings} query={query} />}
+            {activeTab === 'context' && <ContextSettings settings={settings} updateSettings={updateSettings} availableFiles={availableFiles} query={query} />}
+            {activeTab === 'endpoints' && <EndpointsSettings settings={settings} updateSettings={updateSettings} query={query} />}
+            {activeTab === 'harnesses' && <HarnessesSettings settings={settings} updateSettings={updateSettings} query={query} />}
           </div>
         </div>
       </div>
@@ -148,7 +255,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   )
 }
 
-function TabButton({ active, onClick, label }: { active: boolean, onClick: () => void, label: string }) {
+function TabButton({ active, onClick, label, icon: Icon }: { active: boolean, onClick: () => void, label: string, icon: React.ComponentType<{ size?: number | string; className?: string }> }) {
   return (
     <button
       onClick={onClick}
