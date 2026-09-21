@@ -1506,18 +1506,21 @@ export function SimpleAssist() {
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setShowHistoryDropdown(false)} />
                 <div className="absolute right-0 top-full mt-1.5 z-50 bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-[10px] overflow-hidden shadow-[0_4px_16px_rgba(0,0,0,0.06)] w-[220px] py-1 animate-scale-in">
-                  {/* Chats / Images toggle */}
-                  <div className="flex gap-1 mx-2 mt-1 mb-1 p-0.5 rounded-[6px] border border-[var(--border-subtle)] bg-[var(--bg)]">
+                  {/* Chats / Imagine toggle */}
+                  <div className="flex items-center mx-2 mt-1 mb-1 gap-3">
                     {(['chats', 'images'] as const).map((view) => (
                       <button
                         key={view}
                         onClick={() => handleHistoryViewChange(view)}
-                        className={`flex-1 rounded-[4px] px-2 py-1 text-[11px] capitalize transition-colors cursor-pointer ${historyView === view
-                          ? 'bg-[var(--accent-brown)] text-[var(--text-inverse)] font-medium'
+                        className={`relative pb-1 text-[11px] capitalize transition-colors cursor-pointer ${historyView === view
+                          ? 'text-[var(--text-heading)] font-medium'
                           : 'text-[var(--text-secondary)] hover:text-[var(--text-heading)]'
                           }`}
                       >
-                        {view}
+                        {view === 'images' ? 'Imagine' : 'Chats'}
+                        {historyView === view && (
+                          <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-[var(--accent-brown)] rounded-full" />
+                        )}
                       </button>
                     ))}
                   </div>
@@ -1579,8 +1582,9 @@ export function SimpleAssist() {
                           Loading…
                         </div>
                       ) : imageLogs.length === 0 ? (
-                        <div className="px-3 py-2 text-center text-[11px] text-[var(--text-muted)] font-sans">
-                          No generated images yet
+                        <div className="px-3 py-4 text-center font-sans">
+                          <div className="text-[11px] font-medium text-[var(--text-heading)]">Imagine</div>
+                          <div className="text-[11px] text-[var(--text-muted)] mt-0.5">No imagines yet</div>
                         </div>
                       ) : (
                         <>
