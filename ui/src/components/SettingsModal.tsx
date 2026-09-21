@@ -1058,7 +1058,7 @@ function AddCustomTagForm({ onAdd }: { onAdd: (open: string, close: string) => v
   )
 }
 
-function EndpointsSettings({ settings, updateSettings }: { settings: AppSettings, updateSettings: (u: Partial<AppSettings>) => void }) {
+function EndpointsSettings({ settings, updateSettings, query }: { settings: AppSettings, updateSettings: (u: Partial<AppSettings>) => void, query: string }) {
   const [newId, setNewId] = useState('')
   const [newUrl, setNewUrl] = useState('http://localhost:1234')
   const [newKey, setNewKey] = useState('')
@@ -1121,36 +1121,33 @@ function EndpointsSettings({ settings, updateSettings }: { settings: AppSettings
       })
       if (!res.ok) throw new Error('Connection failed')
       const data = await res.json()
-      setTestResult({ status: 'success', msg: `Found ${data.models?.data?.length || 0} models.` })
-      
+      setTestResult({ status: 'idle' })
+      toast.success(`Endpoint reachable. Found ${data.models?.data?.length || 0} models.`)
+
       if (data.models?.data?.length > 0) {
         const firstModel = data.models.data[0].id
         setNewModel(firstModel)
         useEditorStore.getState().setActiveModel(firstModel)
       }
     } catch (e) {
-      setTestResult({ status: 'error', msg: (e as Error).message })
+      setTestResult({ status: 'idle' })
+      toast.error((e as Error).message)
     }
-    setTimeout(() => setTestResult({ status: 'idle' }), 4000)
   }
 
   return (
-    <div className="flex flex-col gap-8">
-      <section>
-        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Active Endpoint</h3>
-        <p className="text-[12px] text-[var(--text-secondary)] mb-3">Select the LLM routing endpoint. If none, falls back to .env defaults.</p>
+    <div className="flex flex-col gap-6">
+      <FilterSection query={query} keywords="active endpoint default local url model">
+        <section>
+          <SectionLabel description="Select the LLM routing endpoint. If none, falls back to .env defaults.">Endpoints</SectionLabel>
 
-        <div className="flex flex-col gap-2">
-          <div className={`flex flex-col border border-[var(--border-subtle)] rounded-[6px] transition-colors ${settings.active_endpoint === null ? 'border-[var(--text-secondary)] bg-[var(--bg-hover)]' : ''}`}>
-            <label className="flex items-center gap-3 p-3 cursor-pointer hover:bg-[var(--bg-hover)]/30 transition-colors">
-              <input
-                type="radio"
-                name="active_endpoint"
-                checked={settings.active_endpoint === null}
-                onChange={() => updateSettings({ active_endpoint: null })}
-                className="accent-[var(--accent-brown)]"
-              />
-              <div className="flex-1 flex flex-col min-w-0">
+          <div className="flex flex-col gap-2">
+          <div className={`relative flex flex-col border border-[var(--border-subtle)] rounded-[12px] transition-colors ${settings.active_endpoint === null ? 'border-[var(--border-subtle)] bg-[var(--bg-elevated)]/40' : 'hover:border-[var(--text-secondary)]'}`}>
+            {settings.active_endpoint === null && (
+              <span className="absolute top-2.5 right-2.5 text-[var(--accent-brown)]"><Check size={14} /></span>
+            )}
+            <div onClick={() => updateSettings({ active_endpoint: null })} className="flex items-center gap-3 p-3 cursor-pointer transition-colors">
+              <div className="flex-1 flex flex-col min-w-0 pr-6">
                 <div className="flex items-center gap-2">
                   <span className="text-[13px] font-medium text-[var(--text-heading)]">.env Default (Local)</span>
                   {settings.is_thinking !== false && (
@@ -1161,38 +1158,33 @@ function EndpointsSettings({ settings, updateSettings }: { settings: AppSettings
                 </div>
                 <span className="text-[11px] text-[var(--text-secondary)] truncate">Fallback configuration</span>
               </div>
-              <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center gap-2 pr-6" onClick={(e) => e.stopPropagation()}>
                 <button onClick={() => handleTest("default", "")} className="p-1.5 text-[var(--text-secondary)] hover:text-[var(--text-heading)] bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[4px] cursor-pointer" title="Test Connection">
                   <Play size={14} />
                 </button>
               </div>
-            </label>
+            </div>
             <div className="px-3 pb-3 pt-1.5 border-t border-[var(--border-subtle)]/30 flex items-center justify-between gap-4">
               <div className="flex flex-col">
                 <span className="text-[12px] font-medium text-[var(--text-secondary)]">Thinking Model</span>
                 <span className="text-[10px] text-[var(--text-muted)]">Filters reasoning/thinking blocks dynamically.</span>
               </div>
-              <input
-                type="checkbox"
+              <Toggle
                 checked={settings.is_thinking !== false}
-                onChange={(e) => updateSettings({ is_thinking: e.target.checked })}
-                className="accent-[var(--accent-brown)] cursor-pointer w-4 h-4"
+                onChange={(next) => updateSettings({ is_thinking: next })}
+                label="Thinking model"
               />
             </div>
           </div>
 
           {Object.entries(settings.endpoints || {}).map(([id, ep]) => (
-            <div key={id} className={`flex flex-col border rounded-[6px] transition-colors ${settings.active_endpoint === id ? 'border-[var(--text-secondary)] bg-[var(--bg-hover)]' : 'border-[var(--border-subtle)] hover:bg-[var(--bg-hover)]'}`}>
+            <div key={id} className={`relative flex flex-col border rounded-[12px] transition-colors ${settings.active_endpoint === id ? 'border-[var(--border-subtle)] bg-[var(--bg-elevated)]/40' : 'border-[var(--border-subtle)] hover:border-[var(--text-secondary)]'}`}>
+              {settings.active_endpoint === id && (
+                <span className="absolute top-2.5 right-2.5 text-[var(--accent-brown)]"><Check size={14} /></span>
+              )}
               <div className="flex items-center justify-between p-3">
-                <label className="flex items-center gap-3 cursor-pointer flex-1">
-                  <input
-                    type="radio"
-                    name="active_endpoint"
-                    checked={settings.active_endpoint === id}
-                    onChange={() => updateSettings({ active_endpoint: id })}
-                    className="accent-[var(--accent-brown)]"
-                  />
-                  <div className="flex flex-col min-w-0">
+                <div onClick={() => updateSettings({ active_endpoint: id })} className="flex items-center gap-3 cursor-pointer flex-1">
+                  <div className="flex flex-col min-w-0 pr-6">
                     <div className="flex items-center gap-2">
                       <span className="text-[13px] font-medium text-[var(--text-heading)] capitalize truncate">{id.replace('_', ' ')}</span>
                       {ep.is_thinking !== false && (
@@ -1206,8 +1198,8 @@ function EndpointsSettings({ settings, updateSettings }: { settings: AppSettings
                       {ep.custom_thinking_tags && ep.custom_thinking_tags.length > 0 && ` • +${ep.custom_thinking_tags.length} custom`}
                     </span>
                   </div>
-                </label>
-                <div className="flex items-center gap-2">
+                </div>
+                <div className="flex items-center gap-2 pr-6" onClick={(e) => e.stopPropagation()}>
                   <button onClick={() => handleTest(ep.url, ep.api_key)} className="p-1.5 text-[var(--text-secondary)] hover:text-[var(--text-heading)] bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[4px] cursor-pointer" title="Test Connection">
                     <Play size={14} />
                   </button>
@@ -1241,13 +1233,14 @@ function EndpointsSettings({ settings, updateSettings }: { settings: AppSettings
               </div>
             </div>
           ))}
-        </div>
-      </section>
+          </div>
+        </section>
+      </FilterSection>
 
-      <section className="bg-[var(--bg-elevated)] p-4 rounded-[8px] border border-[var(--border-subtle)]">
-        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-3">
-          {editingId ? `Edit Endpoint: ${editingId.replace('_', ' ')}` : 'Add New Endpoint'}
-        </h3>
+      <FilterSection query={query} keywords="add endpoint url key model thinking new">
+        <section>
+          <SectionLabel>{editingId ? `Edit Endpoint: ${editingId.replace('_', ' ')}` : 'Add New Endpoint'}</SectionLabel>
+          <div className="rounded-[12px] border border-[var(--border-subtle)] bg-[var(--bg-elevated)]/40 p-4">
         <div className="grid grid-cols-2 gap-3 mb-3">
           <input placeholder="Name (e.g. OpenAI)" value={newId} onChange={e => setNewId(e.target.value)} className="border border-[var(--border-subtle)] rounded-[4px] px-3 py-2 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]" />
           <input placeholder="Base URL" value={newUrl} onChange={e => setNewUrl(e.target.value)} className="border border-[var(--border-subtle)] rounded-[4px] px-3 py-2 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]" />
@@ -1264,11 +1257,10 @@ function EndpointsSettings({ settings, updateSettings }: { settings: AppSettings
               <span className="text-[12px] font-medium text-[var(--text-heading)]">Thinking Model</span>
               <span className="text-[10.5px] text-[var(--text-secondary)]">Enable dynamic filtering of thinking/reasoning blocks.</span>
             </div>
-            <input
-              type="checkbox"
+            <Toggle
               checked={newIsThinking}
-              onChange={(e) => setNewIsThinking(e.target.checked)}
-              className="accent-[var(--accent-brown)] cursor-pointer w-4 h-4"
+              onChange={(next) => setNewIsThinking(next)}
+              label="Thinking model"
             />
           </div>
 
@@ -1307,31 +1299,27 @@ function EndpointsSettings({ settings, updateSettings }: { settings: AppSettings
           )}
         </div>
 
-        <div className="flex items-center justify-between border-t border-[var(--border-subtle)]/50 pt-3">
-          <div className="flex items-center gap-2">
-            <button onClick={() => handleTest(newUrl, newKey)} disabled={!newUrl || testResult.status === 'testing'} className="px-3 py-1.5 text-[12px] bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[4px] hover:border-[var(--text-secondary)] transition-colors disabled:opacity-50 cursor-pointer text-[var(--text)]">
-              {testResult.status === 'testing' ? 'Testing...' : 'Test Connection'}
+        <div className="flex items-center justify-end gap-2 border-t border-[var(--border-subtle)]/50 pt-3">
+          <button onClick={() => handleTest(newUrl, newKey)} disabled={!newUrl || testResult.status === 'testing'} className="px-3 py-1.5 text-[12px] bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[8px] hover:border-[var(--text-secondary)] transition-colors disabled:opacity-50 cursor-pointer text-[var(--text)]">
+            {testResult.status === 'testing' ? 'Testing...' : 'Test Connection'}
+          </button>
+          {editingId && (
+            <button onClick={handleCancelEdit} className="px-3 py-1.5 text-[12px] bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[8px] hover:border-[var(--text-secondary)] transition-colors cursor-pointer text-[var(--text)]">
+              Cancel
             </button>
-            {testResult.status === 'success' && <span className="text-[11px] text-[var(--text-accent)] flex items-center gap-1"><CheckCircle size={12} /> {testResult.msg}</span>}
-            {testResult.status === 'error' && <span className="text-[11px] text-red-500 flex items-center gap-1"><X size={12} /> {testResult.msg}</span>}
+          )}
+          <button onClick={handleAdd} disabled={!newId || !newUrl} className="px-3 py-1.5 text-[12px] bg-[var(--accent-brown)] text-[var(--text-inverse)] rounded-[8px] hover:bg-[var(--accent-brown-hover)] transition-colors disabled:opacity-50 cursor-pointer flex items-center gap-1">
+            {editingId ? 'Update Endpoint' : <><Plus size={14} /> Save Endpoint</>}
+          </button>
           </div>
-          <div className="flex gap-2">
-            {editingId && (
-              <button onClick={handleCancelEdit} className="px-3 py-1.5 text-[12px] bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[4px] hover:border-[var(--text-secondary)] transition-colors cursor-pointer text-[var(--text)]">
-                Cancel
-              </button>
-            )}
-            <button onClick={handleAdd} disabled={!newId || !newUrl} className="px-3 py-1.5 text-[12px] bg-[var(--accent-brown)] text-[var(--text-inverse)] rounded-[4px] hover:bg-[var(--accent-brown-hover)] transition-colors disabled:opacity-50 cursor-pointer flex items-center gap-1">
-              {editingId ? 'Update Endpoint' : <><Plus size={14} /> Save Endpoint</>}
-            </button>
           </div>
-        </div>
-      </section>
+        </section>
+      </FilterSection>
     </div>
   )
 }
 
-function HarnessesSettings({ settings, updateSettings }: { settings: AppSettings, updateSettings: (u: Partial<AppSettings>) => void }) {
+function HarnessesSettings({ settings, updateSettings, query }: { settings: AppSettings, updateSettings: (u: Partial<AppSettings>) => void, query: string }) {
   const [discovered, setDiscovered] = useState<{ id: string; name: string; installed: boolean; version: string | null }[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
