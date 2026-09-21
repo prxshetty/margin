@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { AtSign, ChevronDown, Code2, MousePointer2, Settings, Trash2 } from 'lucide-react'
+import { AtSign, Check, ChevronDown, Code2, MousePointer2, Settings, Trash2 } from 'lucide-react'
 import { useEditorStore } from '../stores/editorStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { toast } from '../stores/toastStore'
@@ -180,15 +180,15 @@ function HarnessOption({ id, label, hint, disabled, selected, onSelect }: {
     <button
       onClick={onSelect}
       disabled={disabled}
-      className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-left transition-colors ${disabled
+      className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-[8px] text-left transition-colors ${disabled
         ? 'opacity-40 cursor-default'
-        : 'cursor-pointer hover:bg-[var(--bg-hover)]'
+        : 'cursor-pointer hover:bg-[var(--border-sidebar)]/40'
         } ${selected ? 'text-[var(--text-heading)]' : 'text-[var(--text-secondary)]'}`}
     >
       <HarnessIcon id={id} className="w-3.5 h-3.5" />
       <span className="text-[11px] truncate flex-1">{label}</span>
       {hint && <span className="text-[9px] text-[var(--text-muted)] shrink-0">{hint}</span>}
-      {selected && <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent-brown)] shrink-0" />}
+      {selected && <Check size={14} className="shrink-0 text-[var(--accent-brown)]" />}
     </button>
   )
 }
@@ -1349,7 +1349,7 @@ export function SimpleAssist() {
               <ChevronDown className={`w-2.5 h-2.5 opacity-60 shrink-0 transition-transform duration-150 ${showHarnessDropdown ? 'rotate-180' : ''}`} />
             </button>
             {showHarnessDropdown && (
-              <div className="absolute left-0 bottom-full mb-1 z-50 min-w-[140px] bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-[8px] overflow-hidden shadow-[0_4px_16px_rgba(0,0,0,0.06)] py-1">
+              <div className="absolute left-0 bottom-full mb-1 z-50 min-w-[140px] bg-[var(--bg-elevated)] border border-[var(--border-sidebar)]/70 rounded-[12px] p-1 animate-scale-in flex flex-col gap-0.5">
                 <HarnessOption
                   id="none"
                   label="Endpoint"
