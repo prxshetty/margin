@@ -1,5 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
 import { X, Plus, Trash2, CheckCircle, Play, Edit, Brain, ChevronRight, ChevronDown, Folder, FolderOpen, Pin, EyeOff, Eye, GitBranch, FolderPlus, Loader2, Pencil, RotateCcw } from 'lucide-react'
+import openaiLogoRaw from '../../../assets/imagine/openai.svg?raw'
+import stabilityLogoRaw from '../../../assets/imagine/stability-ai.svg?raw'
+import falLogoRaw from '../../../assets/imagine/fal-ai.svg?raw'
+import googleLogoRaw from '../../../assets/imagine/google.svg?raw'
+import comfyuiLogoRaw from '../../../assets/imagine/comfyui.svg?raw'
 import { useSettingsStore } from '../stores/settingsStore'
 import { toast } from '../stores/toastStore'
 import { useEditorStore } from '../stores/editorStore'
@@ -1345,9 +1350,31 @@ const IMAGE_PROVIDERS = [
   { id: 'openai-compatible', label: 'OpenAI-compatible' },
   { id: 'stability', label: 'Stability' },
   { id: 'fal', label: 'FAL' },
-  { id: 'gemini', label: 'Gemini (Google)' },
-  { id: 'comfyui', label: 'ComfyUI (local)' },
+  { id: 'gemini', label: 'Google' },
+  { id: 'comfyui', label: 'ComfyUI' },
 ] as const
+
+// Inlined so currentColor marks (OpenAI) follow the theme text color.
+// Multicolor marks keep their brand fills. No tile, no border — minimal.
+const IMAGE_PROVIDER_LOGOS: Record<string, string> = {
+  'openai-compatible': openaiLogoRaw,
+  stability: stabilityLogoRaw,
+  fal: falLogoRaw,
+  gemini: googleLogoRaw,
+  comfyui: comfyuiLogoRaw,
+}
+
+function ProviderLogo({ provider }: { provider: string }) {
+  const svg = IMAGE_PROVIDER_LOGOS[provider]
+  if (!svg) return null
+  return (
+    <span
+      aria-hidden="true"
+      dangerouslySetInnerHTML={{ __html: svg }}
+      className="shrink-0 flex items-center text-[var(--text-secondary)] [&>svg]:w-4 [&>svg]:h-4"
+    />
+  )
+}
 
 interface ComfyCandidate {
   nodeId: string
@@ -1712,38 +1739,35 @@ function ImagesSettings({ settings, updateSettings }: { settings: AppSettings, u
   )
 
   return (
-    <div className="flex flex-col gap-8">
-      <section>
-        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Image Generation</h3>
-        <p className="text-[12px] text-[var(--text-secondary)] mb-3">
-          Default provider for Imagine and Imagine again.
-        </p>
-        <label className="block text-[12px] font-medium text-[var(--text-secondary)] mb-1">Default provider</label>
-        <select
-          value={settings.image_provider || 'openai-compatible'}
-          onChange={(e) => updateSettings({
-            image_provider: e.target.value,
-            // A base URL is never valid across providers (OpenAI endpoint vs
-            // ComfyUI instance vs Gemini override), so drop the stale value
-            // instead of sending the new provider to the old address.
-            image_base_url: '',
-          })}
-          className="border border-[var(--border-subtle)] rounded-[6px] px-3 py-2 text-[13px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)] transition-colors w-[240px]"
-        >
-          {IMAGE_PROVIDERS.map((p) => (
-            <option key={p.id} value={p.id}>{p.label}</option>
-          ))}
-        </select>
-        <div className="grid grid-cols-1 gap-3 mt-3">
-          {/* Gemini always uses Google's default endpoint — no URL to configure. */}
-          {!isGemini && (
-            <input
-              placeholder={isComfy ? 'ComfyUI URL (e.g. http://127.0.0.1:8188)' : 'Base URL (e.g. https://api.openai.com)'}
-              value={settings.image_base_url || ''}
-              onChange={(e) => updateSettings({ image_base_url: e.target.value })}
-              className="border border-[var(--border-subtle)] rounded-[6px] px-3 py-2 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]"
-            />
-          )}
+    <div className="flex flex-col gap-6">
+      <FilterSection query={query} keywords="image provider base url key model comfyui comfy workflow text edit">
+        <section>
+          <SectionLabel description="Default provider for Imagine and Imagine again.">Provider</SectionLabel>
+          <SectionCard>
+            <div className="p-4 flex flex-col gap-3">
+            <div>
+              <Dropdown
+                value={settings.image_provider || 'openai-compatible'}
+                onChange={(v) => updateSettings({
+                  image_provider: v,
+                  // A base URL is never valid across providers (OpenAI endpoint vs
+                  // ComfyUI instance vs Gemini override), so drop the stale value
+                  // instead of sending the new provider to the old address.
+                  image_base_url: '',
+                })}
+                options={IMAGE_PROVIDERS.map((p) => ({ value: p.id, label: p.label, icon: <ProviderLogo provider={p.id} /> }))}
+                rootClassName="w-[240px]"
+              />
+            </div>
+            <div className="grid grid-cols-1 gap-3">
+          {/* Empty = provider default (shown as placeholder) — set only to
+              point at a proxy, mock, or local instance. */}
+          <input
+            placeholder={isComfy ? 'ComfyUI URL (e.g. http://127.0.0.1:8188)' : isGemini ? 'Default: https://generativelanguage.googleapis.com/v1beta' : 'Base URL (e.g. https://api.openai.com)'}
+            value={settings.image_base_url || ''}
+            onChange={(e) => updateSettings({ image_base_url: e.target.value })}
+            className="border border-[var(--border-subtle)] rounded-[6px] px-3 py-2 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]"
+          />
           {!isComfy && (
             <>
               <input
