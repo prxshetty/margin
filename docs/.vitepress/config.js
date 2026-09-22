@@ -18,7 +18,8 @@ export default {
                         text: 'Configuration',
                         collapsed: true,
                         items: [
-                            { text: 'Images', link: '/writing-guide#images' },
+                            { text: 'Workspaces', link: '/configuration/workspaces' },
+                            { text: 'Images', link: '/configuration/images' },
                             { text: 'General', link: '/configuration/general' },
                             { text: 'Appearance', link: '/configuration/appearance' },
                             { text: 'Editor', link: '/configuration/editor' },

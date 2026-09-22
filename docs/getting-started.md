@@ -137,7 +137,7 @@ The editor will open at `http://localhost:5173`.
 
 The default workspace (`sample-workspace`) is loaded automatically. It includes sample characters, a chapter, and style presets so you can start experimenting right away.
 
-You can link your own workspace folder from **Settings > General > Workspace Directory**.
+You can link your own workspace folder from **Settings > Workspaces** (or the workspace switcher in the file sidebar header).
 
 ## Next Steps
 
