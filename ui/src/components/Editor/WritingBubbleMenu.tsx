@@ -246,7 +246,6 @@ function StylePill({ value, onChange, disabled, options }: {
             variant="minimal"
             freezeSelection
             menuContentWidth
-            title="Style"
             options={options.map((n) => ({ value: n, label: n }))}
             rootClassName="shrink-0 max-w-[120px]"
         />

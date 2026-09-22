@@ -14,6 +14,7 @@ class SettingsUpdateRequest(BaseModel):
 class TestEndpointRequest(BaseModel):
     url: str
     api_key: Optional[str] = None
+    model: Optional[str] = None
 
 class TestImageProviderRequest(BaseModel):
     provider: Optional[str] = None
@@ -24,6 +25,23 @@ class TestImageProviderRequest(BaseModel):
 @router.get("/")
 def get_settings():
     return storage.get_settings()
+
+
+@router.get("/env-default")
+def get_env_default():
+    """Effective .env values (what the fallback path would actually use) plus
+    independent explicit-presence flags. Frontend keys row visibility purely
+    off `from_env` without knowing backend defaults. URL + model only —
+    no credentials."""
+    import os
+    return {
+        "base_url": config.LMSTUDIO.get("base_url", "http://localhost:1234/v1"),
+        "model": config.LMSTUDIO.get("model", ""),
+        "from_env": {
+            "base_url": "LM_STUDIO_BASE_URL" in os.environ,
+            "model": "LM_STUDIO_MODEL" in os.environ,
+        },
+    }
 
 
 @router.patch("/")
@@ -41,17 +59,57 @@ def test_endpoint(req: TestEndpointRequest):
             base_url = config.LMSTUDIO["base_url"].rstrip("/")
         else:
             base_url = req.url.rstrip("/")
-            
+
         if not base_url.endswith("/v1"):
             base_url += "/v1"
         url = f"{base_url}/models"
         headers = {}
         if req.api_key:
             headers["Authorization"] = f"Bearer {req.api_key}"
-        
-        response = requests.get(url, headers=headers, timeout=5)
-        response.raise_for_status()
-        return {"success": True, "models": response.json()}
+
+        try:
+            response = requests.get(url, headers=headers, timeout=5)
+            response.raise_for_status()
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Endpoint not reachable: {e}")
+        try:
+            payload = response.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Endpoint reachable but /models did not return JSON")
+        listed = payload.get("data") if isinstance(payload, dict) else None
+        listed_ids = [m.get("id") for m in (listed or []) if isinstance(m, dict) and m.get("id")]
+        model_count = len(listed_ids)
+
+        wanted = (req.model or "").strip() or None
+        if not wanted:
+            return {"success": True, "reachable": True, "model_count": model_count, "models": payload, "model_found": None, "probe": None}
+        found = wanted in listed_ids
+        if not found:
+            # Skip probe when the model isn't listed — a probe failure here
+            # would be misleading (wrong id vs wrong format).
+            return {"success": True, "reachable": True, "model_count": model_count, "models": payload, "model_found": False, "probe": None}
+        # Minimal cheap probe: 1-token completion to verify the id is accepted.
+        # A rejection may still mean format mismatch, not an invalid model —
+        # callers must surface probe failure as a warning, not invalid-model.
+        try:
+            probe_resp = requests.post(
+                f"{base_url}/chat/completions",
+                headers={"Content-Type": "application/json", **headers},
+                json={"model": wanted, "messages": [{"role": "user", "content": "ping"}], "max_tokens": 1, "temperature": 0},
+                timeout=10,
+            )
+            if probe_resp.ok:
+                return {"success": True, "reachable": True, "model_count": model_count, "models": payload, "model_found": True, "probe": {"ok": True}}
+            detail = ""
+            try:
+                detail = probe_resp.text[:300]
+            except Exception:
+                pass
+            return {"success": True, "reachable": True, "model_count": model_count, "models": payload, "model_found": True, "probe": {"ok": False, "status": probe_resp.status_code, "detail": detail}}
+        except Exception as e:
+            return {"success": True, "reachable": True, "model_count": model_count, "models": payload, "model_found": True, "probe": {"ok": False, "detail": str(e)[:300]}}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -62,10 +120,14 @@ def test_image_provider(req: TestImageProviderRequest):
 
     try:
         saved = _storage.get_settings()
-        provider = (req.provider or saved.get("image_provider") or "openai-compatible").strip().lower()
-        base_url = (req.base_url if req.base_url is not None else saved.get("image_base_url") or "").strip()
-        api_key = req.api_key if req.api_key is not None else (saved.get("image_api_key") or "")
-        model = (req.model if req.model is not None else saved.get("image_model") or "").strip()
+        entries = saved.get("image_endpoints")
+        active_entry = entries.get(saved.get("active_image_endpoint")) if isinstance(entries, dict) else None
+        if not isinstance(active_entry, dict):
+            active_entry = {}
+        provider = (req.provider or active_entry.get("provider") or "openai-compatible").strip().lower()
+        base_url = (req.base_url if req.base_url is not None else active_entry.get("base_url") or "").strip()
+        api_key = req.api_key if req.api_key is not None else (active_entry.get("api_key") or "")
+        model = (req.model if req.model is not None else active_entry.get("model") or "").strip()
 
         if provider in ("openai-compatible", "openai", "lmstudio", "local"):
             if not base_url:

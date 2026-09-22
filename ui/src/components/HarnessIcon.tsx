@@ -1,3 +1,4 @@
+import { SquareTerminal } from 'lucide-react'
 import agyLogo from '../assets/harness-icons/agy.png'
 
 // Inline SVGs (not <img>): the markup lives in the bundle, so there is no
@@ -65,5 +66,6 @@ export function HarnessIcon({ id, className = 'w-3.5 h-3.5' }: { id: string; cla
   if (id === 'codex') return <OpenaiMark className={cls} />
   if (id === 'agy') return <AgyMark className={cls} />
   if (id === 'none') return <EndpointMark className={cls} />
-  return null
+  // Unknown harness id — never render a blank gap.
+  return <SquareTerminal size={13} className={cls} />
 }

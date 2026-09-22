@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from api.services.file_storage import FileStorageService
+from api.services.file_storage import FileStorageService, _migrate_image_endpoints
 from api.services import image_providers as ip
 
 PNG = bytes.fromhex("89504e470d0a1a0a") + b"\x00" * 64
@@ -32,10 +32,18 @@ EDIT_SEED_MAP = {"nodeId": "13", "input": "noise_seed"}
 PROMPT_MAP = {"nodeId": "6", "input": "text"}
 
 
+def _entry(provider, base_url="", api_key="", model=""):
+    return {
+        "image_endpoints": {
+            "test": {"provider": provider, "base_url": base_url, "api_key": api_key, "model": model}
+        },
+        "active_image_endpoint": "test",
+    }
+
+
 def _text_settings(**over):
     s = {
-        "image_provider": "comfyui",
-        "image_base_url": "http://127.0.0.1:8188",
+        **_entry("comfyui", base_url="http://127.0.0.1:8188"),
         "image_comfy_text_workflow": COMFY_WF,
         "image_comfy_text_prompt_map": dict(PROMPT_MAP),
     }
@@ -216,14 +224,67 @@ class TestGenerateEndpoint(unittest.TestCase):
         self.assertNotIn("markdown", body)
 
 
+class TestImageEndpointMigration(unittest.TestCase):
+    def test_configured_singleton_becomes_entry(self):
+        data = {
+            "image_provider": "gemini",
+            "image_base_url": "",
+            "image_api_key": "k",
+            "image_model": "m",
+        }
+        _migrate_image_endpoints(data)
+        self.assertEqual(data["active_image_endpoint"], "gemini")
+        self.assertEqual(data["image_endpoints"], {
+            "gemini": {"provider": "gemini", "base_url": "", "api_key": "k", "model": "m"},
+        })
+        for k in ("image_provider", "image_base_url", "image_api_key", "image_model"):
+            self.assertNotIn(k, data)
+
+    def test_pristine_defaults_become_empty_list(self):
+        data = {
+            "image_provider": "openai-compatible",
+            "image_base_url": "",
+            "image_api_key": "",
+            "image_model": "",
+        }
+        _migrate_image_endpoints(data)
+        self.assertEqual(data["image_endpoints"], {})
+        self.assertIsNone(data["active_image_endpoint"])
+
+    def test_new_keys_win_and_legacy_stripped(self):
+        data = {
+            "image_endpoints": {"g": {"provider": "gemini", "base_url": "", "api_key": "k", "model": "m"}},
+            "active_image_endpoint": "g",
+            "image_provider": "stability",
+            "image_api_key": "stale",
+        }
+        _migrate_image_endpoints(data)
+        self.assertEqual(data["active_image_endpoint"], "g")
+        self.assertNotIn("image_provider", data)
+        self.assertNotIn("image_api_key", data)
+        p = ip.get_image_provider(data)
+        self.assertIsInstance(p, ip.GeminiProvider)
+
+
 class TestProviders(unittest.TestCase):
     def test_unknown_provider_error(self):
         with self.assertRaises(ValueError):
-            ip.get_image_provider({"image_provider": "nope"})
+            ip.get_image_provider(_entry("nope"))
+
+    def test_no_entries_configured(self):
+        with self.assertRaisesRegex(ValueError, "No image provider is configured"):
+            ip.get_image_provider({"image_endpoints": {}, "active_image_endpoint": None})
+
+    def test_no_entry_selected(self):
+        with self.assertRaisesRegex(ValueError, "No image provider is selected"):
+            ip.get_image_provider({
+                "image_endpoints": {"a": {"provider": "gemini", "base_url": "", "api_key": "k", "model": "m"}},
+                "active_image_endpoint": "missing",
+            })
 
     def test_comfyui_unconfigured(self):
         with self.assertRaisesRegex(ValueError, "No ComfyUI workflow"):
-            ip.get_image_provider({"image_provider": "comfyui"})
+            ip.get_image_provider(_entry("comfyui", base_url="http://127.0.0.1:8188"))
 
     def test_comfyui_dual_slots(self):
         p = ip.get_image_provider({**_text_settings(), **_edit_settings()})
@@ -241,8 +302,7 @@ class TestProviders(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "needs an edit workflow"):
             text_only.generate("x", PNG)
         edit_only = ip.get_image_provider({
-            "image_provider": "comfyui",
-            "image_base_url": "http://127.0.0.1:8188",
+            **_entry("comfyui", base_url="http://127.0.0.1:8188"),
             **_edit_settings(),
         })
         with self.assertRaisesRegex(ValueError, "needs a text-to-image workflow"):
@@ -271,11 +331,11 @@ class TestGeminiProvider(unittest.TestCase):
                                  model="gemini-3.1-flash-lite-image")
 
     def test_factory(self):
-        p = ip.get_image_provider({
-            "image_provider": "gemini",
-            "image_api_key": "k",
-            "image_model": "gemini-3.1-flash-lite-image",
-        })
+        p = ip.get_image_provider(_entry(
+            "gemini",
+            api_key="k",
+            model="gemini-3.1-flash-lite-image",
+        ))
         self.assertIsInstance(p, ip.GeminiProvider)
 
     def test_api_root_defaults_to_google(self):
@@ -298,12 +358,12 @@ class TestGeminiProvider(unittest.TestCase):
         self.assertTrue(seen["url"].startswith("http://proxy:8080/v1beta/interactions"))
 
     def test_factory_passes_base_url_through(self):
-        p = ip.get_image_provider({
-            "image_provider": "gemini",
-            "image_api_key": "k",
-            "image_model": "m",
-            "image_base_url": "http://proxy:8080",
-        })
+        p = ip.get_image_provider(_entry(
+            "gemini",
+            api_key="k",
+            model="m",
+            base_url="http://proxy:8080",
+        ))
         self.assertIsInstance(p, ip.GeminiProvider)
         self.assertEqual(p.api_root, "http://proxy:8080")
 

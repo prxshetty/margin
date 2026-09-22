@@ -3,8 +3,9 @@ import type { PointerEvent as ReactPointerEvent } from 'react'
 import Image from '@tiptap/extension-image'
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
 import type { NodeViewProps } from '@tiptap/core'
-import { AlignCenter, AlignLeft, AlignRight, Pencil, ChevronDown, ChevronsUpDown } from 'lucide-react'
+import { AlignCenter, AlignLeft, AlignRight, Pencil, ChevronsUpDown } from 'lucide-react'
 import { generateImage, toDisplaySrc } from '../../lib/media'
+import { Dropdown } from '../Dropdown'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { imageStyleOptions } from './ImageGenerateDialog'
 import { toast } from '../../stores/toastStore'
@@ -463,22 +464,16 @@ function MarginImageView({ editor, node, selected, updateAttributes, deleteNode,
                         className="w-full bg-transparent text-[11.5px] leading-relaxed text-[var(--text-heading)] placeholder:text-[var(--text-muted)] outline-none px-1 resize-none disabled:opacity-60"
                       />
                       <div className="margin-image__controls-actions" style={{ alignSelf: 'flex-end' }}>
-                          <span className="relative flex items-center shrink-0">
-                            <select
-                              value={editStyle}
-                              onChange={(e) => setEditStyle(e.target.value)}
-                              disabled={regenerating}
-                              title="Style"
-                              aria-label="Image style"
-                              onMouseDown={(e) => e.stopPropagation()}
-                              className="h-6 shrink-0 max-w-[120px] truncate pl-1.5 pr-5 py-0 text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-heading)] bg-transparent hover:bg-[var(--bg-hover)] rounded-[5px] outline-none cursor-pointer disabled:opacity-60 appearance-none"
-                            >
-                              {imageStyleOptions(liveSettings?.image_custom_styles, liveSettings?.image_deleted_styles).map((n) => (
-                                <option key={n} value={n}>{n}</option>
-                              ))}
-                            </select>
-                            <ChevronDown className="absolute right-1 w-3 h-3 opacity-60 pointer-events-none" />
-                          </span>
+                          <Dropdown
+                            value={editStyle}
+                            onChange={setEditStyle}
+                            disabled={regenerating}
+                            variant="minimal"
+                            freezeSelection
+                            menuContentWidth
+                            options={imageStyleOptions(liveSettings?.image_custom_styles, liveSettings?.image_deleted_styles).map((n) => ({ value: n, label: n }))}
+                            rootClassName="shrink-0 max-w-[120px]"
+                          />
                           <button
                             type="button"
                             title="Single line"

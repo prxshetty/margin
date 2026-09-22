@@ -119,11 +119,6 @@ class ImageProvider(Protocol):
         ...
 
 
-def _settings_get(settings: Dict[str, Any], key: str) -> str:
-    v = settings.get(key)
-    return str(v or "").strip()
-
-
 class OpenAICompatibleProvider:
     """OpenAI / LM Studio / vLLM style `/v1/images/*` API.
 
@@ -1043,29 +1038,46 @@ def _comfy_edit_bundle(settings: Dict[str, Any]) -> Optional[ComfyUIBundle]:
                          seed_map=seed_map if isinstance(seed_map, dict) else None)
 
 
+def _active_image_entry(settings: Dict[str, Any]) -> Any:
+    """Resolve the selected Imagine entry. No legacy fallback."""
+    entries = settings.get("image_endpoints")
+    if not isinstance(entries, dict) or not entries:
+        raise ValueError("No image provider is configured — add one in Settings → Imagine.")
+    entry = entries.get(settings.get("active_image_endpoint"))
+    if not isinstance(entry, dict):
+        raise ValueError("No image provider is selected — pick one in Settings → Imagine.")
+    return entry
+
+
+def _entry_get(entry: Dict[str, Any], key: str) -> str:
+    return str(entry.get(key) or "").strip()
+
+
 def get_image_provider(settings: Dict[str, Any]) -> ImageProvider:
-    name = str(settings.get("image_provider") or "openai-compatible").strip().lower()
+    entry = _active_image_entry(settings)
+    name = _entry_get(entry, "provider") or "openai-compatible"
+    name = name.lower()
     if name in ("openai-compatible", "openai", "lmstudio", "local"):
         return OpenAICompatibleProvider(
-            base_url=_settings_get(settings, "image_base_url"),
-            api_key=_settings_get(settings, "image_api_key"),
-            model=_settings_get(settings, "image_model"),
+            base_url=_entry_get(entry, "base_url"),
+            api_key=_entry_get(entry, "api_key"),
+            model=_entry_get(entry, "model"),
         )
     if name == "stability":
         return StabilityProvider(
-            api_key=_settings_get(settings, "image_api_key"),
-            model=_settings_get(settings, "image_model"),
+            api_key=_entry_get(entry, "api_key"),
+            model=_entry_get(entry, "model"),
         )
     if name == "fal":
         return FalProvider(
-            api_key=_settings_get(settings, "image_api_key"),
-            model=_settings_get(settings, "image_model"),
+            api_key=_entry_get(entry, "api_key"),
+            model=_entry_get(entry, "model"),
         )
     if name == "gemini":
         return GeminiProvider(
-            api_key=_settings_get(settings, "image_api_key"),
-            model=_settings_get(settings, "image_model"),
-            base_url=_settings_get(settings, "image_base_url"),
+            api_key=_entry_get(entry, "api_key"),
+            model=_entry_get(entry, "model"),
+            base_url=_entry_get(entry, "base_url"),
         )
     if name == "comfyui":
         text = _comfy_text_bundle(settings)
@@ -1075,7 +1087,7 @@ def get_image_provider(settings: Dict[str, Any]) -> ImageProvider:
                 "No ComfyUI workflow is configured — import a text-to-image "
                 "and/or edit workflow in Settings → Images.")
         return ComfyUIProvider(
-            base_url=_settings_get(settings, "image_base_url"),
+            base_url=_entry_get(entry, "base_url"),
             text=text,
             edit=edit,
         )

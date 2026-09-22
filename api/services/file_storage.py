@@ -10,6 +10,38 @@ import warnings
 from pathlib import Path, PurePosixPath
 from typing import List, Optional, Dict, Any, Tuple
 
+LEGACY_IMAGE_KEYS = ("image_provider", "image_base_url", "image_api_key", "image_model")
+
+
+def _migrate_image_endpoints(data: Dict[str, Any]) -> None:
+    """One-time migration: legacy singleton image keys -> image_endpoints.
+
+    Mutates the loaded settings dict in place. There is no runtime fallback:
+    the resolver only reads image_endpoints/active_image_endpoint.
+    Pristine defaults migrate to an empty list; a configured singleton
+    becomes a single entry named after its provider type.
+    """
+    if "image_endpoints" in data or "active_image_endpoint" in data:
+        for k in LEGACY_IMAGE_KEYS:
+            data.pop(k, None)
+        return
+    provider = str(data.get("image_provider") or "openai-compatible").strip().lower() or "openai-compatible"
+    base_url = str(data.get("image_base_url") or "").strip()
+    api_key = str(data.get("image_api_key") or "")
+    model = str(data.get("image_model") or "").strip()
+    if provider == "openai-compatible" and not base_url and not api_key and not model:
+        data["image_endpoints"] = {}
+        data["active_image_endpoint"] = None
+    else:
+        entry_id = provider.replace("-", "_") or "openai_compatible"
+        data["image_endpoints"] = {
+            entry_id: {"provider": provider, "base_url": base_url, "api_key": api_key, "model": model}
+        }
+        data["active_image_endpoint"] = entry_id
+    for k in LEGACY_IMAGE_KEYS:
+        data.pop(k, None)
+
+
 def is_git_available() -> Dict[str, Any]:
     git_bin = shutil.which("git")
     if not git_bin:
@@ -21,6 +53,115 @@ def is_git_available() -> Dict[str, Any]:
     except Exception:
         pass
     return {"available": False, "version": None}
+
+
+def _init_git_repo(path_obj: Path) -> Dict[str, Any]:
+    """Initialize a Git repository at path_obj.
+
+    Narrowly responsible for Git concerns only: availability, work-tree
+    detection, init, .gitignore, stage, initial commit. Never raises for
+    expected Git failures — they are reported in the returned dict.
+
+    Returned git_info keys:
+      initialized     — `git init` succeeded in path_obj
+      committed       — initial "Initial workspace scaffold" commit succeeded
+      already_tracked — path is already inside a Git work tree; init skipped
+      git_parent      — work-tree toplevel when already_tracked
+      git_unavailable — Git is not installed / not in PATH
+      init_failed     — `git init` itself failed
+      error           — human-readable note, or None
+    """
+    git_info: Dict[str, Any] = {
+        "initialized": False,
+        "committed": False,
+        "already_tracked": False,
+        "git_parent": None,
+        "git_unavailable": False,
+        "init_failed": False,
+        "error": None,
+    }
+    git_check = is_git_available()
+    if not git_check["available"]:
+        git_info["git_unavailable"] = True
+        git_info["error"] = "Git is not installed or not available in PATH."
+        return git_info
+
+    git_bin = shutil.which("git") or "git"
+    # Detect if target is already inside a git work tree to avoid embedded repos
+    try:
+        res_toplevel = subprocess.run(
+            [git_bin, "rev-parse", "--show-toplevel"],
+            cwd=str(path_obj),
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if res_toplevel.returncode == 0:
+            # Already inside a git work tree — skip init entirely
+            git_info["already_tracked"] = True
+            git_info["git_parent"] = res_toplevel.stdout.strip()
+            return git_info
+    except Exception:
+        # rev-parse failed → fresh directory, safe to init
+        pass
+
+    # Always write/overwrite .gitignore before init
+    gitignore_file = path_obj / ".gitignore"
+    gitignore_file.write_text(
+        "outputs/\n"
+        ".DS_Store\n"
+        "Thumbs.db\n"
+        "*.tmp\n"
+        "*.log\n",
+        encoding="utf-8"
+    )
+    try:
+        subprocess.run(
+            [git_bin, "init"],
+            cwd=str(path_obj),
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
+        )
+        git_info["initialized"] = True
+    except Exception:
+        git_info["init_failed"] = True
+        git_info["error"] = "git init failed."
+        return git_info
+
+    # git add + initial commit — non-fatal (missing user.name/email is common).
+    # A failed commit never fails workspace setup; init success stands alone.
+    try:
+        subprocess.run(
+            [git_bin, "add", "."],
+            cwd=str(path_obj),
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
+        )
+        res_commit = subprocess.run(
+            [git_bin, "commit", "-m", "Initial workspace scaffold"],
+            cwd=str(path_obj),
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if res_commit.returncode == 0:
+            git_info["committed"] = True
+        else:
+            git_info["committed"] = False
+            stderr = res_commit.stderr.strip()
+            git_info["error"] = (
+                "Initial commit failed — Git user identity not configured. "
+                "Run: git config --global user.name / user.email"
+            ) if "user" in stderr.lower() else "Initial commit failed."
+    except Exception:
+        git_info["committed"] = False
+        git_info["error"] = "git add/commit failed."
+
+    return git_info
 
 
 def get_sensitive_path_prefixes() -> List[Path]:
@@ -176,6 +317,7 @@ class FileStorageService:
     def get_settings(self) -> Dict[str, Any]:
         settings = {
             "linked_workspace_dir": None,
+            "workspace_profiles": [],
             "is_thinking": True,
             "prepend_thinking_preamble": False,
             "dialogue_density": 0.5,
@@ -194,10 +336,8 @@ class FileStorageService:
             "editor_stats": "both",
             "planner_include_outline": False,
             "history_turns": 5,
-            "image_provider": "openai-compatible",
-            "image_base_url": "",
-            "image_api_key": "",
-            "image_model": "",
+            "image_endpoints": {},
+            "active_image_endpoint": None,
             "image_default_style": None,
             "image_custom_styles": [],
             "image_deleted_styles": [],
@@ -217,6 +357,7 @@ class FileStorageService:
             try:
                 with open(self.settings_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
+                    _migrate_image_endpoints(data)
                     for k, v in data.items():
                         if k not in ("context_mode", "context_threshold_pct"):
                             settings[k] = v
@@ -229,6 +370,10 @@ class FileStorageService:
         merged = {**current, **updates}
         merged.pop("context_mode", None)
         merged.pop("context_threshold_pct", None)
+        # Legacy singleton image keys were migrated to image_endpoints;
+        # never persist them again.
+        for k in LEGACY_IMAGE_KEYS:
+            merged.pop(k, None)
 
         try:
             with open(self.settings_path, "w", encoding="utf-8") as f:
@@ -291,6 +436,15 @@ class FileStorageService:
                         desc = manifest.get(f.name, "")
                         break
                 files.append({"name": f.name, "path": rel_path, "description": desc})
+        # Root-level markdown files (workspace root is a valid location).
+        if self.workspace_dir.exists():
+            for item in self.workspace_dir.iterdir():
+                if (
+                    item.is_file()
+                    and item.suffix.lower() == ".md"
+                    and not item.name.startswith(".")
+                ):
+                    files.append({"name": item.name, "path": item.name, "description": ""})
         files.sort(key=lambda f: f["path"])
         return files
 
@@ -326,8 +480,9 @@ class FileStorageService:
         return full_path.read_text(encoding="utf-8")
 
     def create_input_file(self, folder: str, name: str, content: str = "") -> Dict[str, str]:
-        folder = folder.strip("/")
-        if not folder or folder.startswith(".") or ".." in folder or folder.split("/")[0] == "outputs":
+        folder = (folder or "").strip("/")
+        # Empty folder == workspace root, which is a valid location.
+        if folder.startswith(".") or ".." in folder or folder.split("/")[0] == "outputs":
             raise ValueError("Invalid folder name")
 
         name = (name or "").strip()
@@ -347,10 +502,10 @@ class FileStorageService:
         target_dir.mkdir(parents=True, exist_ok=True)
         target_path = target_dir / name
         if target_path.exists():
-            raise FileExistsError(f"File already exists: {folder}/{name}")
+            raise FileExistsError(f"File already exists: {folder + '/' if folder else ''}{name}")
 
         target_path.write_text(content or "", encoding="utf-8")
-        rel_path = f"{folder}/{name}"  # always posix-style
+        rel_path = f"{folder}/{name}" if folder else name  # always posix-style
 
         return {"name": name, "path": rel_path, "content": content or ""}
 
@@ -399,6 +554,43 @@ class FileStorageService:
             "name": new_path.name,
             "path": _posix_rel(new_path, self.workspace_dir.resolve()),
         }
+
+    def rename_folder(self, path: str, new_name: str) -> Dict[str, str]:
+        """Rename a workspace folder (contents move with it)."""
+        old_path = self._safe_resolve(path)
+        if not old_path.exists() or not old_path.is_dir():
+            raise FileNotFoundError(f"Folder not found: {path}")
+
+        new_name = (new_name or "").strip().lower().replace(" ", "_")
+        if not new_name:
+            raise ValueError("New folder name is required")
+        if "/" in new_name or "\\" in new_name or new_name.startswith(".") or ".." in new_name:
+            raise ValueError("Invalid folder name")
+        if not re.fullmatch(r"[a-z0-9_-]+", new_name):
+            raise ValueError("Invalid folder name")
+        if new_name == old_path.name:
+            return {
+                "name": old_path.name,
+                "path": _posix_rel(old_path, self.workspace_dir.resolve()),
+            }
+
+        new_path = old_path.with_name(new_name)
+        if new_path.exists():
+            raise FileExistsError(f"Folder already exists: {_posix_rel(new_path, self.workspace_dir.resolve())}")
+        old_path.rename(new_path)
+
+        return {
+            "name": new_path.name,
+            "path": _posix_rel(new_path, self.workspace_dir.resolve()),
+        }
+
+    def delete_folder(self, path: str) -> bool:
+        """Recursively delete a workspace folder and everything inside it."""
+        full_path = self._safe_resolve(path)
+        if not full_path.exists() or not full_path.is_dir():
+            raise FileNotFoundError(f"Folder not found: {path}")
+        shutil.rmtree(full_path)
+        return True
 
     def _media_dir(self) -> Path:
         d = self.workspace_dir / "assets"
@@ -549,6 +741,55 @@ class FileStorageService:
                 json.dump(logs, f, indent=2)
         except Exception:
             pass
+
+    def get_workspace_stats(self) -> Dict[str, Any]:
+        """Aggregate stats for the active workspace.
+
+        Token totals come from each ai_logs entry exactly once
+        (prompt_tokens + completion_tokens per entry — total_tokens is
+        never mixed in, so nothing is double-counted).
+        """
+        files = []
+        try:
+            files = self.list_input_files()
+        except Exception:
+            files = []
+        markdown_files = sum(
+            1 for f in files
+            if isinstance(f, dict)
+            and not str(f.get("path", "")).startswith("styles/")
+        )
+
+        prompt_tokens = 0
+        completion_tokens = 0
+        chat_sessions = 0
+        logs_dir = self.outputs_dir / "ai_logs"
+        if logs_dir.exists():
+            for session_file in logs_dir.glob("*.json"):
+                try:
+                    with open(session_file, "r", encoding="utf-8") as fh:
+                        session_logs = json.load(fh)
+                except Exception:
+                    continue
+                if not isinstance(session_logs, list):
+                    continue
+                # One session file == one chat session by design.
+                chat_sessions += 1
+                for entry in session_logs:
+                    if not isinstance(entry, dict):
+                        continue
+                    try:
+                        prompt_tokens += int(entry.get("prompt_tokens") or 0)
+                        completion_tokens += int(entry.get("completion_tokens") or 0)
+                    except Exception:
+                        continue
+
+        return {
+            "markdown_files": markdown_files,
+            "chat_sessions": chat_sessions,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+        }
 
     def clear_simple_ai_logs(self) -> None:
         logs_dir = self.outputs_dir / "ai_logs"
@@ -839,95 +1080,19 @@ class FileStorageService:
                 encoding="utf-8"
             )
 
-        # 6. Git initialization
-        git_info: Dict[str, Any] = {
-            "initialized": False,
-            "committed": False,
-            "already_tracked": False,
-            "git_parent": None,
-            "error": None,
-        }
+        # 6. Git initialization (intent flag only — runs here at creation time)
         if init_git:
-            git_check = is_git_available()
-            if not git_check["available"]:
-                git_info["error"] = "Git is not installed or not available in PATH."
-            else:
-                git_bin = shutil.which("git") or "git"
-                # Detect if target is already inside a git work tree to avoid embedded repos
-                try:
-                    res_toplevel = subprocess.run(
-                        [git_bin, "rev-parse", "--show-toplevel"],
-                        cwd=str(path_obj),
-                        capture_output=True,
-                        text=True,
-                        timeout=5,
-                    )
-                    if res_toplevel.returncode == 0:
-                        # Already inside a git work tree — skip init entirely
-                        git_info["already_tracked"] = True
-                        git_info["git_parent"] = res_toplevel.stdout.strip()
-                        return {
-                            "success": True,
-                            "path": str(path_obj),
-                            "git": git_info,
-                        }
-                except Exception:
-                    # rev-parse failed → fresh directory, safe to init
-                    pass
-
-                # Always write/overwrite .gitignore before init
-                gitignore_file = path_obj / ".gitignore"
-                gitignore_file.write_text(
-                    "outputs/\n"
-                    ".DS_Store\n"
-                    "Thumbs.db\n"
-                    "*.tmp\n"
-                    "*.log\n",
-                    encoding="utf-8"
-                )
-                try:
-                    subprocess.run(
-                        [git_bin, "init"],
-                        cwd=str(path_obj),
-                        capture_output=True,
-                        text=True,
-                        timeout=10,
-                        check=True,
-                    )
-                    git_info["initialized"] = True
-                except Exception as e:
-                    git_info["error"] = "git init failed."
-
-                if git_info["initialized"]:
-                    # git add + initial commit — non-fatal (missing user.name/email is common)
-                    try:
-                        subprocess.run(
-                            [git_bin, "add", "."],
-                            cwd=str(path_obj),
-                            capture_output=True,
-                            text=True,
-                            timeout=10,
-                            check=True,
-                        )
-                        res_commit = subprocess.run(
-                            [git_bin, "commit", "-m", "Initial workspace scaffold"],
-                            cwd=str(path_obj),
-                            capture_output=True,
-                            text=True,
-                            timeout=10,
-                        )
-                        if res_commit.returncode == 0:
-                            git_info["committed"] = True
-                        else:
-                            git_info["committed"] = False
-                            stderr = res_commit.stderr.strip()
-                            git_info["error"] = (
-                                "Initial commit failed — Git user identity not configured. "
-                                "Run: git config --global user.name / user.email"
-                            ) if "user" in stderr.lower() else "Initial commit failed."
-                    except Exception:
-                        git_info["committed"] = False
-                        git_info["error"] = "git add/commit failed."
+            git_info = _init_git_repo(path_obj)
+        else:
+            git_info = {
+                "initialized": False,
+                "committed": False,
+                "already_tracked": False,
+                "git_parent": None,
+                "git_unavailable": False,
+                "init_failed": False,
+                "error": None,
+            }
 
         return {
             "success": True,

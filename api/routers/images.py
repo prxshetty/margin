@@ -159,7 +159,7 @@ def generate_image(req: GenerateImageRequest):
             "prompt": prompt,
             "final_prompt": final_prompt,
             "style": req.style_name,
-            "provider": str(settings.get("image_provider") or "openai-compatible"),
+            "provider": str(settings.get("active_image_endpoint") or "openai-compatible"),
             "reference_path": ref_path,
             "seed": result.seed,
             "path": saved["path"],

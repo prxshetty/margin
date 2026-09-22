@@ -10,10 +10,12 @@ import subprocess
 import tempfile
 import os
 import shutil
+import uuid
 
 from api.services.file_storage import (
     storage,
     is_git_available,
+    _init_git_repo,
     _SENSITIVE_PATH_PREFIXES,
     ALLOWED_IMAGE_EXTS,
 )
@@ -32,6 +34,26 @@ class CreateWorkspaceRequest(BaseModel):
     init_git: bool = False
     set_as_active: bool = True
     force: bool = False
+    name: str = ""
+
+
+class GitInitRequest(BaseModel):
+    path: str
+
+
+class ProfileUpsertRequest(BaseModel):
+    path: str
+    name: str = ""
+
+
+class LinkWorkspaceRequest(BaseModel):
+    path: str
+    name: str = ""
+    init_git: bool = False
+
+
+class ProfileRenameRequest(BaseModel):
+    name: str
 
 
 class RenameFileRequest(BaseModel):
@@ -122,6 +144,11 @@ def _open_folder_picker() -> str | None:
                 )
                 if res.returncode == 0 and res.stdout.strip():
                     return res.stdout.strip()
+                # Dialog was shown but dismissed (Cancel): don't fall through
+                # to Tk — that would pop a SECOND dialog after the first one
+                # was dismissed.
+                if res.returncode == 0:
+                    return None
                 # Native failure -> fall through to Tk fallback below.
             except subprocess.TimeoutExpired:
                 # Interactive timeout -> degrade gracefully to Tk fallback.
@@ -142,9 +169,17 @@ def _open_folder_picker() -> str | None:
                 )
                 if res.returncode == 0 and res.stdout.strip():
                     return res.stdout.strip()
-                # Native failure -> fall through to Tk fallback below.
+                # The osascript dialog ran and was dismissed (Cancel sends a
+                # non-zero exit, e.g. "User canceled"). Never fall through to
+                # Tk here — that opens a SECOND dialog after the user just
+                # closed the first one.
+                return None
             except subprocess.TimeoutExpired:
-                # Interactive timeout -> degrade gracefully to Tk fallback.
+                # Timed out while the native dialog was up; it has been
+                # killed, so don't stack a Tk dialog on top — just bail out.
+                return None
+            except FileNotFoundError:
+                # osascript missing -> fall through to Tk fallback below.
                 pass
 
         # Linux / BSD: native desktop dialogs if installed
@@ -324,13 +359,203 @@ def create_workspace_endpoint(req: CreateWorkspaceRequest):
             init_git=req.init_git,
         )
         # Link the workspace AFTER scaffold succeeds — a git failure won't leave
-        # the app pointing at a half-built directory.
+        # the app pointing at a half-built directory. Profile upsert rides in
+        # the same write so rapid Creates can never clobber each other.
         if req.set_as_active:
-            storage.update_settings({"linked_workspace_dir": res["path"]})
+            profile_name = (req.name or "").strip() or resolved.name
+            profiles = [p for p in storage.get_settings().get("workspace_profiles", []) or []]
+            profiles, profile = _upsert_profile_entry(profiles, res["path"], profile_name)
+            storage.update_settings({"linked_workspace_dir": res["path"], "workspace_profiles": profiles})
             res["set_as_active"] = True
+            res["profiles"] = profiles
+            res["profile"] = profile
         return res
     except Exception:
         raise HTTPException(status_code=400, detail="Failed to create workspace.")
+
+
+
+@router.post("/git-init")
+def git_init_endpoint(req: GitInitRequest):
+    """Initialize a Git repository in an existing directory.
+
+    Used at Link time when the user toggles versioning on for an existing
+    workspace. Never raises for expected Git outcomes — they are reported in
+    `git` so the caller can surface partial success (linked, but Git failed).
+    """
+    raw = (req.path or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Workspace path is required.")
+
+    raw_path = Path(raw).expanduser()
+    if not raw_path.is_absolute():
+        raise HTTPException(status_code=400, detail="Workspace path must be absolute.")
+
+    try:
+        resolved = raw_path.resolve()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid workspace path.")
+
+    if not resolved.exists() or not resolved.is_dir():
+        raise HTTPException(status_code=400, detail="The selected directory does not exist.")
+
+    git_info = _init_git_repo(resolved)
+    return {"success": True, "path": str(resolved), "git": git_info}
+
+
+
+@router.get("/stats")
+def workspace_stats():
+    """Aggregate stats for the active workspace (counts + chat token totals)."""
+    return {"success": True, "stats": storage.get_workspace_stats()}
+
+
+
+def _resolve_profile_path(raw: str) -> Path:
+    raw_path = Path(raw).expanduser()
+    if not raw_path.is_absolute():
+        raise HTTPException(status_code=400, detail="Workspace path must be absolute.")
+    try:
+        resolved = raw_path.resolve()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid workspace path.")
+    if not resolved.exists() or not resolved.is_dir():
+        raise HTTPException(status_code=400, detail="The selected directory does not exist.")
+    return resolved
+
+
+def _upsert_profile_entry(profiles: List[Dict[str, Any]], key: str, name: str):
+    """Dedupe by resolved path: re-link updates the name and moves to front."""
+    existing = next((p for p in profiles if isinstance(p, dict) and str(p.get("path", "")) == key), None)
+    if existing:
+        existing["name"] = name
+        return [existing] + [p for p in profiles if p is not existing], existing
+    profile = {"id": uuid.uuid4().hex, "name": name, "path": key}
+    return [profile] + profiles, profile
+
+
+@router.post("/profiles")
+def upsert_profile(req: ProfileUpsertRequest):
+    """Remember a workspace location as a named profile.
+
+    Re-linking a known folder updates its name and moves it to the front —
+    never creates a duplicate. Prefer the atomic /link and /create endpoints
+    for Link/Create flows; this endpoint exists for standalone use.
+    """
+    raw = (req.path or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Workspace path is required.")
+    resolved = _resolve_profile_path(raw)
+
+    name = (req.name or "").strip() or resolved.name
+    key = str(resolved)
+    profiles = [p for p in storage.get_settings().get("workspace_profiles", []) or []]
+    profiles, profile = _upsert_profile_entry(profiles, key, name)
+    storage.update_settings({"workspace_profiles": profiles})
+    return {"success": True, "profiles": profiles, "profile": profile}
+
+
+@router.post("/link")
+def link_workspace(req: LinkWorkspaceRequest):
+    """Link an existing directory AND record its profile atomically.
+
+    A single read-modify-write: link, profile upsert, and optional git-init
+    result all persist in one update_settings call, so rapid Link actions
+    can never clobber each other's profiles.
+    """
+    raw = (req.path or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Workspace path is required.")
+    resolved = _resolve_profile_path(raw)
+
+    git_info: Dict[str, Any] = {
+        "initialized": False, "committed": False, "already_tracked": False,
+        "git_parent": None, "git_unavailable": False, "init_failed": False,
+        "error": None,
+    }
+    if req.init_git:
+        git_info = _init_git_repo(resolved)
+
+    name = (req.name or "").strip() or resolved.name
+    key = str(resolved)
+    profiles = [p for p in storage.get_settings().get("workspace_profiles", []) or []]
+    profiles, profile = _upsert_profile_entry(profiles, key, name)
+    merged = storage.update_settings({"linked_workspace_dir": key, "workspace_profiles": profiles})
+    return {
+        "success": True,
+        "linked_workspace_dir": merged.get("linked_workspace_dir"),
+        "profiles": profiles,
+        "profile": profile,
+        "git": git_info,
+        "git_requested": bool(req.init_git),
+    }
+
+
+@router.patch("/profiles/{profile_id}")
+def rename_profile(profile_id: str, req: ProfileRenameRequest):
+    """Rename a saved profile. The folder on disk is untouched."""
+    name = (req.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Profile name is required.")
+    profiles = [p for p in storage.get_settings().get("workspace_profiles", []) or []]
+    target = next((p for p in profiles if isinstance(p, dict) and p.get("id") == profile_id), None)
+    if target is None:
+        raise HTTPException(status_code=404, detail="Profile not found.")
+    target["name"] = name
+    storage.update_settings({"workspace_profiles": profiles})
+    return {"success": True, "profiles": profiles, "profile": target}
+
+
+@router.delete("/profiles/{profile_id}")
+def delete_profile(profile_id: str, mode: str = "forget"):
+    """Remove a profile. `mode=forget` drops the entry only (folder untouched).
+
+    `mode=delete` additionally deletes the workspace folder from disk after
+    strict safety checks (must exist, no dot-parts, outside sensitive
+    prefixes). Deleting the active profile falls back to default either way.
+    """
+    if mode not in ("forget", "delete"):
+        raise HTTPException(status_code=400, detail="mode must be 'forget' or 'delete'.")
+    profiles = [p for p in storage.get_settings().get("workspace_profiles", []) or []]
+    removed = next((p for p in profiles if isinstance(p, dict) and p.get("id") == profile_id), None)
+    if removed is None:
+        raise HTTPException(status_code=404, detail="Profile not found.")
+    profiles = [p for p in profiles if not (isinstance(p, dict) and p.get("id") == profile_id)]
+
+    dir_removed = False
+    if mode == "delete":
+        try:
+            target = Path(str(removed.get("path", ""))).expanduser().resolve()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid workspace path.")
+        if not target.exists() or not target.is_dir():
+            raise HTTPException(status_code=400, detail="The workspace directory does not exist.")
+        if any(part.startswith(".") for part in target.parts):
+            raise HTTPException(status_code=400, detail="The selected path is not allowed.")
+        for blocked in _SENSITIVE_PATH_PREFIXES:
+            try:
+                if _is_subpath(target, blocked.expanduser().resolve()):
+                    raise HTTPException(status_code=400, detail="The selected path is not allowed.")
+            except HTTPException:
+                raise
+            except Exception:
+                pass
+        try:
+            shutil.rmtree(target)
+            dir_removed = True
+        except Exception:
+            raise HTTPException(status_code=500, detail="Failed to delete the workspace directory.")
+
+    updates: Dict[str, Any] = {"workspace_profiles": profiles}
+    current = storage.get_settings().get("linked_workspace_dir")
+    try:
+        current_resolved = str(Path(current).expanduser().resolve()) if current else None
+    except Exception:
+        current_resolved = str(current) if current else None
+    if current and current_resolved == str(removed.get("path", "")):
+        updates["linked_workspace_dir"] = None
+    merged = storage.update_settings(updates)
+    return {"success": True, "profiles": profiles, "linked_workspace_dir": merged.get("linked_workspace_dir"), "dir_removed": dir_removed}
 
 
 
@@ -367,6 +592,31 @@ def rename_input_file(path: str, req: RenameFileRequest):
     try:
         decoded_path = urllib.parse.unquote(path)
         return storage.rename_input_file(decoded_path, req.name)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.patch("/folders/{path:path}")
+def rename_folder(path: str, req: RenameFileRequest):
+    try:
+        decoded_path = urllib.parse.unquote(path)
+        return storage.rename_folder(decoded_path, req.name)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/folders/{path:path}")
+def delete_folder(path: str):
+    try:
+        decoded_path = urllib.parse.unquote(path)
+        storage.delete_folder(decoded_path)
+        return {"success": True}
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

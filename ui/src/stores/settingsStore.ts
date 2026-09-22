@@ -27,11 +27,15 @@ export interface AppSettings {
   editor_stats?: 'words' | 'characters' | 'both' | 'none'
   planner_include_outline?: boolean
   linked_workspace_dir?: string | null
+  workspace_profiles?: { id: string; name: string; path: string }[]
   history_turns?: number
-  image_provider?: 'openai-compatible' | 'stability' | 'fal' | 'comfyui' | string
-  image_base_url?: string
-  image_api_key?: string
-  image_model?: string
+  image_endpoints: Record<string, {
+    provider: string
+    base_url: string
+    api_key: string
+    model: string
+  }>
+  active_image_endpoint: string | null
   image_default_style?: string | null
   image_custom_styles?: { name: string; prompt: string }[]
   /** Built-in style names the user hid (None can never be hidden). */

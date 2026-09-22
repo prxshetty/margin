@@ -596,15 +596,15 @@ export function SimpleAssist() {
       sessionLogs.get(sid)!.push(log)
     }
     for (const [sid, logs] of sessionLogs) {
-      const first = logs.reduce((a, b) => a.timestamp < b.timestamp ? a : b)
+      const first = logs.reduce((a, b) => (a.timestamp || '') < (b.timestamp || '') ? a : b)
       const raw = first.instruction || ''
       const name = raw.slice(0, 35) + (raw.length > 35 ? '...' : '') || 'Assist'
-      const latest = logs.reduce((a, b) => a.timestamp > b.timestamp ? a : b)
-      map.set(sid, { name, logCount: logs.length, timestamp: latest.timestamp })
+      const latest = logs.reduce((a, b) => (a.timestamp || '') > (b.timestamp || '') ? a : b)
+      map.set(sid, { name, logCount: logs.length, timestamp: latest.timestamp || '' })
     }
     return Array.from(map.entries())
       .map(([id, data]) => ({ id, ...data }))
-      .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+      .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''))
   }, [historyLogs])
 
   const filteredLogs = useMemo(() =>
@@ -669,8 +669,10 @@ export function SimpleAssist() {
       })
   }, [])
 
-  // Reset all session state when the workspace directory changes
-  const workspaceDir = useEditorStore((s) => s.workspaceDir)
+  // Reset all session state when the active workspace changes.
+  // Keyed on the linked path itself: workspaceDir is only a custom/sample
+  // flag, so custom → custom switches would never refire this effect.
+  const linkedWorkspaceDir = settings?.linked_workspace_dir ?? null
   useEffect(() => {
     setHistoryLogs([])
     setImageLogs(null)
@@ -682,7 +684,8 @@ export function SimpleAssist() {
     setActiveToolRows([])
     setActiveHarness('none')
     setNoticeText('')
-  }, [workspaceDir])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkedWorkspaceDir])
 
   useEffect(() => {
     if (historyLogs.length > 0 || isWorking || errorText) {
@@ -909,7 +912,11 @@ export function SimpleAssist() {
               }
               liveEditor.view.dispatch(tr)
               currentEndPos = tr.mapping.map(currentEndPos)
-              liveEditor.commands.setAiHighlight(startPos, currentEndPos)
+              // No diff highlight on untitled docs (no file identity) —
+              // plain insert only. Saved files keep the live highlight.
+              if (useEditorStore.getState().currentFilePath) {
+                liveEditor.commands.setAiHighlight(startPos, currentEndPos)
+              }
               liveEditor.commands.setTextSelection(currentEndPos)
             }
             }
@@ -944,33 +951,50 @@ export function SimpleAssist() {
 
             const liveEditor = useEditorStore.getState().editor || activeEditor
             if (liveEditor && liveEditor.view && liveEditor.state && !liveEditor.isDestroyed) {
-              const setAiPendingEdit = useEditorStore.getState().setAiPendingEdit
-              const beforeSize = liveEditor.state.doc.content.size
+              // File identity decides diff vs plain insert — not content
+              // emptiness. An untitled doc (no path) can never be saved, so
+              // never create a pending diff/highlight for it. A blank saved
+              // file (has path) still gets the normal diff flow.
+              const filePathAtApply = useEditorStore.getState().currentFilePath
+              if (!filePathAtApply) {
+                let chain = liveEditor.chain()
+                chain = chain.deleteRange({ from: startPos, to: currentEndPos })
+                chain = chain.insertContentAt(startPos, output)
+                chain.run()
+                liveEditor.commands.setTextSelection(startPos + output.length)
+                const storage = liveEditor.storage as unknown as MarkdownStorage
+                if (storage.markdown) {
+                  setContent(storage.markdown.getMarkdown())
+                }
+              } else {
+                const setAiPendingEdit = useEditorStore.getState().setAiPendingEdit
+                const beforeSize = liveEditor.state.doc.content.size
 
-              setAiPendingEdit({
-                previousContent,
-                selectionRange: localHasSelection && selectionInfo ? { from: selectionInfo.from, to: selectionInfo.to } : null,
-                highlightFrom: startPos
-              })
+                setAiPendingEdit({
+                  previousContent,
+                  selectionRange: localHasSelection && selectionInfo ? { from: selectionInfo.from, to: selectionInfo.to } : null,
+                  highlightFrom: startPos
+                })
 
-              let chain = liveEditor.chain()
-              chain = chain.deleteRange({ from: startPos, to: currentEndPos })
-              chain = chain.insertContentAt(startPos, output)
-              chain.run()
+                let chain = liveEditor.chain()
+                chain = chain.deleteRange({ from: startPos, to: currentEndPos })
+                chain = chain.insertContentAt(startPos, output)
+                chain.run()
 
-              const afterSize = liveEditor.state.doc.content.size
-              const endPos = currentEndPos + (afterSize - beforeSize)
+                const afterSize = liveEditor.state.doc.content.size
+                const endPos = currentEndPos + (afterSize - beforeSize)
 
-              if (endPos > startPos) {
-                liveEditor.commands.setAiHighlight(startPos, endPos)
-                liveEditor.commands.setTextSelection(endPos)
-              }
+                if (endPos > startPos) {
+                  liveEditor.commands.setAiHighlight(startPos, endPos)
+                  liveEditor.commands.setTextSelection(endPos)
+                }
 
-              const storage = liveEditor.storage as unknown as MarkdownStorage
-              if (storage.markdown) {
-                const md = storage.markdown.getMarkdown()
-                setContent(md)
-                if (currentFilePath) updateFileContent(currentFilePath, md)
+                const storage = liveEditor.storage as unknown as MarkdownStorage
+                if (storage.markdown) {
+                  const md = storage.markdown.getMarkdown()
+                  setContent(md)
+                  updateFileContent(filePathAtApply, md)
+                }
               }
             }
             setPendingEditSelection(null)
@@ -1583,8 +1607,7 @@ export function SimpleAssist() {
                         </div>
                       ) : imageLogs.length === 0 ? (
                         <div className="px-3 py-4 text-center font-sans">
-                          <div className="text-[11px] font-medium text-[var(--text-heading)]">Imagine</div>
-                          <div className="text-[11px] text-[var(--text-muted)] mt-0.5">No imagines yet</div>
+                          <div className="text-[11px] text-[var(--text-muted)]">No imagines yet</div>
                         </div>
                       ) : (
                         <>

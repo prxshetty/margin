@@ -4,6 +4,7 @@ import { useImageGenStore } from '../../stores/imageGenStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { toast } from '../../stores/toastStore'
 import { generateImage, insertStoredImageAt } from '../../lib/media'
+import { Dropdown } from '../Dropdown'
 
 const BUILTIN_STYLE_NAMES = ['None', 'Cinematic', 'Illustration']
 
@@ -153,16 +154,16 @@ function ImageGenerateDialog() {
           className="mt-1.5 w-full resize-y rounded-[6px] border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2 text-[13px] text-[var(--text)] outline-none focus:border-[var(--text-secondary)] disabled:opacity-60"
         />
         <label className="mt-3 block text-[12px] font-medium text-[var(--text-secondary)]">Style</label>
-        <select
+        <Dropdown
           value={styleName}
-          onChange={(e) => setStyleName(e.target.value)}
+          onChange={setStyleName}
           disabled={busy}
-          className="mt-1.5 w-full rounded-[6px] border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2 text-[13px] text-[var(--text)] outline-none focus:border-[var(--text-secondary)] disabled:opacity-60"
-        >
-          {options.map((n) => (
-            <option key={n} value={n}>{n}</option>
-          ))}
-        </select>
+          options={options.map((n) => ({ value: n, label: n }))}
+          rootClassName="mt-1.5"
+          portal
+          searchable
+          searchPlaceholder="Search styles..."
+        />
         <button
           type="button"
           onClick={() => {
