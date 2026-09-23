@@ -153,7 +153,7 @@ function ImageGenerateDialog() {
           disabled={busy}
           className="mt-1.5 w-full resize-y rounded-[6px] border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2 text-[13px] text-[var(--text)] outline-none focus:border-[var(--text-secondary)] disabled:opacity-60"
         />
-        <label className="mt-3 block text-[12px] font-medium text-[var(--text-secondary)]">Style</label>
+        <label className="mt-3 block text-[12px] font-medium text-[var(--text-secondary)]">Look</label>
         <Dropdown
           value={styleName}
           onChange={setStyleName}
@@ -162,7 +162,7 @@ function ImageGenerateDialog() {
           rootClassName="mt-1.5"
           portal
           searchable
-          searchPlaceholder="Search styles..."
+          searchPlaceholder="Search looks..."
         />
         <button
           type="button"
@@ -172,7 +172,7 @@ function ImageGenerateDialog() {
           }}
           className="mt-1.5 text-[11px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] underline underline-offset-2 cursor-pointer"
         >
-          Manage styles in Settings
+          Manage looks in Settings
         </button>
         {error && (
           <p className="mt-3 text-[12px] leading-relaxed text-red-500">{error}</p>

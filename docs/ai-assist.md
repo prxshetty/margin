@@ -22,7 +22,7 @@ Use Edit mode when you want the AI to modify or add content. The behavior depend
 2. A **Writing Bubble Menu** appears as two pills: formatting (paragraph/heading levels, bold/italic/underline, link) and AI actions (**Cue**, **Rewrite**, **Imagine**).
 3. Click **Rewrite** to open an inline instruction input (expand it for a larger area, press Escape to cancel). **Cue** hands the selection to the assistant panel as context; **Imagine** turns the selection into an image prompt.
 4. Type your instruction (e.g., "Make this more dramatic", "Shorten to two sentences") and press Enter.
-5. The AI rewrites only the selected portion -- surrounding text stays untouched. The inline bubble always follows your default harness from Settings.
+5. The AI rewrites only the selected portion -- surrounding text stays untouched. The inline bubble always follows your harness choice from the assistant panel.
 
 **How replacement works:**
 

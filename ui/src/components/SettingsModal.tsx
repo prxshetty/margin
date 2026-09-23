@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { X, Search, SlidersHorizontal, Folder, Palette, Image as ImageIcon, BookOpen, SquareTerminal } from 'lucide-react'
-import { useSettingsStore } from '../stores/settingsStore'
+import { useSettingsStore, type SettingsTabId } from '../stores/settingsStore'
 import { toast } from '../stores/toastStore'
 import { API_BASE } from '../lib/api'
 import { EndpointLogo } from './settings/shared'
@@ -16,8 +16,6 @@ interface SettingsModalProps {
   onClose: () => void
 }
 
-type SettingsTabId = 'general' | 'workspaces' | 'appearance' | 'context' | 'endpoints' | 'harnesses' | 'images'
-
 const TABS: { id: SettingsTabId; label: string; icon: React.ComponentType<{ size?: number | string; className?: string }>; title: string; keywords: string }[] = [
   { id: 'general', label: 'General', icon: SlidersHorizontal, title: 'General', keywords: 'general mode verbosity stats files tokens activity' },
   { id: 'workspaces', label: 'Workspaces', icon: Folder, title: 'Workspaces', keywords: 'workspace workspaces directory folder path link browse create git active saved switch recent' },
@@ -31,8 +29,11 @@ const TABS: { id: SettingsTabId; label: string; icon: React.ComponentType<{ size
 // Forgiving multi-term match: every query token must appear in the haystack.
 
 export function SettingsModal({ onClose }: SettingsModalProps) {
-  const { settings, updateSettings } = useSettingsStore()
-  const [activeTab, setActiveTab] = useState<SettingsTabId>('general')
+  const { settings, updateSettings, settingsTab, setSettingsTab } = useSettingsStore()
+  // Deep-link target from the store (e.g. the panel's "Manage endpoints…"):
+  // consumed once as the initial tab, then cleared.
+  const [activeTab, setActiveTab] = useState<SettingsTabId>(settingsTab ?? 'general')
+  useEffect(() => { setSettingsTab(null) }, [])
   const [availableFiles, setAvailableFiles] = useState<{ name: string; path: string }[]>([])
   const [query, setQuery] = useState('')
 

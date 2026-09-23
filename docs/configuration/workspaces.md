@@ -11,7 +11,7 @@ Every linked folder is remembered as a named **profile** (name + absolute path),
 - **Open existing** — Browse to a folder, confirm the name (defaults to the folder name), optionally tick Git init, and Link it. Re-linking a known folder updates its name and moves it to the front — never a duplicate.
 - **Create new** — Pick a parent folder, type a project name, optionally tick Git init. margin scaffolds the folder (chapters, characters, manifest starter) and links it in one atomic step — a Git failure won't leave you pointing at a half-built directory.
 - **Rename / delete** — Rename changes the display name only (your folder on disk is untouched). Deleting a profile just forgets it; your files stay on disk.
-- **Switch** — Click a profile in the list, or use the workspace switcher in the file sidebar header. The editor reloads from the newly linked folder.
+- **Switch** — Use the workspace switcher in the file sidebar header. The editor reloads from the newly linked folder.
 
 Profiles are stored in your platform config (`workspace_profiles` in `settings.json`) alongside `linked_workspace_dir` — never sent anywhere.
 

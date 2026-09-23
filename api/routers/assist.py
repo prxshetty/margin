@@ -449,8 +449,11 @@ async def run_harness(argv: list, cwd: str, stop_event: threading.Event, queue: 
     await asyncio.to_thread(_run_harness_sync, argv, cwd, stop_event, queue, loop)
 
 def _resolve_simple_assist_client() -> llm.LLMClient:
-    """Return an LLMClient configured with the active endpoint from settings,
-    falling back to .env defaults if no endpoint is active."""
+    """Return an LLMClient configured with the active endpoint from settings.
+
+    Raises HTTPException(400) when no valid endpoint is configured (none
+    selected, or the selected id no longer exists). There is intentionally no
+    .env fallback: endpoints are sourced centrally from Settings (v1.2+)."""
     s = storage.get_settings()
     ep_id = s.get("active_endpoint")
     if ep_id:
@@ -469,8 +472,10 @@ def _resolve_simple_assist_client() -> llm.LLMClient:
                 custom_opening_tags=custom_open,
                 custom_closing_tags=custom_close,
             )
-    is_thinking = s.get("is_thinking", True)
-    return llm.LLMClient(is_thinking=is_thinking)
+    raise HTTPException(
+        status_code=400,
+        detail="No endpoint configured — add one in Settings → Endpoints.",
+    )
 
 
 def _is_blocked(filepath: str, ignored: set) -> bool:

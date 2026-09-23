@@ -14,7 +14,7 @@ margin comes with a `sample-workspace` that has example files to help you get st
 2. Click **Browse...** to pick a folder using your system's file picker, then
 3. Click **Link Path**.
 
-To reset to the default sample workspace, remove profiles from **Settings → Workspaces** and re-link `sample-workspace`.
+To reset to the default sample workspace, pick `sample-workspace` in the file-sidebar switcher.
 
 ::: tip Your workspace path is stored in your platform's config directory (`~/.config/slm-writing-engine/settings.json` on Linux, `~/Library/Application Support/slm-writing-engine/settings.json` on macOS, `%APPDATA%\slm-writing-engine\settings.json` on Windows) and never sent anywhere.
 :::

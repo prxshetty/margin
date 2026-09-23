@@ -59,13 +59,21 @@ interface SettingsState {
   updateSettings: (updates: Partial<AppSettings>) => Promise<void>
   showSettings: boolean
   setShowSettings: (show: boolean) => void
+  /** Deep-link target for the Settings modal (e.g. 'endpoints'). Consumed as
+      the initial tab on open, then cleared — null means 'general'. */
+  settingsTab: SettingsTabId | null
+  setSettingsTab: (tab: SettingsTabId | null) => void
 }
+
+export type SettingsTabId = 'general' | 'workspaces' | 'appearance' | 'context' | 'endpoints' | 'harnesses' | 'images'
 
 export const useSettingsStore = create<SettingsState>((set) => ({
   settings: null,
   isLoading: true,
   showSettings: false,
   setShowSettings: (showSettings) => set({ showSettings }),
+  settingsTab: null,
+  setSettingsTab: (settingsTab) => set({ settingsTab }),
   fetchSettings: async () => {
     try {
       const res = await fetch(`${API_BASE}/api/settings/`)

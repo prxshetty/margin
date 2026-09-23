@@ -347,7 +347,7 @@ function StyleDialogForSave({
     <div className="fixed inset-0 bg-black/15 dark:bg-black/45 backdrop-blur-[2px] z-[200] flex items-center justify-center p-4 animate-scale-in">
       <div className="bg-[var(--bg)] border border-[var(--border-subtle)] w-full max-w-lg rounded-[16px] shadow-none p-6 flex flex-col gap-4 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between">
-          <h3 className="text-[16px] font-medium text-[var(--text-heading)]">{mode === 'add' ? 'Add Style' : 'Edit Style'}</h3>
+          <h3 className="text-[16px] font-medium text-[var(--text-heading)]">{mode === 'add' ? 'Add Look' : 'Edit Look'}</h3>
           <button onClick={onCancel} className="flex items-center justify-center w-8 h-8 text-[var(--text-muted)] hover:text-[var(--text-heading)] transition-colors cursor-pointer">
             <X size={15} />
           </button>
@@ -367,7 +367,7 @@ function StyleDialogForSave({
         )}
         <div className="relative">
           <textarea
-            placeholder="Style prompt (appended to the generation prompt)"
+            placeholder="Look prompt (appended to the generation prompt)"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             rows={4}
@@ -383,7 +383,7 @@ function StyleDialogForSave({
             disabled={!prompt.trim() || (!nameLocked && !name.trim())}
             className="px-3 py-1.5 text-[12px] bg-[var(--accent-brown)] text-[var(--text-inverse)] rounded-[8px] hover:bg-[var(--accent-brown-hover)] transition-colors disabled:opacity-50 cursor-pointer"
           >
-            {mode === 'add' ? 'Add style' : 'Save'}
+            {mode === 'add' ? 'Add look' : 'Save'}
           </button>
         </div>
       </div>
@@ -736,9 +736,9 @@ export function ImagesSettings({ settings, updateSettings, query }: { settings: 
         </section>
       </FilterSection>
 
-      <FilterSection query={query} keywords="styles style custom default prompt">
+      <FilterSection query={query} keywords="looks look style styles custom default prompt">
         <section>
-          <SectionLabel description="Extra direction appended to the image prompt for the style you pick.">Styles</SectionLabel>
+          <SectionLabel description="Extra direction appended to the image prompt for the look you pick.">Looks</SectionLabel>
           <div className="border border-[var(--border-subtle)] rounded-[12px] divide-y divide-[var(--border-subtle)]/60 mb-3 overflow-hidden">
           {allStyleNames.map((name) => {
             const custom = customs.find((c) => c.name === name)
@@ -770,7 +770,7 @@ export function ImagesSettings({ settings, updateSettings, query }: { settings: 
                     <div
                       className="text-[11px] text-[var(--text-muted)] truncate"
                     >
-                      {name === 'None' ? 'No style suffix — nothing is appended.' : (prompt || '—')}
+                      {name === 'None' ? 'No look suffix — nothing is appended.' : (prompt || '—')}
                     </div>
                   </div>
                   {isDefault && <Check size={13} className="shrink-0 text-[var(--accent-brown)]" />}
@@ -833,7 +833,7 @@ export function ImagesSettings({ settings, updateSettings, query }: { settings: 
             onClick={() => setStyleDialog({ mode: 'add', name: '' })}
             className="flex items-center gap-1 px-2 py-1 text-[12px] text-[var(--text-secondary)] hover:text-[var(--text-heading)] transition-colors cursor-pointer"
           >
-            <Plus size={13} /> Add style
+              <Plus size={13} /> Add look
           </button>
         </div>
         {styleDialog && (

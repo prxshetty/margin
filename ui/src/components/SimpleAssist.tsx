@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { AtSign, Check, ChevronDown, Code2, MousePointer2, Settings, Trash2 } from 'lucide-react'
+import { AtSign, Check, ChevronDown, ChevronRight, Code2, MousePointer2, Settings, Trash2 } from 'lucide-react'
 import { useEditorStore } from '../stores/editorStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { toast } from '../stores/toastStore'
@@ -460,11 +460,49 @@ export function SimpleAssist() {
   const [noticeText, setNoticeText] = useState('')
   const [showHarnessDropdown, setShowHarnessDropdown] = useState(false)
   const harnessDropdownRef = useRef<HTMLDivElement>(null)
+  // Endpoint flyout: nested beside the harness menu, positioned left/right
+  // by measured space. Selection funnels through the same settings fields
+  // the Settings → Endpoints tab writes — one selection model, not two.
+  const [showEndpointFlyout, setShowEndpointFlyout] = useState(false)
+  const [endpointFlyoutSide, setEndpointFlyoutSide] = useState<'left' | 'right'>('right')
+  const harnessMenuRef = useRef<HTMLDivElement>(null)
   const [activeToolRows, setActiveToolRows] = useState<Array<{ tool: string; detail: string }>>([])
   const harnessBaseRef = useRef('')
   const harnessLabel = (id: string) => harnessList.find(h => h.id === id)?.name ?? id
   const hasSelection = !!pendingEditSelection
-  const { settings, fetchSettings, setShowSettings, updateSettings } = useSettingsStore()
+  const { settings, fetchSettings, setShowSettings, setSettingsTab, updateSettings } = useSettingsStore()
+  // Active endpoint display name (same `id.replace('_', ' ')` convention as
+  // EndpointsTab). Empty when unset — there is no .env concept anymore.
+  const activeEndpointName = settings?.active_endpoint
+    ? settings.active_endpoint.replace('_', ' ')
+    : ''
+  const endpointEntries = Object.entries(settings?.endpoints || {})
+
+  // Click opens the flyout only — mode flips on pick, never on browse, so a
+  // dismissed flyout leaves the harness untouched.
+  const handleEndpointRowClick = () => {
+    if (!showEndpointFlyout) {
+      const rect = harnessMenuRef.current?.getBoundingClientRect()
+      const need = 180 + 8
+      setEndpointFlyoutSide(rect && rect.right + need <= window.innerWidth ? 'right' : 'left')
+    }
+    setShowEndpointFlyout(v => !v)
+  }
+
+  // Picking an endpoint means "use this endpoint instead of the harness":
+  // same two fields the Endpoints tab writes, then close both levels.
+  const handlePickEndpoint = (id: string) => {
+    updateSettings({ active_endpoint: id, default_harness: 'none' })
+    setShowEndpointFlyout(false)
+    setShowHarnessDropdown(false)
+  }
+
+  const handleManageEndpoints = () => {
+    setSettingsTab('endpoints')
+    setShowSettings(true)
+    setShowEndpointFlyout(false)
+    setShowHarnessDropdown(false)
+  }
   // Single source of truth: the panel, SettingsModal, and bubble menu all
   // read/write settings.default_harness, so they can never disagree.
   const harness = settings?.default_harness || 'none'
@@ -701,6 +739,7 @@ export function SimpleAssist() {
       }
       if (harnessDropdownRef.current && !harnessDropdownRef.current.contains(e.target as Node)) {
         setShowHarnessDropdown(false)
+        setShowEndpointFlyout(false)
       }
     }
     if (showFileDropdown || showHarnessDropdown) {
@@ -1363,23 +1402,39 @@ export function SimpleAssist() {
             <PlanModeIcon />
           </button>
           {/* Harness selector: logo only, name in tooltip + dropdown */}
-          <div className="relative" ref={harnessDropdownRef}>
+          <div
+            className="relative"
+            ref={harnessDropdownRef}
+            onKeyDown={(e) => {
+              if (e.key !== 'Escape') return
+              // One level back per press: flyout first, then the dropdown.
+              e.stopPropagation()
+              if (showEndpointFlyout) setShowEndpointFlyout(false)
+              else setShowHarnessDropdown(false)
+            }}
+          >
             <button
               onClick={() => setShowHarnessDropdown(v => !v)}
-              title={harness === 'none' ? 'Endpoint — use configured endpoint' : harnessLabel(harness)}
+              aria-label={harness === 'none'
+                ? (activeEndpointName ? `Endpoint — ${activeEndpointName}` : 'Endpoint')
+                : harnessLabel(harness)}
               className="ml-1 flex items-center gap-0.5 text-[var(--text-secondary)] hover:text-[var(--text-heading)] transition-colors cursor-pointer"
             >
               <HarnessIcon id={harness} className="w-3.5 h-3.5" />
               <ChevronDown className={`w-2.5 h-2.5 opacity-60 shrink-0 transition-transform duration-150 ${showHarnessDropdown ? 'rotate-180' : ''}`} />
             </button>
             {showHarnessDropdown && (
-              <div className="absolute left-0 bottom-full mb-1 z-50 min-w-[140px] bg-[var(--bg-elevated)] border border-[var(--border-sidebar)]/70 rounded-[12px] p-1 animate-scale-in flex flex-col gap-0.5">
-                <HarnessOption
-                  id="none"
-                  label="Endpoint"
-                  selected={harness === 'none'}
-                  onSelect={() => { updateSettings({ default_harness: 'none' }); setShowHarnessDropdown(false) }}
-                />
+              <div ref={harnessMenuRef} className="absolute left-0 bottom-full mb-1 z-50 min-w-[140px] bg-[var(--bg-elevated)] border border-[var(--border-sidebar)]/70 rounded-[12px] p-1 animate-scale-in flex flex-col gap-0.5">
+                {/* Endpoint row opens the endpoint flyout — single trailing
+                    slot: check when endpoint-mode is live, chevron otherwise. */}
+                <button
+                  onClick={handleEndpointRowClick}
+                  className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-[8px] text-left transition-colors cursor-pointer hover:bg-[var(--border-sidebar)]/40 ${harness === 'none' ? 'text-[var(--text-heading)]' : 'text-[var(--text-secondary)]'}`}
+                >
+                  <HarnessIcon id="none" className="w-3.5 h-3.5" />
+                  <span className="text-[11px] truncate flex-1">Endpoint</span>
+                  <ChevronRight size={14} className={`shrink-0 opacity-60 transition-transform duration-150 ${showEndpointFlyout ? 'rotate-90' : ''}`} />
+                </button>
                 {harnessList.map(h => (
                   <HarnessOption
                     key={h.id}
@@ -1388,9 +1443,41 @@ export function SimpleAssist() {
                     disabled={!h.installed}
                     hint={h.installed ? undefined : 'not installed'}
                     selected={harness === h.id}
-                    onSelect={() => { updateSettings({ default_harness: h.id }); setShowHarnessDropdown(false) }}
+                    onSelect={() => { updateSettings({ default_harness: h.id }); setShowHarnessDropdown(false); setShowEndpointFlyout(false) }}
                   />
                 ))}
+                {showEndpointFlyout && (
+                  <div className={`absolute top-0 z-50 min-w-[180px] max-w-[240px] bg-[var(--bg-elevated)] border border-[var(--border-sidebar)]/70 rounded-[12px] p-1 animate-scale-in flex flex-col gap-0.5 ${endpointFlyoutSide === 'right' ? 'left-full ml-1' : 'right-full mr-1'}`}>
+                    {endpointEntries.length === 0 ? (
+                      <div className="px-2.5 py-1.5 text-[11px] text-[var(--text-muted)]">
+                        No endpoints yet
+                      </div>
+                    ) : (
+                      endpointEntries.map(([id, ep]) => {
+                        const isActive = harness === 'none' && settings?.active_endpoint === id
+                        return (
+                          <button
+                            key={id}
+                            onClick={() => handlePickEndpoint(id)}
+                            className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-[8px] text-left transition-colors cursor-pointer hover:bg-[var(--border-sidebar)]/40 ${isActive ? 'bg-[var(--border-sidebar)]/40 text-[var(--text-heading)]' : 'text-[var(--text-secondary)]'}`}
+                          >
+                            <span className="text-[11px] truncate flex-1 capitalize">{id.replace('_', ' ')}</span>
+                            <span className="text-[9px] text-[var(--text-muted)] shrink-0 truncate max-w-[90px]" title={ep.model || '—'}>{ep.model || '—'}</span>
+                            {isActive && (
+                              <Check size={14} className="shrink-0 text-[var(--accent-brown)]" />
+                            )}
+                          </button>
+                        )
+                      })
+                    )}
+                    <button
+                      onClick={handleManageEndpoints}
+                      className="w-full px-2 pt-0.5 pb-1 text-center text-[10.5px] text-[var(--text-muted)] hover:text-[var(--text-heading)] transition-colors cursor-pointer"
+                    >
+                      Manage endpoints
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>

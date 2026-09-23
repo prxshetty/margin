@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Check, Pencil, Loader, X, List } from 'lucide-react'
+import { Pencil, Loader, X, List } from 'lucide-react'
 import type { AppSettings } from '../../stores/settingsStore'
 import { API_BASE } from '../../lib/api'
 import { HarnessIcon } from '../HarnessIcon'
@@ -93,32 +93,17 @@ export function HarnessesSettings({ settings, updateSettings, query }: { setting
       .finally(() => setIsLoading(false))
   }, [])
 
-  const selected = settings.default_harness || 'none'
-
   const handleSaveConfig = (id: string, config: { executable: string; model: string; context_window?: number }) => {
     updateSettings({ harnesses: { ...(settings.harnesses || {}), [id]: { ...(settings.harnesses?.[id] || {}), ...config } } })
   }
 
   return (
     <div className="flex flex-col gap-6">
-      <FilterSection query={query} keywords="harness default none agent terminal executable model context">
+      <FilterSection query={query} keywords="harness agent terminal executable model context">
         <section>
-          <SectionLabel description="External agent runtimes (Claude Code, Codex, ...) run locally with your own subscription. Select None to use the configured endpoint instead. Authenticate each CLI in your own terminal.">Agent harness</SectionLabel>
+          <SectionLabel description="External agent runtimes (Claude Code, Codex, ...) run locally with your own subscription. Configure each CLI here; pick the active harness or endpoint from the assistant panel. Authenticate each CLI in your own terminal.">Agent harness</SectionLabel>
 
           <div className="flex flex-col gap-2">
-          <div
-            onClick={() => updateSettings({ default_harness: 'none' })}
-            className={`relative flex items-center gap-3 p-3 cursor-pointer border rounded-[12px] transition-colors ${selected === 'none' ? 'border-[var(--border-subtle)] bg-[var(--bg-elevated)]/40' : 'border-[var(--border-subtle)] hover:border-[var(--text-secondary)]'}`}
-          >
-            {selected === 'none' && (
-              <span className="absolute top-2.5 right-2.5 text-[var(--accent-brown)]"><Check size={14} /></span>
-            )}
-            <div className="flex flex-col min-w-0 pr-6">
-              <span className="text-[13px] font-medium text-[var(--text-heading)]">None — use endpoint</span>
-              <span className="text-[11px] text-[var(--text-secondary)]">Default. No local agent involved.</span>
-            </div>
-          </div>
-
           {isLoading && (
             <p className="flex items-center justify-center gap-2 text-[12px] text-[var(--text-muted)] p-2">
               <Loader size={14} className="animate-spin" />
@@ -127,11 +112,8 @@ export function HarnessesSettings({ settings, updateSettings, query }: { setting
           )}
 
           {discovered.map(h => (
-            <div key={h.id} className={`relative border rounded-[12px] transition-colors group ${selected === h.id ? 'border-[var(--border-subtle)] bg-[var(--bg-elevated)]/40' : 'border-[var(--border-subtle)] hover:border-[var(--text-secondary)]'}`}>
-              {selected === h.id && (
-                <span className="absolute top-2.5 right-2.5 text-[var(--accent-brown)]"><Check size={14} /></span>
-              )}
-              <div onClick={() => updateSettings({ default_harness: h.id })} className="flex items-center gap-3 p-3 cursor-pointer">
+            <div key={h.id} className="relative border rounded-[12px] transition-colors group border-[var(--border-subtle)] hover:border-[var(--text-secondary)]">
+              <div className="flex items-center gap-3 p-3">
                 <div className="flex flex-col min-w-0 flex-1 pr-6">
                   <span className="text-[13px] font-medium text-[var(--text-heading)] flex items-center gap-2">
                     <HarnessIcon id={h.id} className="w-4 h-4" />
@@ -140,14 +122,14 @@ export function HarnessesSettings({ settings, updateSettings, query }: { setting
                   {/* pl-6 = icon (w-4/16px) + gap-2 (8px): status starts
                       exactly below the first letter of the harness name. */}
                   <span className="text-[11px] text-[var(--text-secondary)] pl-6">
-                    {h.installed ? 'Ready' : '✕ Not installed — install and authenticate its CLI, then reopen Settings'}
+                    {h.installed ? 'Ready' : '✕ Not installed — install and authenticate its CLI, then reopen Settings, or point Configure at its location'}
                   </span>
                 </div>
               </div>
               <button
                 onClick={() => setConfigDialog({ id: h.id, name: h.name, installed: h.installed })}
                 title={`Configure ${h.name}`}
-                className="absolute bottom-2.5 right-2.5 flex items-center justify-center w-6 h-6 text-[var(--text-secondary)]/60 hover:text-[var(--text-heading)] hover:bg-[var(--bg-hover)] rounded-[4px] transition-all cursor-pointer opacity-0 group-hover:opacity-100"
+                className="absolute top-1/2 -translate-y-1/2 right-2.5 flex items-center justify-center w-6 h-6 text-[var(--text-secondary)]/60 hover:text-[var(--text-heading)] hover:bg-[var(--bg-hover)] rounded-[4px] transition-all cursor-pointer opacity-0 group-hover:opacity-100"
               >
                 <Pencil className="w-3 h-3" strokeWidth={2} />
               </button>

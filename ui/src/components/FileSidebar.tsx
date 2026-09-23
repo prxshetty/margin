@@ -173,7 +173,7 @@ export function FileSidebar({
     setContent, clearFiles,
   } = useEditorStore()
 
-  const { settings, setShowSettings, updateSettings } = useSettingsStore()
+  const { settings, setShowSettings, setSettingsTab, updateSettings } = useSettingsStore()
 
   const [loading, setLoading] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -660,6 +660,7 @@ export function FileSidebar({
               <button
                 onClick={() => {
                   setShowSwitcher(false)
+                  setSettingsTab('workspaces')
                   setShowSettings(true)
                 }}
                 className="w-full flex items-center px-2.5 py-1.5 rounded-[8px] text-[11px] text-[var(--text-secondary)] hover:bg-[var(--border-sidebar)]/40 transition-colors cursor-pointer"

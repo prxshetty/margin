@@ -6,10 +6,9 @@ Endpoints connect margin to an AI model. You can use local models (completely pr
 
 ## Active Endpoint
 
-Select which endpoint margin should use for AI requests:
+Pick the active endpoint from the assistant panel's harness menu (Endpoint flyout).
 
-- **.env Default**: Uses settings from your `.env` file. This is the traditional method and useful if you prefer environment-based configuration.
-- **Custom endpoints**: Any endpoint you've added via the UI.
+> As of v1.2 there is no `.env` fallback: legacy users should add their values as an endpoint in Settings (use **Import from .env** if env values exist).
 
 ## Adding an Endpoint
 

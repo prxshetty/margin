@@ -1,11 +1,114 @@
-import { useState, useEffect } from 'react'
-import { Check, Folder, Pencil, Trash2 } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Pencil, Trash2, X, FolderOpen, FolderPlus } from 'lucide-react'
 import type { AppSettings } from '../../stores/settingsStore'
 import { toast } from '../../stores/toastStore'
 import { API_BASE } from '../../lib/api'
 import { FilterSection, SectionCard, SectionLabel, Toggle } from './shared'
 
 type Profile = { id: string; name: string; path: string }
+
+function WorkspaceEditDialog({ profile, gitAvailable, onSaveName, onClose }: {
+  profile: Profile
+  gitAvailable: boolean | null
+  onSaveName: (name: string) => Promise<boolean>
+  onClose: () => void
+}) {
+  const [name, setName] = useState(profile.name)
+  const [gitBusy, setGitBusy] = useState(false)
+  const [gitOn, setGitOn] = useState(false)
+  const [gitNote, setGitNote] = useState<string | null>(null)
+
+  const handleSave = async () => {
+    if (await onSaveName(name.trim())) onClose()
+  }
+
+  // One-shot toggle: flipping on initializes the repo (stays on after);
+  // flipping back off is a no-op — a repo can't be un-created from here.
+  const handleGitToggle = async (next: boolean) => {
+    if (!next || gitOn) return
+    setGitBusy(true)
+    setGitNote(null)
+    try {
+      const res = await fetch(`${API_BASE}/api/workspace/git-init`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: profile.path }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data.success) {
+        throw new Error(data.detail || 'Git init failed.')
+      }
+      const git = data.git || {}
+      if (git.already_tracked) {
+        const parent = git.git_parent ? ` (${String(git.git_parent).split(/[\\/]/).pop()})` : ''
+        setGitNote(`Already inside a Git repository${parent} — nothing to do.`)
+        setGitOn(true)
+      } else if (git.initialized) {
+        let msg = 'Git repository initialized.'
+        if (git.error) msg += ` Note: ${git.error}`
+        setGitNote(msg)
+        setGitOn(true)
+        toast.success(msg)
+      } else {
+        setGitNote(git.error || 'Git could not be initialized.')
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Git init failed.'
+      setGitNote(msg)
+      toast.error(msg)
+    } finally {
+      setGitBusy(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/15 dark:bg-black/45 backdrop-blur-[2px] z-[200] flex items-center justify-center p-4 animate-scale-in">
+      <div className="bg-[var(--bg)] border border-[var(--border-subtle)] w-full max-w-lg rounded-[16px] shadow-none p-6 flex flex-col gap-4 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between">
+          <h3 className="text-[16px] font-medium text-[var(--text-heading)]">Edit Workspace</h3>
+          <button onClick={onClose} className="flex items-center justify-center w-8 h-8 text-[var(--text-muted)] hover:text-[var(--text-heading)] transition-colors cursor-pointer">
+            <X size={15} />
+          </button>
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-[12px] font-medium text-[var(--text-secondary)]">Name</label>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="w-full border border-[var(--border-subtle)] rounded-[4px] px-3 py-2 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)]"
+          />
+          <p className="text-[11px] text-[var(--text-muted)] font-mono truncate" title={profile.path}>{profile.path}</p>
+        </div>
+        <div className="flex flex-col gap-2 border-t border-[var(--border-subtle)]/50 pt-3">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex flex-col">
+              <span className="text-[12px] font-medium text-[var(--text-heading)]">Git repository</span>
+              <span className="text-[10.5px] text-[var(--text-secondary)]">
+                {gitAvailable === false ? 'Git not found in PATH.' : 'Initialize a repository in this workspace folder.'}
+              </span>
+            </div>
+            <Toggle
+              checked={gitOn}
+              onChange={(next) => void handleGitToggle(next)}
+              disabled={gitBusy || gitAvailable === false}
+              label="Git repository"
+            />
+          </div>
+          {gitNote && <p className="text-[11px] text-[var(--text-secondary)]">{gitNote}</p>}
+        </div>
+        <div className="flex items-center justify-end gap-2 border-t border-[var(--border-subtle)]/50 pt-3">
+          <button
+            onClick={() => void handleSave()}
+            disabled={!name.trim() || name.trim() === profile.name}
+            className="px-3 py-1.5 text-[12px] bg-[var(--accent-brown)] text-[var(--text-inverse)] rounded-[8px] hover:bg-[var(--accent-brown-hover)] transition-colors disabled:opacity-50 cursor-pointer"
+          >
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 const basenameOf = (p: string) => p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || p
 
@@ -14,16 +117,24 @@ export function WorkspacesSettings({ settings, updateSettings, query }: { settin
   const [profileName, setProfileName] = useState('')
   const [createName, setCreateName] = useState('')
   const [isPicking, setIsPicking] = useState(false)
+  // Synchronous re-entrancy guard: `busy` only disables the buttons after a
+  // re-render, so a fast double-click would fire two picker requests and
+  // stack two native dialogs (cancelling the first reveals the second).
+  // Refs update synchronously, closing that window.
+  const pickingRef = useRef(false)
   const [initGitOpen, setInitGitOpen] = useState(false)
   const [initGitCreate, setInitGitCreate] = useState(false)  // default false — local-first
   const [gitAvailable, setGitAvailable] = useState<boolean | null>(null)
   const [isWorking, setIsWorking] = useState(false)
   const [mode, setMode] = useState<'open' | 'create' | null>(null)
+  const [editProfile, setEditProfile] = useState<Profile | null>(null)
 
   const profiles: Profile[] = settings.workspace_profiles || []
-  const activeProfile = settings.linked_workspace_dir
-    ? profiles.find((p) => p.path === settings.linked_workspace_dir)
-    : undefined
+  // Resolve the edit target from live settings so the dialog never holds a
+  // stale copy (e.g. deleted elsewhere while open → dialog closes).
+  const liveEditProfile = editProfile
+    ? profiles.find((p) => p.id === editProfile.id) ?? null
+    : null
 
   useEffect(() => {
     fetch(`${API_BASE}/api/workspace/git-status`)
@@ -52,6 +163,8 @@ export function WorkspacesSettings({ settings, updateSettings, query }: { settin
 
   /** Shared folder-picker: opens the native dialog. Resolves true when a path was chosen. */
   const browsePicker = async (onPicked: (path: string) => void) => {
+    if (pickingRef.current) return false
+    pickingRef.current = true
     setIsPicking(true)
     try {
       const res = await fetch(`${API_BASE}/api/workspace/pick-folder`)
@@ -68,6 +181,7 @@ export function WorkspacesSettings({ settings, updateSettings, query }: { settin
       toast.error('Failed to open folder picker dialog.')
       return false
     } finally {
+      pickingRef.current = false
       setIsPicking(false)
     }
   }
@@ -207,17 +321,10 @@ export function WorkspacesSettings({ settings, updateSettings, query }: { settin
     }
   }
 
-  const handleSwitch = (path: string | null) => {
-    // Switching only — never creates or reorders a profile.
-    updateSettings({ linked_workspace_dir: path })
-    toast.success(path ? 'Workspace switched.' : 'Reset to default fallback workspace.')
-  }
-
-  const handleRenameProfile = async (p: Profile) => {
-    const raw = window.prompt('Rename workspace:', p.name)
-    if (!raw) return
+  // Rename runs from the edit dialog (validated there); returns success.
+  const handleRenameSave = async (p: Profile, raw: string): Promise<boolean> => {
     const name = raw.trim()
-    if (!name || name === p.name) return
+    if (!name || name === p.name) return false
     try {
       const res = await fetch(`${API_BASE}/api/workspace/profiles/${p.id}`, {
         method: 'PATCH',
@@ -228,11 +335,14 @@ export function WorkspacesSettings({ settings, updateSettings, query }: { settin
       if (res.ok && data.success) {
         updateSettings({ workspace_profiles: data.profiles })
         toast.success('Workspace renamed.')
+        return true
       } else {
         toast.error(data.detail || 'Failed to rename workspace.')
+        return false
       }
     } catch (err: any) {
       toast.error(err?.message || 'Error connecting to server.')
+      return false
     }
   }
 
@@ -265,7 +375,8 @@ export function WorkspacesSettings({ settings, updateSettings, query }: { settin
     }
   }
 
-  const secondaryBtn = "shrink-0 px-3 py-1.5 rounded-[8px] text-[12px] border border-[var(--border-subtle)] text-[var(--text-heading)] hover:bg-[var(--bg-hover)] transition-colors font-medium cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+  // Quiet text actions — same treatment as other tabs' "Add …" buttons.
+  const quietActionBtn = "flex items-center gap-1 px-2 py-1 text-[12px] text-[var(--text-secondary)] hover:text-[var(--text-heading)] transition-colors cursor-pointer disabled:opacity-50"
   const primaryBtn = "shrink-0 px-3 py-1.5 rounded-[8px] text-[12px] bg-[var(--accent-brown)] text-[var(--text-inverse)] hover:bg-[var(--accent-brown)]/90 transition-colors font-medium cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
   const quietBtn = "shrink-0 text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-heading)] transition-colors cursor-pointer"
 
@@ -288,14 +399,13 @@ export function WorkspacesSettings({ settings, updateSettings, query }: { settin
   )
 
   const busy = isPicking || isWorking
-  const isDefault = !settings.linked_workspace_dir
 
+  // Manage-only rows: name + path + rename/delete actions. No selection —
+  // switching lives in the sidebar switcher.
   const profileRow = (
     key: string,
     name: string,
     detail: string,
-    isActive: boolean,
-    onSelect: () => void,
     onRename?: () => void,
     onDelete?: () => void,
   ) => (
@@ -303,20 +413,12 @@ export function WorkspacesSettings({ settings, updateSettings, query }: { settin
       key={key}
       className="group flex items-center gap-2 px-4 py-2.5 hover:bg-[var(--bg-hover)]/40 transition-colors"
     >
-      <button
-        type="button"
-        onClick={onSelect}
-        disabled={isActive}
-        className="flex items-center gap-2.5 flex-1 min-w-0 text-left cursor-pointer disabled:cursor-default"
-      >
-        <span className="w-4 shrink-0 flex items-center justify-center">
-          {isActive && <Check size={15} className="text-[var(--accent-brown)]" />}
-        </span>
+      <span className="flex items-center gap-2.5 flex-1 min-w-0">
         <span className="flex-1 min-w-0">
           <span className="block text-[13px] text-[var(--text-heading)] truncate">{name}</span>
           <span className="block font-mono text-[11px] text-[var(--text-muted)] truncate">{detail}</span>
         </span>
-      </button>
+      </span>
       {(onRename || onDelete) && (
         <span className="shrink-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-all">
           {onRename && (
@@ -329,8 +431,8 @@ export function WorkspacesSettings({ settings, updateSettings, query }: { settin
                 e.currentTarget.blur()
                 onRename()
               }}
-              aria-label={`Rename ${name}`}
-              title={`Rename ${name}`}
+              aria-label={`Edit ${name}`}
+              title={`Edit ${name}`}
               className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-heading)] transition-colors cursor-pointer"
             >
               <Pencil size={13} />
@@ -360,92 +462,90 @@ export function WorkspacesSettings({ settings, updateSettings, query }: { settin
 
   return (
     <div className="flex flex-col gap-6">
-      <FilterSection query={query} keywords="workspace directory folder path link browse create git active saved switch recent rename delete">
+      <FilterSection query={query} keywords="workspace directory folder path link browse create git rename delete profiles">
         <section>
           <SectionLabel>Workspace</SectionLabel>
           <SectionCard>
-            <div className="flex items-center gap-2 px-4 py-3 min-w-0">
-              <Folder size={15} className="text-[var(--text-secondary)] shrink-0" />
-              <span className="text-[var(--text-heading)] font-mono text-[12px] truncate">
-                {activeProfile ? activeProfile.name : (settings.linked_workspace_dir || 'sample-workspace')}
-              </span>
-              <span className="shrink-0 text-[11px] text-[var(--text-muted)]">
-                · {settings.linked_workspace_dir ? 'Active' : 'Default'}
-              </span>
-            </div>
+            {profiles.length === 0 && (
+              <p className="text-[12px] text-[var(--text-secondary)] px-4 py-3 text-center">No workspaces yet — open or create one below.</p>
+            )}
+            {profiles.map((p) => profileRow(
+              p.id, p.name, p.path,
+              () => setEditProfile(p),
+              () => handleDeleteWorkspace(p),
+            ))}
+          </SectionCard>
 
-            <div className="px-4 py-3">
-              <div className="flex gap-2">
-                <button type="button" onClick={handleOpenExisting} disabled={busy} className={secondaryBtn}>
-                  <span>Open existing</span>
+          {/* Open / Create live below the card like other tabs' actions —
+              the inline form follows its trigger so the two never split. */}
+          <div className="flex justify-end gap-2 mt-3">
+            <button type="button" onClick={handleOpenExisting} disabled={busy} className={quietActionBtn}>
+              <FolderOpen size={13} /> Open existing
+            </button>
+            <button type="button" onClick={handleCreateNew} disabled={busy} className={quietActionBtn}>
+              <FolderPlus size={13} /> Create new
+            </button>
+          </div>
+
+          {mode === 'open' && pickedPath && (
+            <div className="mt-3 flex flex-col gap-2">
+              <input
+                type="text"
+                aria-label="Workspace name"
+                placeholder="Name"
+                value={profileName}
+                onChange={(e) => setProfileName(e.target.value)}
+                className="border border-[var(--border-subtle)] rounded-[8px] px-3 py-1.5 text-[13px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)] transition-colors min-w-0"
+              />
+              {gitToggleRow('Initialize as Git repository', initGitOpen, setInitGitOpen)}
+              <div className="flex items-center gap-3">
+                <button type="button" onClick={handleLink} disabled={isWorking} className={primaryBtn}>
+                  <span>Link</span>
                 </button>
-                <button type="button" onClick={handleCreateNew} disabled={busy} className={secondaryBtn}>
-                  <span>Create new</span>
+                <button type="button" onClick={cancel} className={quietBtn}>
+                  Cancel
                 </button>
               </div>
-
-              {mode === 'open' && pickedPath && (
-                <div className="mt-3 flex flex-col gap-2">
-                  <input
-                    type="text"
-                    aria-label="Workspace name"
-                    placeholder="Name"
-                    value={profileName}
-                    onChange={(e) => setProfileName(e.target.value)}
-                    className="border border-[var(--border-subtle)] rounded-[8px] px-3 py-1.5 text-[13px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)] transition-colors min-w-0"
-                  />
-                  {gitToggleRow('Initialize as Git repository', initGitOpen, setInitGitOpen)}
-                  <div className="flex items-center gap-3">
-                    <button type="button" onClick={handleLink} disabled={isWorking} className={primaryBtn}>
-                      <span>Link</span>
-                    </button>
-                    <button type="button" onClick={cancel} className={quietBtn}>
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {mode === 'create' && pickedPath && (
-                <div className="mt-3 flex flex-col gap-2">
-                  <input
-                    type="text"
-                    placeholder="Name — e.g. my-new-novel"
-                    value={createName}
-                    onChange={(e) => setCreateName(e.target.value)}
-                    className="border border-[var(--border-subtle)] rounded-[8px] px-3 py-1.5 text-[13px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)] transition-colors min-w-0"
-                  />
-                  {gitToggleRow('Initialize as Git repository', initGitCreate, setInitGitCreate)}
-                  <div className="flex items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={handleCreateWorkspace}
-                      disabled={isWorking || !createPath()}
-                      className={primaryBtn}
-                    >
-                      <span>Create</span>
-                    </button>
-                    <button type="button" onClick={cancel} className={quietBtn}>
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              )}
             </div>
+          )}
 
-            {profileRow('default', 'sample-workspace', 'Default', isDefault, () => handleSwitch(null))}
-            {profiles.map((p) => {
-              const isActive = settings.linked_workspace_dir === p.path
-              return profileRow(
-                p.id, p.name, p.path, isActive,
-                () => handleSwitch(p.path),
-                () => handleRenameProfile(p),
-                () => handleDeleteWorkspace(p),
-              )
-            })}
-          </SectionCard>
+          {mode === 'create' && pickedPath && (
+            <div className="mt-3 flex flex-col gap-2">
+              <input
+                type="text"
+                placeholder="Name — e.g. my-new-novel"
+                value={createName}
+                onChange={(e) => setCreateName(e.target.value)}
+                className="border border-[var(--border-subtle)] rounded-[8px] px-3 py-1.5 text-[13px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)] transition-colors min-w-0"
+              />
+              {gitToggleRow('Initialize as Git repository', initGitCreate, setInitGitCreate)}
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleCreateWorkspace}
+                  disabled={isWorking || !createPath()}
+                  className={primaryBtn}
+                >
+                  <span>Create</span>
+                </button>
+                <button type="button" onClick={cancel} className={quietBtn}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
         </section>
       </FilterSection>
+
+      {liveEditProfile && (
+        <WorkspaceEditDialog
+          key={liveEditProfile.id}
+          profile={liveEditProfile}
+          gitAvailable={gitAvailable}
+          onSaveName={(name) => handleRenameSave(liveEditProfile, name)}
+          onClose={() => setEditProfile(null)}
+        />
+      )}
     </div>
   )
 }

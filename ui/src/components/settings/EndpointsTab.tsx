@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { X, Plus, Trash2, Check, Brain, Pencil } from 'lucide-react'
+import { X, Plus, Trash2, Pencil, Download } from 'lucide-react'
 import type { AppSettings } from '../../stores/settingsStore'
 import { API_BASE } from '../../lib/api'
 import { toast } from '../../stores/toastStore'
@@ -60,7 +60,7 @@ function EndpointDialogForSave({
   settings: AppSettings
   onSave: (data: { id: string; url: string; api_key: string; model: string; context_window?: number; is_thinking: boolean; custom_thinking_tags: Array<{ open: string; close: string }> }) => void
   onCancel: () => void
-  onTest: (url: string, key: string, model?: string) => void
+  onTest: (url: string, key: string, model?: string, opts?: { silent?: boolean }) => Promise<boolean>
   testResult: { status: 'idle' | 'testing' | 'success' | 'error', msg?: string }
 }) {
   const [id, setId] = useState(editingId?.replace('_', ' ') ?? '')
@@ -107,6 +107,29 @@ function EndpointDialogForSave({
       custom_thinking_tags: customTags,
     })
     onCancel()
+  }
+
+  // Save tests first: reachable → save; unreachable → inline error with a
+  // "Save anyway" escape hatch (the endpoint may just be offline right now).
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  // A failed pre-save test goes stale the moment the user edits the fields.
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => { setSaveError(null) }, [id, url, key, model])
+
+  const handleSaveClick = async () => {
+    setSaveError(null)
+    setSaving(true)
+    try {
+      const ok = await onTest(url, key, model, { silent: true })
+      if (ok) {
+        handleSave()
+      } else {
+        setSaveError('Endpoint not reachable — fix the URL/key, or save anyway.')
+      }
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -198,12 +221,20 @@ function EndpointDialogForSave({
             </div>
           )}
         </div>
+        {saveError && (
+          <p className="text-[12px] leading-relaxed text-red-500">{saveError}</p>
+        )}
         <div className="flex items-center justify-end gap-2 border-t border-[var(--border-subtle)]/50 pt-3">
-          <button onClick={() => onTest(url, key, model)} disabled={!url || testResult.status === 'testing'} className="px-3 py-1.5 text-[12px] bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[8px] hover:border-[var(--text-secondary)] transition-colors disabled:opacity-50 cursor-pointer text-[var(--text)]">
+          <button onClick={() => { void onTest(url, key, model) }} disabled={!url || testResult.status === 'testing' || saving} className="px-3 py-1.5 text-[12px] bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[8px] hover:border-[var(--text-secondary)] transition-colors disabled:opacity-50 cursor-pointer text-[var(--text)]">
             {testResult.status === 'testing' ? 'Testing...' : 'Test Connection'}
           </button>
-          <button onClick={handleSave} disabled={!id || !url} className="px-3 py-1.5 text-[12px] bg-[var(--accent-brown)] text-[var(--text-inverse)] rounded-[8px] hover:bg-[var(--accent-brown-hover)] transition-colors disabled:opacity-50 cursor-pointer flex items-center gap-1">
-            {mode === 'edit' ? 'Update Endpoint' : 'Save Endpoint'}
+          {saveError && (
+            <button onClick={handleSave} disabled={!id || !url} className="px-3 py-1.5 text-[12px] bg-[var(--bg)] border border-[var(--border-subtle)] rounded-[8px] hover:border-[var(--text-secondary)] transition-colors disabled:opacity-50 cursor-pointer text-[var(--text)]">
+              Save anyway
+            </button>
+          )}
+          <button onClick={() => void handleSaveClick()} disabled={!id || !url || saving} className="px-3 py-1.5 text-[12px] bg-[var(--accent-brown)] text-[var(--text-inverse)] rounded-[8px] hover:bg-[var(--accent-brown-hover)] transition-colors disabled:opacity-50 cursor-pointer flex items-center gap-1">
+            {saving ? 'Testing…' : mode === 'edit' ? 'Update Endpoint' : 'Save Endpoint'}
           </button>
         </div>
       </div>
@@ -223,7 +254,7 @@ export function EndpointsSettings({ settings, updateSettings, query }: { setting
     fetch(`${API_BASE}/api/settings/env-default`)
       .then(res => res.ok ? res.json() : null)
       .then(data => { if (data) setEnvDefault(data) })
-      .catch(() => { /* .env row simply stays hidden */ })
+      .catch(() => { /* import button simply stays hidden */ })
   }, [])
 
   const openAddDialog = () => {
@@ -284,7 +315,13 @@ export function EndpointsSettings({ settings, updateSettings, query }: { setting
     })
   }
 
-  const handleTest = async (url: string, key: string, model?: string) => {
+  // Returns reachability (endpoint/auth works). Model/probe warnings never
+  // block — the probe can reject models that are actually valid. `silent`
+  // skips toasts for the pre-save check, which reports inline instead.
+  const handleTest = async (url: string, key: string, model?: string, opts?: { silent?: boolean }): Promise<boolean> => {
+    const notify = opts?.silent
+      ? { success: (_msg: string) => {}, error: (_msg: string) => {} }
+      : toast
     setTestResult({ status: 'testing' })
     try {
       const res = await fetch(`${API_BASE}/api/settings/test-endpoint`, {
@@ -303,22 +340,24 @@ export function EndpointsSettings({ settings, updateSettings, query }: { setting
       const data = await res.json()
       setTestResult({ status: 'idle' })
       const count = data.model_count ?? data.models?.data?.length ?? 0
-      toast.success(`Reachable — endpoint/auth works (${count} models).`)
+      notify.success(`Reachable — endpoint/auth works (${count} models).`)
       const wanted = (model || '').trim()
       if (wanted) {
         if (data.model_found === false) {
-          toast.error(`Model not found — "${wanted}" not in /models. Probe skipped.`)
+          notify.error(`Model not found — "${wanted}" not in /models. Probe skipped.`)
         } else if (data.model_found === true) {
           if (data.probe?.ok) {
-            toast.success(`Probe passed — "${wanted}" accepted a completion.`)
+            notify.success(`Probe passed — "${wanted}" accepted a completion.`)
           } else if (data.probe) {
-            toast.error(`Probe failed — model listed but completion rejected (${data.probe.status ?? 'error'}). It may still be valid.`)
+            notify.error(`Probe failed — model listed but completion rejected (${data.probe.status ?? 'error'}). It may still be valid.`)
           }
         }
       }
+      return true
     } catch (e) {
       setTestResult({ status: 'idle' })
-      toast.error((e as Error).message)
+      notify.error((e as Error).message)
+      return false
     }
   }
 
@@ -326,62 +365,26 @@ export function EndpointsSettings({ settings, updateSettings, query }: { setting
 
   return (
     <div className="flex flex-col gap-4">
-      <FilterSection query={query} keywords="active endpoint default local url model">
+      <FilterSection query={query} keywords="endpoint url model key test">
         <section>
-          <SectionLabel description="Select the LLM routing endpoint. .env provides the local default.">Endpoints</SectionLabel>
+          <SectionLabel description="Manage the LLM routing endpoints. Pick the active one from the assistant panel.">Endpoints</SectionLabel>
           <p className="text-[11px] text-[var(--text-muted)] mb-2">{endpointCount} endpoint{endpointCount !== 1 ? 's' : ''}</p>
           <div className="border border-[var(--border-subtle)] rounded-[12px] overflow-hidden">
-            <div className="grid grid-cols-[28px_minmax(0,0.9fr)_minmax(0,1.4fr)_minmax(0,1fr)_52px_56px] gap-0 bg-[var(--bg-elevated)]/60 border-b border-[var(--border-subtle)]">
-              <div className="px-2 py-2" />
+            <div className="grid grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)_minmax(0,1fr)_52px_56px] gap-0 bg-[var(--bg-elevated)]/60 border-b border-[var(--border-subtle)]">
               <div className="px-3 py-2 text-[10.5px] font-medium text-[var(--text-muted)] uppercase tracking-wider">Name</div>
               <div className="px-3 py-2 text-[10.5px] font-medium text-[var(--text-muted)] uppercase tracking-wider">Host</div>
               <div className="px-3 py-2 text-[10.5px] font-medium text-[var(--text-muted)] uppercase tracking-wider">Model</div>
               <div className="px-2 py-2 text-[10.5px] font-medium text-[var(--text-muted)] uppercase tracking-wider">Ctx</div>
               <div className="px-2 py-2" />
             </div>
-            {(() => {
-              const hasEnv = !!(envDefault?.from_env.base_url || envDefault?.from_env.model)
-              if (!hasEnv && settings.active_endpoint !== null) return null
-              return (
-                <div
-                  onClick={() => updateSettings({ active_endpoint: null })}
-                  className="grid grid-cols-[28px_minmax(0,0.9fr)_minmax(0,1.4fr)_minmax(0,1fr)_52px_56px] gap-0 items-center border-b border-[var(--border-subtle)]/60 cursor-pointer hover:bg-[var(--bg-hover)]/40 transition-colors"
-                >
-                  <div className="px-2 py-2.5">
-                    {settings.active_endpoint === null && <Check size={15} className="text-[var(--accent-brown)]" />}
-                  </div>
-                  <div className="px-3 py-2.5 min-w-0">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <span className="text-[13px] font-medium text-[var(--text-heading)] whitespace-nowrap" title=".env Default (Local)">.env</span>
-                      {settings.is_thinking !== false && <Brain size={13} className="text-[var(--text-secondary)] shrink-0" />}
-                    </div>
-                  </div>
-                  <div className="px-3 py-2.5 min-w-0"><span className="block text-[12px] text-[var(--text-secondary)] truncate" title={envDefault?.base_url ?? ''}>{envDefault?.base_url ?? '—'}</span></div>
-                  <div className="px-3 py-2.5 min-w-0"><span className="block text-[12px] text-[var(--text-secondary)] truncate" title={envDefault?.model ?? 'configured model'}>{envDefault?.model ?? 'configured model'}</span></div>
-                  <div className="px-2 py-2.5"><span className="text-[12px] text-[var(--text-muted)]">—</span></div>
-                  <div className="px-2 py-2.5">
-                    <div className="flex items-center justify-end gap-0.5 opacity-100" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        onClick={() => void openEnvAsNewDialog()}
-                        title="Save .env as new endpoint"
-                        className="flex items-center justify-center w-6 h-6 text-[var(--text-secondary)]/60 hover:text-[var(--text-heading)] hover:bg-[var(--bg-hover)] rounded-[4px] transition-all cursor-pointer"
-                      >
-                        <Pencil className="w-3 h-3" strokeWidth={2} />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )
-            })()}
+            {Object.entries(settings.endpoints || {}).length === 0 && (
+              <p className="text-[12px] text-[var(--text-secondary)] px-3 py-3 text-center">No endpoints yet — add one below.</p>
+            )}
             {Object.entries(settings.endpoints || {}).map(([id, ep]) => (
               <div
                 key={id}
-                onClick={() => updateSettings({ active_endpoint: id })}
-                className="grid grid-cols-[28px_minmax(0,0.9fr)_minmax(0,1.4fr)_minmax(0,1fr)_52px_56px] gap-0 items-center border-b border-[var(--border-subtle)]/60 last:border-b-0 cursor-pointer transition-colors hover:bg-[var(--bg-hover)]/40 group"
+                className="grid grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)_minmax(0,1fr)_52px_56px] gap-0 items-center border-b border-[var(--border-subtle)]/60 last:border-b-0 transition-colors hover:bg-[var(--bg-hover)]/40 group"
               >
-                <div className="px-2 py-2.5">
-                  {settings.active_endpoint === id && <Check size={15} className="text-[var(--accent-brown)]" />}
-                </div>
                 <div className="px-3 py-2.5 min-w-0">
                   <span className="block text-[13px] font-medium text-[var(--text-heading)] capitalize truncate" title={id.replace('_', ' ')}>{id.replace('_', ' ')}</span>
                 </div>
@@ -413,7 +416,16 @@ export function EndpointsSettings({ settings, updateSettings, query }: { setting
               </div>
             ))}
           </div>
-          <div className="flex justify-end mt-1">
+          <div className="flex justify-end mt-1 gap-1">
+            {(envDefault?.from_env.base_url || envDefault?.from_env.model) && (
+              <button
+                onClick={() => void openEnvAsNewDialog()}
+                title="Import .env values as a new endpoint"
+                className="flex items-center gap-1 px-2 py-1 text-[12px] text-[var(--text-secondary)] hover:text-[var(--text-heading)] transition-colors cursor-pointer"
+              >
+                <Download size={13} /> Import from .env
+              </button>
+            )}
             <button
               onClick={openAddDialog}
               className="flex items-center gap-1 px-2 py-1 text-[12px] text-[var(--text-secondary)] hover:text-[var(--text-heading)] transition-colors cursor-pointer"
