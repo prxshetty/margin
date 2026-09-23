@@ -1,5 +1,4 @@
 import { SquareTerminal } from 'lucide-react'
-import agyLogo from '../assets/harness-icons/agy.png'
 
 // Inline SVGs (not <img>): the markup lives in the bundle, so there is no
 // separate asset to go stale in cache, and `currentColor` inherits directly
@@ -39,25 +38,19 @@ function EndpointMark({ className }: { className: string }) {
   )
 }
 
-// agy ships as a PNG (white glyph on a BLACK background, no alpha), so
-// CSS masks can't cut the glyph reliably — render the file directly as a
-// rounded tile instead. Reads as the app icon in every theme, no masking
-// fragility, no extra asset to go stale (bundled via the import above).
+// Agy (Antigravity) mark — traced vector, `currentColor` like every other
+// harness glyph. No PNG, no tile, no theme filters.
 function AgyMark({ className }: { className: string }) {
   return (
-    <img
-      src={agyLogo}
-      alt=""
-      aria-hidden="true"
-      draggable={false}
-      className={`${className} shrink-0 rounded-[4px] object-cover`}
-    />
+    <svg viewBox="0 0 540 540" aria-hidden="true" className={className} fill="currentColor">
+      <path d="M260.2 85.1c-15.4 2 -27.4 8.1 -39.8 20.4 -14 13.8 -24.8 32 -35.9 60.5 -7 18 -12 34 -26.9 86.8 -18.6 65.5 -27.6 91.3 -41.1 118.5 -10.4 20.7 -19.7 34.1 -35.3 50.9 -9.7 10.5 -13.2 16.3 -13.2 22.2 0 4.7 1.3 7.2 4.8 9 10.4 5.2 23.5 1.5 41 -11.6 24.7 -18.4 43.5 -41.8 68.7 -85.3 19.5 -33.5 29.9 -47.8 41.7 -57 14.2 -11.2 25.8 -15 45.3 -15 14.8 0 21.9 1.5 33 7 17.9 8.7 29.6 22.7 53 63 20.5 35.3 33.7 53.8 50.8 70.6 10.8 10.7 27 23.2 34.5 26.7 7.2 3.3 15.9 4 21.7 1.8 5.6 -2.2 7.5 -4.8 7.5 -10.6 0 -6.1 -3.7 -12.3 -14.4 -23.7 -30.9 -33.3 -46.4 -68.3 -74.6 -168.8 -25.7 -91.4 -38.5 -121.6 -61.2 -144.4 -12.5 -12.6 -25.2 -19 -41.8 -21 -9.2 -1.2 -8.8 -1.2 -17.8 0z" />
+    </svg>
   )
 }
 
-// Explicit heading color (not inherited): dark glyphs on light theme,
-// light glyphs on dark theme, regardless of surrounding text style.
-const TONE = 'text-[var(--text-heading)]'
+// Match the Imagine provider-logo treatment: monochrome theme-text color,
+// no brand colors, regardless of surrounding text style.
+const TONE = 'text-[var(--text-secondary)]'
 
 export function HarnessIcon({ id, className = 'w-3.5 h-3.5' }: { id: string; className?: string }) {
   const cls = `${className} ${TONE} shrink-0`

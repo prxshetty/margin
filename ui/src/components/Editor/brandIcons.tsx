@@ -5,11 +5,20 @@ interface BrandIconProps {
   className?: string
 }
 
-/** Cue — minimal double-quote mark ("reference this passage"). */
+/** Cue — stacked-lines mark (stroke 2, matches Link chrome). */
 export function CueIcon({ className = 'w-3.5 h-3.5' }: BrandIconProps) {
   return (
-    <svg viewBox="0 0 24 24" fill="currentColor" className={`${className} shrink-0`} aria-hidden="true">
-      <path d="M9.5 7C6.5 8.5 5 11 5 14v3h6v-6H7.8c.3-1.7 1.2-3 2.7-3.8L9.5 7zm9 0c-3 1.5-4.5 4-4.5 7v3h6v-6h-3.2c.3-1.7 1.2-3 2.7-3.8L18.5 7z" />
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={`${className} shrink-0`}
+      aria-hidden="true"
+    >
+      <path d="M5 13h5v5H5v-7a4 5 0 0 1 4-5m5 7h5v5h-5v-7a4 5 0 0 1 4-5" />
     </svg>
   )
 }
@@ -24,11 +33,11 @@ export function RewriteIcon({ className = 'w-3 h-3' }: BrandIconProps) {
   )
 }
 
-/** Imagine — four-point diamond. */
+/** Imagine — layered-diamond mark. */
 export function ImagineIcon({ className = 'w-3.5 h-3.5' }: BrandIconProps) {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" className={`${className} shrink-0`} aria-hidden="true">
-      <path d="M12 2c.7 5.5 4.5 9.3 10 10-5.5.7-9.3 4.5-10 10-.7-5.5-4.5-9.3-10-10 5.5-.7 9.3-4.5 10-10z" />
+      <path d="M4.036 10.734a2 2 0 0 0 0 2.533l7.19 8.787a1 1 0 0 0 1.548 0l7.19-8.787a2 2 0 0 0 0-2.533l-7.19-8.788a1 1 0 0 0-1.548 0zM12 4.158L18.416 12L12 19.842L5.584 12z" />
     </svg>
   )
 }
