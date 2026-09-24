@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Pencil, Trash2, X, FolderOpen, FolderPlus } from 'lucide-react'
+import { Pencil, Trash2, X, FolderOpen, Plus } from 'lucide-react'
 import type { AppSettings } from '../../stores/settingsStore'
 import { toast } from '../../stores/toastStore'
 import { API_BASE } from '../../lib/api'
@@ -18,42 +18,78 @@ function WorkspaceEditDialog({ profile, gitAvailable, onSaveName, onClose }: {
   const [gitOn, setGitOn] = useState(false)
   const [gitNote, setGitNote] = useState<string | null>(null)
 
+  // Learn the real state on open so the toggle never lies (it starts off —
+  // without this a tracked folder would show OFF until first touched).
+  useEffect(() => {
+    fetch(`${API_BASE}/api/workspace/git-tracked?path=${encodeURIComponent(profile.path)}`)
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => { if (data && data.tracked) setGitOn(true) })
+      .catch(() => { /* toggle simply stays off */ })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile.path])
+
   const handleSave = async () => {
     if (await onSaveName(name.trim())) onClose()
   }
 
-  // One-shot toggle: flipping on initializes the repo (stays on after);
-  // flipping back off is a no-op — a repo can't be un-created from here.
+  // Toggle on initializes; toggle off (after confirm) removes .git —
+  // history deleted, files kept. The backend only ever removes the
+  // folder's own `.git` directory, never a parent repo.
   const handleGitToggle = async (next: boolean) => {
-    if (!next || gitOn) return
+    if (next === gitOn) return
+    if (next) {
+      setGitBusy(true)
+      setGitNote(null)
+      try {
+        const res = await fetch(`${API_BASE}/api/workspace/git-init`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: profile.path }),
+        })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok || !data.success) {
+          throw new Error(data.detail || 'Git init failed.')
+        }
+        const git = data.git || {}
+        if (git.already_tracked) {
+          const parent = git.git_parent ? ` (${String(git.git_parent).split(/[\\/]/).pop()})` : ''
+          setGitOn(true)
+          toast.info(`Already inside a Git repository${parent} — nothing to do.`)
+        } else if (git.initialized) {
+          let msg = 'Git repository initialized.'
+          if (git.error) msg += ` Note: ${git.error}`
+          setGitOn(true)
+          toast.success(msg)
+        } else {
+          setGitNote(git.error || 'Git could not be initialized.')
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Git init failed.'
+        setGitNote(msg)
+        toast.error(msg)
+      } finally {
+        setGitBusy(false)
+      }
+      return
+    }
+    const confirmed = window.confirm(
+      `Remove the Git repository for "${profile.name}"?\n\nIts history will be deleted. Your files stay on disk.`
+    )
+    if (!confirmed) return
     setGitBusy(true)
     setGitNote(null)
     try {
-      const res = await fetch(`${API_BASE}/api/workspace/git-init`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: profile.path }),
+      const res = await fetch(`${API_BASE}/api/workspace/git?path=${encodeURIComponent(profile.path)}`, {
+        method: 'DELETE',
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok || !data.success) {
-        throw new Error(data.detail || 'Git init failed.')
+        throw new Error(data.detail || 'Could not remove the Git repository.')
       }
-      const git = data.git || {}
-      if (git.already_tracked) {
-        const parent = git.git_parent ? ` (${String(git.git_parent).split(/[\\/]/).pop()})` : ''
-        setGitNote(`Already inside a Git repository${parent} — nothing to do.`)
-        setGitOn(true)
-      } else if (git.initialized) {
-        let msg = 'Git repository initialized.'
-        if (git.error) msg += ` Note: ${git.error}`
-        setGitNote(msg)
-        setGitOn(true)
-        toast.success(msg)
-      } else {
-        setGitNote(git.error || 'Git could not be initialized.')
-      }
+      setGitOn(false)
+      toast.success('Git repository removed — files kept.')
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Git init failed.'
+      const msg = err instanceof Error ? err.message : 'Could not remove the Git repository.'
       setGitNote(msg)
       toast.error(msg)
     } finally {
@@ -483,7 +519,7 @@ export function WorkspacesSettings({ settings, updateSettings, query }: { settin
               <FolderOpen size={13} /> Open existing
             </button>
             <button type="button" onClick={handleCreateNew} disabled={busy} className={quietActionBtn}>
-              <FolderPlus size={13} /> Create new
+              <Plus size={13} /> Create new
             </button>
           </div>
 

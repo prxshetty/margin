@@ -383,7 +383,16 @@ def git_init_endpoint(req: GitInitRequest):
     workspace. Never raises for expected Git outcomes — they are reported in
     `git` so the caller can surface partial success (linked, but Git failed).
     """
-    raw = (req.path or "").strip()
+    resolved = _resolve_existing_dir(req.path)
+
+    git_info = _init_git_repo(resolved)
+    return {"success": True, "path": str(resolved), "git": git_info}
+
+
+def _resolve_existing_dir(raw: str | None) -> Path:
+    """Validate a workspace path argument: absolute, resolvable, an existing
+    directory. Shared by the git endpoints so their 400s stay identical."""
+    raw = (raw or "").strip()
     if not raw:
         raise HTTPException(status_code=400, detail="Workspace path is required.")
 
@@ -398,9 +407,43 @@ def git_init_endpoint(req: GitInitRequest):
 
     if not resolved.exists() or not resolved.is_dir():
         raise HTTPException(status_code=400, detail="The selected directory does not exist.")
+    return resolved
 
-    git_info = _init_git_repo(resolved)
-    return {"success": True, "path": str(resolved), "git": git_info}
+
+def _own_git_dir(resolved: Path) -> Path | None:
+    """<resolved>/.git when it exists as a directory, else None.
+
+    Only a directory is ever removed — gitlink files (submodules, linked
+    worktrees) are deliberately out of scope for the undo path."""
+    candidate = resolved / ".git"
+    return candidate if candidate.is_dir() else None
+
+
+@router.get("/git-tracked")
+def git_tracked(path: str = ""):
+    """Whether `path` has its own `.git` directory (the edit-dialog toggle's
+    initial state). 'Not a repo' is a normal answer, never an error."""
+    resolved = _resolve_existing_dir(path)
+    git_dir = _own_git_dir(resolved)
+    return {"tracked": git_dir is not None}
+
+
+@router.delete("/git")
+def git_remove_endpoint(path: str = ""):
+    """Undo a git init: delete <path>/.git (history lost, files kept).
+
+    Only ever removes the folder's own `.git` directory — never walks up to a
+    parent repo, never touches gitlink files. The UI gates this behind an
+    explicit destructive confirm."""
+    resolved = _resolve_existing_dir(path)
+    git_dir = _own_git_dir(resolved)
+    if git_dir is None:
+        raise HTTPException(status_code=400, detail="No Git repository in this folder.")
+    try:
+        shutil.rmtree(git_dir)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not remove the Git repository: {e}")
+    return {"success": True, "path": str(resolved)}
 
 
 

@@ -242,8 +242,15 @@ function EndpointDialogForSave({
   )
 }
 
-export function EndpointsSettings({ settings, updateSettings, query }: { settings: AppSettings, updateSettings: (u: Partial<AppSettings>) => void, query: string }) {
-  const [editingId, setEditingId] = useState<string | null>(null)
+// Token counts are decimal in AI land ("128K context", "1M context") —
+// never binary. parseFloat trims the trailing ".0" (1M, 8.2K).
+function formatCtx(cw: number): string {
+  if (cw >= 1_000_000) return `${parseFloat((cw / 1_000_000).toFixed(1))}M`
+  if (cw >= 1000) return `${parseFloat((cw / 1000).toFixed(1))}K`
+  return `${cw}`
+}
+
+export function EndpointsSettings({ settings, updateSettings, query }: { settings: AppSettings, updateSettings: (u: Partial<AppSettings>) => void, query: string }) {  const [editingId, setEditingId] = useState<string | null>(null)
   const [testResult, setTestResult] = useState<{ status: 'idle' | 'testing' | 'success' | 'error', msg?: string }>({ status: 'idle' })
   const [prefilledFromEnv, setPrefilledFromEnv] = useState(false)
   const [envDefault, setEnvDefault] = useState<{ base_url: string; model: string; from_env: { base_url: boolean; model: boolean } } | null>(null)
@@ -390,7 +397,7 @@ export function EndpointsSettings({ settings, updateSettings, query }: { setting
                 </div>
                 <div className="px-3 py-2.5 min-w-0"><span className="block text-[12px] text-[var(--text-secondary)] truncate" title={ep.url}>{ep.url}</span></div>
                 <div className="px-3 py-2.5 min-w-0"><span className="block text-[12px] text-[var(--text-secondary)] truncate" title={ep.model || '—'}>{ep.model || '—'}</span></div>
-                <div className="px-2 py-2.5"><span className="text-[12px] text-[var(--text-secondary)] whitespace-nowrap">{ep.context_window ? `${(ep.context_window / 1024).toFixed(ep.context_window % 1024 === 0 ? 0 : 1)}K` : '—'}</span></div>
+                <div className="px-2 py-2.5"><span className="text-[12px] text-[var(--text-secondary)] whitespace-nowrap" title={ep.context_window ? `${ep.context_window.toLocaleString()} tokens` : undefined}>{ep.context_window ? formatCtx(ep.context_window) : '—'}</span></div>
                 <div className="px-2 py-2.5">
                   <div className="flex items-center justify-end gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
                     <button

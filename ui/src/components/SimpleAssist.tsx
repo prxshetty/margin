@@ -1536,14 +1536,7 @@ export function SimpleAssist() {
               </div>
             </div>
           </div>
-          ) : (
-            <span
-              className="text-[10px] font-mono text-[var(--text-secondary)]"
-              title={`Last request context: ${contextUsedTokens.toLocaleString()} (${sessionInputTokens.toLocaleString()} in / ${sessionOutputTokens.toLocaleString()} out this session; no context window set)`}
-            >
-              {contextUsedTokens.toLocaleString()}
-            </span>
-          )}
+          ) : null}
 
           {/* Action Button: Stop when working, Send/Submit otherwise */}
           <button
