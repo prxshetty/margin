@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { X, Plus, Trash2, CheckCircle, Play, Edit, Brain, ChevronRight, ChevronDown, Folder, FolderOpen, Pin, EyeOff, Eye, Pencil, RotateCcw } from 'lucide-react'
+import { X, Plus, Trash2, CheckCircle, Play, Edit, Brain, ChevronRight, ChevronDown, Folder, FolderOpen, FolderPlus, Pin, EyeOff, Eye, Pencil, RotateCcw, Loader2, GitBranch } from 'lucide-react'
 import { useSettingsStore } from '../stores/settingsStore'
 import { toast } from '../stores/toastStore'
 import { useEditorStore } from '../stores/editorStore'
@@ -202,10 +202,14 @@ function GeneralSettings({ settings, updateSettings }: { settings: AppSettings, 
       if (res.ok) {
         const data = await res.json()
         if (data.path) onPicked(data.path)
+      } else {
+        onError?.('Could not open the folder picker.')
       }
     } catch (err) {
       console.error('Failed to pick folder', err)
-      toast.error('Could not open the folder picker.')
+      const msg = 'Could not open the folder picker.'
+      onError?.(msg)
+      toast.error(msg)
     } finally {
       setIsPicking(false)
     }

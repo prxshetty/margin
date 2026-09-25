@@ -5,9 +5,80 @@ import re
 import shutil
 import tempfile
 import time
+import subprocess
 import warnings
 from pathlib import Path, PurePosixPath
 from typing import List, Optional, Dict, Any, Tuple
+
+def is_git_available() -> Dict[str, Any]:
+    git_bin = shutil.which("git")
+    if not git_bin:
+        return {"available": False, "version": None}
+    try:
+        res = subprocess.run([git_bin, "--version"], capture_output=True, text=True, timeout=5)
+        if res.returncode == 0:
+            return {"available": True, "version": res.stdout.strip()}
+    except Exception:
+        pass
+    return {"available": False, "version": None}
+
+
+def get_sensitive_path_prefixes() -> List[Path]:
+    home = Path.home()
+    prefixes: List[Path] = [
+        home / ".ssh",
+        home / ".gnupg",
+        home / ".aws",
+        home / ".config",
+        home / ".local",
+    ]
+    if sys.platform == "win32":
+        for var in ("SystemRoot", "ProgramFiles", "ProgramFiles(x86)", "ProgramData", "windir"):
+            val = os.environ.get(var)
+            if val:
+                prefixes.append(Path(val))
+        for fallback in ("C:/Windows", "C:/Program Files", "C:/Program Files (x86)", "C:/ProgramData"):
+            prefixes.append(Path(fallback))
+    elif sys.platform == "darwin":
+        prefixes.extend([
+            Path("/System"),
+            Path("/Library"),
+            Path("/usr"),
+            Path("/etc"),
+            Path("/bin"),
+            Path("/sbin"),
+            Path("/private/etc"),
+            Path("/var/log"),
+            Path("/var/lib"),
+            Path("/var/root"),
+            Path("/var/db"),
+            Path("/var/run"),
+            Path("/private/var/log"),
+            Path("/private/var/lib"),
+            Path("/private/var/root"),
+            Path("/private/var/db"),
+        ])
+    else:  # Linux / Unix
+        prefixes.extend([
+            Path("/etc"),
+            Path("/usr"),
+            Path("/bin"),
+            Path("/sbin"),
+            Path("/boot"),
+            Path("/root"),
+            Path("/sys"),
+            Path("/proc"),
+            Path("/dev"),
+            Path("/var/log"),
+            Path("/var/lib"),
+            Path("/var/root"),
+            Path("/var/db"),
+            Path("/var/run"),
+        ])
+    return prefixes
+
+
+_SENSITIVE_PATH_PREFIXES = get_sensitive_path_prefixes()
 
 try:
     from platformdirs import user_config_dir

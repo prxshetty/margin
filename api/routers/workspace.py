@@ -4,11 +4,18 @@ from typing import List, Dict, Any
 from pydantic import BaseModel
 import os
 import tempfile
+from pathlib import Path
 import urllib.parse
 import urllib.request
 import sys
 import subprocess
-from api.services.file_storage import storage, ALLOWED_IMAGE_EXTS
+import shutil
+from api.services.file_storage import (
+    storage,
+    is_git_available,
+    _SENSITIVE_PATH_PREFIXES,
+    ALLOWED_IMAGE_EXTS,
+)
 
 router = APIRouter(prefix="/api/workspace", tags=["workspace"])
 
