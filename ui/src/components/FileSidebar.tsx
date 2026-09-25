@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { FolderPlus, FileText, Loader, Check, Plus, Trash2, Pencil } from 'lucide-react'
+import { FolderPlus, FileText, Loader, Check, Plus, Trash2, Pencil, FolderSync } from 'lucide-react'
 import { useEditorStore, type FileEntry } from '../stores/editorStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { toast } from '../stores/toastStore'
@@ -114,7 +114,7 @@ export function FileSidebar({
     setContent, clearFiles,
   } = useEditorStore()
 
-  const { settings } = useSettingsStore()
+  const { settings, setShowSettings } = useSettingsStore()
 
   const [loading, setLoading] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -371,13 +371,22 @@ export function FileSidebar({
       {/* Low-profile action row inside FileSidebar */}
       <div className="flex items-center gap-1.5 pb-2.5 border-b border-[var(--border-sidebar)] shrink-0 select-none animate-fade-in">
         {workspaceDir && (
-          <button
-            onClick={handleCreateFolder}
-            className="flex items-center justify-center w-7 h-7 text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 bg-[var(--bg-icon)]/20 rounded-[6px] transition-all cursor-pointer active:scale-[0.95]"
-            title="New Folder"
-          >
-            <FolderPlus className="w-3.5 h-3.5" strokeWidth={1.75} />
-          </button>
+          <>
+            <button
+              onClick={handleCreateFolder}
+              className="flex items-center justify-center w-7 h-7 text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 bg-[var(--bg-icon)]/20 rounded-[6px] transition-all cursor-pointer active:scale-[0.95]"
+              title="New Folder"
+            >
+              <FolderPlus className="w-3.5 h-3.5" strokeWidth={1.75} />
+            </button>
+            <button
+              onClick={() => setShowSettings(true)}
+              className="flex items-center justify-center w-7 h-7 text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 bg-[var(--bg-icon)]/20 rounded-[6px] transition-all cursor-pointer active:scale-[0.95]"
+              title="Switch Workspace / Workspace Settings"
+            >
+              <FolderSync className="w-3.5 h-3.5" strokeWidth={1.75} />
+            </button>
+          </>
         )}
         <div className="flex-1" />
         <div className="relative shrink-0" ref={dropdownRef}>

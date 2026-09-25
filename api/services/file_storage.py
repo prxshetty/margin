@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import re
 import shutil
@@ -97,6 +98,7 @@ class FileStorageService:
         (self.workspace_dir / "chapters").mkdir(parents=True, exist_ok=True)
         (self.workspace_dir / "characters").mkdir(parents=True, exist_ok=True)
         (self.workspace_dir / "styles").mkdir(parents=True, exist_ok=True)
+        (self.workspace_dir / "assets").mkdir(parents=True, exist_ok=True)
         self.outputs_dir.mkdir(parents=True, exist_ok=True)
 
     def get_settings(self) -> Dict[str, Any]:
@@ -606,6 +608,261 @@ class FileStorageService:
                 json.dump(data, f, indent=2)
         except Exception as e:
             print(f"Failed to clear harness session mapping: {e}")
+
+    def create_workspace(
+        self,
+        target_path: str,
+        init_git: bool = False,
+    ) -> Dict[str, Any]:
+        """Scaffold a new workspace directory.
+
+        update_settings() is intentionally NOT called here — the caller
+        (router) links the workspace after confirming success, so a git
+        failure cannot leave the app pointed at a half-built workspace.
+        """
+        path_obj = Path(target_path).expanduser().resolve()
+        if any(part.startswith(".") for part in path_obj.parts):
+            raise ValueError("The selected path is not allowed as a workspace location.")
+
+        # Create root workspace directory if it doesn't exist
+        path_obj.mkdir(parents=True, exist_ok=True)
+
+        # Subdirectories
+        chapters_dir = path_obj / "chapters"
+        characters_dir = path_obj / "characters"
+        styles_dir = path_obj / "styles"
+        prompts_dir = path_obj / "prompts"
+        outputs_dir = path_obj / "outputs"
+        assets_dir = path_obj / "assets"
+
+        chapters_dir.mkdir(parents=True, exist_ok=True)
+        characters_dir.mkdir(parents=True, exist_ok=True)
+        styles_dir.mkdir(parents=True, exist_ok=True)
+        prompts_dir.mkdir(parents=True, exist_ok=True)
+        outputs_dir.mkdir(parents=True, exist_ok=True)
+        assets_dir.mkdir(parents=True, exist_ok=True)
+
+        # 1. Chapters
+        chapters_manifest = chapters_dir / "CHAPTERS.md"
+        if not chapters_manifest.exists():
+            chapters_manifest.write_text(
+                "- chapter-1.md — Chapter 1: Introduction. Opening scene.\n",
+                encoding="utf-8"
+            )
+        chapter_1 = chapters_dir / "chapter-1.md"
+        if not chapter_1.exists():
+            chapter_1.write_text(
+                "# Chapter 1\n\nBegin drafting your opening chapter here.\n",
+                encoding="utf-8"
+            )
+
+        # 2. Characters
+        characters_manifest = characters_dir / "CHARACTERS.md"
+        if not characters_manifest.exists():
+            characters_manifest.write_text(
+                "- protagonist.md — Protagonist: Main character overview and motivations.\n",
+                encoding="utf-8"
+            )
+        protagonist = characters_dir / "protagonist.md"
+        if not protagonist.exists():
+            protagonist.write_text(
+                "# Protagonist\n\n## Overview\nMain character description, background, and motivation.\n\n## Key Traits\n- **Goal:** Core driving objective.\n- **Conflict:** Internal and external obstacles.\n",
+                encoding="utf-8"
+            )
+
+        # 3. Styles
+        styles_manifest = styles_dir / "STYLES.md"
+        if not styles_manifest.exists():
+            styles_manifest.write_text(
+                "- general — General-purpose scene writing with balanced narration and action\n"
+                "- cinematic — Full cinematic scene — narration sets the atmosphere, dialogue drives the conflict\n"
+                "- superman — Heroic, inspirational tone — characters rising to meet impossible odds with dramatic, cinematic prose\n",
+                encoding="utf-8"
+            )
+
+        sample_styles_dir = self.base_dir / "sample-workspace" / "styles"
+        default_styles = {
+            "general.md": (
+                "## Writer Guidelines\n\n"
+                "- Write clear, engaging prose\n"
+                "- Balance narration, action, and character reaction\n"
+                "- Maintain consistent voice and pacing\n"
+                "- Use natural paragraph breaks for scene shifts\n\n"
+                "## Narration Guidelines\n\n"
+                "- Ground the scene physically before any emotional interiority\n"
+                "- Use concrete, sensory detail — what characters see, hear, and feel\n"
+                "- Keep action beats tight; one action per sentence for tension\n"
+                "- Use character interiority sparingly: one key internal reaction per beat\n\n"
+                "## Dialogue Guidelines\n\n"
+                "- Characters speak in declarations, not questions\n"
+                "- Dialogue builds toward a rallying cry or turning point\n"
+                "- Use callbacks to earlier self-doubt for emotional payoff\n"
+                "- One character inspires; the other resists before yielding\n"
+                "- Short exchanges for tension, longer speeches for catharsis\n"
+            ),
+            "cinematic.md": (
+                "## Narration Guidelines\n\n"
+                "- Paint the environment with sensory detail — sight, sound, smell, texture\n"
+                "- Use weather and light to mirror emotional subtext\n"
+                "- Keep narration tight during dialogue, expansive during action beats\n"
+                "- Camera moves like a film: wide shot → close-up on detail → reaction\n\n"
+                "## Dialogue Guidelines\n\n"
+                "- Characters speak in distinct rhythms — no two voices sound the same\n"
+                "- Subtext over exposition; what they don't say matters more\n"
+                "- Interruptions and pauses for realism\n"
+                "- Power shifts mid-conversation (one character starts strong, ends defensive)\n\n"
+                "## Writer Guidelines\n\n"
+                "- Weave narration and dialogue into a seamless rhythm\n"
+                "- Use paragraph breaks to control pacing — short paragraphs for tension\n"
+                "- End each beat on a hook, image, or unresolved question\n"
+                "- Match prose density to emotional intensity\n"
+            ),
+            "superman.md": (
+                "## Tone & Atmosphere\n\n"
+                "- Mythic, larger-than-life, soaring and earnest\n"
+                "- Unapologetic heroism and moral clarity under extreme pressure\n"
+                "- Contrast intimate human vulnerability against epic stakes\n\n"
+                "## Narration Guidelines\n\n"
+                "- Kinetic, sensory-rich descriptions of scale and momentum\n"
+                "- Focus on sensory impact: sound of wind, blinding light, physical resonance\n"
+                "- Ground extraordinary feats in physical toll and resolve\n\n"
+                "## Dialogue Guidelines\n\n"
+                "- Resonant, direct, and principled\n"
+                "- Speech inspires hope and resolve in others\n"
+                "- Quiet convictions delivered with calm certainty\n"
+            )
+        }
+        for style_name, style_content in default_styles.items():
+            style_file = styles_dir / style_name
+            if not style_file.exists():
+                src_file = sample_styles_dir / style_name
+                if src_file.exists():
+                    try:
+                        shutil.copy2(src_file, style_file)
+                    except Exception:
+                        style_file.write_text(style_content, encoding="utf-8")
+                else:
+                    style_file.write_text(style_content, encoding="utf-8")
+
+        # 4. Prompts
+        sample_prompts_dir = self.base_dir / "prompts"
+        if sample_prompts_dir.exists():
+            for p_file in sample_prompts_dir.glob("*.md"):
+                dest = prompts_dir / p_file.name
+                if not dest.exists():
+                    try:
+                        shutil.copy2(p_file, dest)
+                    except Exception:
+                        pass
+
+        # 5. Story State
+        story_state_file = path_obj / "story_state.yaml"
+        if not story_state_file.exists():
+            story_state_file.write_text(
+                "# Story State & Continuity Tracking\n"
+                "current_chapter: \"chapter-1.md\"\n"
+                "timeline: []\n"
+                "key_items: []\n"
+                "notes: \"Project workspace initialized.\"\n",
+                encoding="utf-8"
+            )
+
+        # 6. Git initialization
+        git_info: Dict[str, Any] = {
+            "initialized": False,
+            "committed": False,
+            "already_tracked": False,
+            "git_parent": None,
+            "error": None,
+        }
+        if init_git:
+            git_check = is_git_available()
+            if not git_check["available"]:
+                git_info["error"] = "Git is not installed or not available in PATH."
+            else:
+                git_bin = shutil.which("git") or "git"
+                # Detect if target is already inside a git work tree to avoid embedded repos
+                try:
+                    res_toplevel = subprocess.run(
+                        [git_bin, "rev-parse", "--show-toplevel"],
+                        cwd=str(path_obj),
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                    )
+                    if res_toplevel.returncode == 0:
+                        # Already inside a git work tree — skip init entirely
+                        git_info["already_tracked"] = True
+                        git_info["git_parent"] = res_toplevel.stdout.strip()
+                        return {
+                            "success": True,
+                            "path": str(path_obj),
+                            "git": git_info,
+                        }
+                except Exception:
+                    # rev-parse failed → fresh directory, safe to init
+                    pass
+
+                # Always write/overwrite .gitignore before init
+                gitignore_file = path_obj / ".gitignore"
+                gitignore_file.write_text(
+                    "outputs/\n"
+                    ".DS_Store\n"
+                    "Thumbs.db\n"
+                    "*.tmp\n"
+                    "*.log\n",
+                    encoding="utf-8"
+                )
+                try:
+                    subprocess.run(
+                        [git_bin, "init"],
+                        cwd=str(path_obj),
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                        check=True,
+                    )
+                    git_info["initialized"] = True
+                except Exception as e:
+                    git_info["error"] = "git init failed."
+
+                if git_info["initialized"]:
+                    # git add + initial commit — non-fatal (missing user.name/email is common)
+                    try:
+                        subprocess.run(
+                            [git_bin, "add", "."],
+                            cwd=str(path_obj),
+                            capture_output=True,
+                            text=True,
+                            timeout=10,
+                            check=True,
+                        )
+                        res_commit = subprocess.run(
+                            [git_bin, "commit", "-m", "Initial workspace scaffold"],
+                            cwd=str(path_obj),
+                            capture_output=True,
+                            text=True,
+                            timeout=10,
+                        )
+                        if res_commit.returncode == 0:
+                            git_info["committed"] = True
+                        else:
+                            git_info["committed"] = False
+                            stderr = res_commit.stderr.strip()
+                            git_info["error"] = (
+                                "Initial commit failed — Git user identity not configured. "
+                                "Run: git config --global user.name / user.email"
+                            ) if "user" in stderr.lower() else "Initial commit failed."
+                    except Exception:
+                        git_info["committed"] = False
+                        git_info["error"] = "git add/commit failed."
+
+        return {
+            "success": True,
+            "path": str(path_obj),
+            "git": git_info,
+        }
+
 
 
 # Global singleton

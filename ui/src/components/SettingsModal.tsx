@@ -11,6 +11,8 @@ interface SettingsModalProps {
   onClose: () => void
 }
 
+const isWindows = typeof navigator !== 'undefined' && /Win/i.test(navigator.userAgent || navigator.platform || '')
+
 type ThemeFamily = NonNullable<AppSettings['theme_family']>
 type ThemeMode = NonNullable<AppSettings['theme']>
 type TextStyle = NonNullable<AppSettings['text_style']>
@@ -157,22 +159,49 @@ function TabButton({ active, onClick, label }: { active: boolean, onClick: () =>
 
 function GeneralSettings({ settings, updateSettings }: { settings: AppSettings, updateSettings: (u: Partial<AppSettings>) => void }) {
   const [workspacePath, setWorkspacePath] = useState(settings.linked_workspace_dir || '')
-  const [isPicking, setIsPicking] = useState(false)
+  const [isPickingExisting, setIsPickingExisting] = useState(false)
+  const [linkStatus, setLinkStatus] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null)
 
-  const handleLink = () => {
-    updateSettings({ linked_workspace_dir: workspacePath.trim() || null })
-  }
+  // Create Workspace State
+  const [newWorkspacePath, setNewWorkspacePath] = useState('')
+  const [isPickingNew, setIsPickingNew] = useState(false)
+  const [initGit, setInitGit] = useState(false)  // default false — local-first
+  const [gitAvailable, setGitAvailable] = useState<boolean | null>(null)
+  const [gitVersion, setGitVersion] = useState<string | null>(null)
+  const [isCreating, setIsCreating] = useState(false)
+  const [createStatus, setCreateStatus] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null)
 
-  const handleBrowse = async () => {
+  useEffect(() => {
+    setWorkspacePath(settings.linked_workspace_dir || '')
+  }, [settings.linked_workspace_dir])
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/workspace/git-status`)
+      .then(res => res.json())
+      .then(data => {
+        const avail = Boolean(data.available)
+        setGitAvailable(avail)
+        if (data.version) setGitVersion(data.version)
+        if (!avail) setInitGit(false)
+      })
+      .catch(() => {
+        setGitAvailable(false)
+        setInitGit(false)
+      })
+  }, [])
+
+  /** Shared folder-picker: opens the native dialog and calls onPicked with the chosen path. */
+  const browsePicker = async (
+    setIsPicking: (v: boolean) => void,
+    onPicked: (path: string) => void,
+    onError?: (msg: string) => void,
+  ) => {
     setIsPicking(true)
     try {
       const res = await fetch(`${API_BASE}/api/workspace/pick-folder`)
       if (res.ok) {
         const data = await res.json()
-        if (data.path) {
-          setWorkspacePath(data.path)
-          updateSettings({ linked_workspace_dir: data.path })
-        }
+        if (data.path) onPicked(data.path)
       }
     } catch (err) {
       console.error('Failed to pick folder', err)
@@ -182,56 +211,260 @@ function GeneralSettings({ settings, updateSettings }: { settings: AppSettings, 
     }
   }
 
+  const handleLink = () => {
+    const trimmed = workspacePath.trim()
+    updateSettings({ linked_workspace_dir: trimmed || null })
+    setLinkStatus({ type: 'success', message: trimmed ? 'Workspace path linked.' : 'Reset to default fallback workspace.' })
+    setTimeout(() => setLinkStatus(null), 3500)
+  }
+
+  const handleBrowseExisting = () =>
+    browsePicker(
+      setIsPickingExisting,
+      (path) => {
+        setWorkspacePath(path)
+        updateSettings({ linked_workspace_dir: path })
+        setLinkStatus({ type: 'success', message: 'Workspace selected and linked.' })
+        setTimeout(() => setLinkStatus(null), 3500)
+      },
+      (msg) => setLinkStatus({ type: 'error', message: msg }),
+    )
+
+  const handleBrowseNew = () =>
+    browsePicker(setIsPickingNew, (path) => setNewWorkspacePath(path))
+
+  const handleCreateWorkspace = async () => {
+    const path = newWorkspacePath.trim()
+    if (!path) {
+      setCreateStatus({ type: 'error', message: 'Please specify a folder path for the new workspace.' })
+      return
+    }
+
+    setIsCreating(true)
+    setCreateStatus(null)
+    try {
+      const res = await fetch(`${API_BASE}/api/workspace/create`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          path,
+          init_git: initGit && gitAvailable === true,
+          set_as_active: true,
+          force: false,
+        })
+      })
+      const data = await res.json()
+      if (res.ok && data.success) {
+        updateSettings({ linked_workspace_dir: data.path })
+        setWorkspacePath(data.path)
+        if (data.git?.already_tracked) {
+          const parent = data.git.git_parent ? ` (${data.git.git_parent.split(/[\\/]/).pop()})` : ''
+          setCreateStatus({
+            type: 'info',
+            message: `Workspace created. Already inside a Git repository${parent} — git init skipped.`,
+          })
+        } else {
+          let msg = `Workspace created and linked.`
+          if (data.git?.initialized) msg += ' Git repository initialized.'
+          if (data.git?.error) msg += ` Note: ${data.git.error}`
+          setCreateStatus({ type: 'success', message: msg })
+        }
+        setNewWorkspacePath('')
+      } else {
+        setCreateStatus({ type: 'error', message: data.detail || 'Failed to create workspace.' })
+      }
+    } catch (err: any) {
+      setCreateStatus({ type: 'error', message: err?.message || 'Error connecting to server.' })
+    } finally {
+      setIsCreating(false)
+    }
+  }
+
   const handleClear = () => {
     setWorkspacePath('')
     updateSettings({ linked_workspace_dir: null })
+    setLinkStatus({ type: 'success', message: 'Reset to default fallback workspace.' })
+    setTimeout(() => setLinkStatus(null), 3500)
   }
 
   return (
     <div className="flex flex-col gap-8">
+      {/* Active Workspace Banner */}
       <section>
-        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Workspace Directory</h3>
-        <p className="text-[12px] text-[var(--text-secondary)] mb-3">Link an absolute directory path on your system containing your novel project.</p>
+        <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Active Workspace</h3>
+        <p className="text-[12px] text-[var(--text-secondary)] mb-2">The currently loaded project directory for your novel manuscripts, characters, and styles.</p>
+        <div className="p-3 rounded-[6px] border border-[var(--border-subtle)] bg-[var(--bg-elevated)]/50 flex items-center justify-between text-[12px] max-w-xl">
+          <div className="flex items-center gap-2 overflow-hidden">
+            <Folder size={15} className="text-[var(--text-secondary)] shrink-0" />
+            <span className="text-[var(--text-heading)] font-mono text-[12px] truncate">
+              {settings.linked_workspace_dir || 'sample-workspace (Default)'}
+            </span>
+          </div>
+          {settings.linked_workspace_dir && (
+            <button
+              type="button"
+              onClick={handleClear}
+              className="shrink-0 text-[11px] text-[var(--text-secondary)] hover:text-red-500 transition-colors cursor-pointer ml-2"
+            >
+              Reset to default
+            </button>
+          )}
+        </div>
+      </section>
+
+      {/* Create New Workspace */}
+      <section className="border-t border-[var(--border-subtle)] pt-6">
+        <div className="flex items-center gap-2 mb-1">
+          <FolderPlus size={15} className="text-[var(--accent-brown)]" />
+          <h3 className="text-[13px] font-medium text-[var(--text-heading)]">Create New Workspace</h3>
+        </div>
+        <p className="text-[12px] text-[var(--text-secondary)] mb-3">
+          Scaffold a clean, structured novel project with chapter templates, character sheets, and style guides.
+        </p>
+        <div className="flex flex-col gap-3 max-w-xl">
+          <div className="flex gap-2 w-full">
+            <input
+              type="text"
+              placeholder={isWindows ? 'e.g. C:\\Users\\name\\my-new-novel' : 'e.g. /Users/name/my-new-novel'}
+              value={newWorkspacePath}
+              onChange={(e) => setNewWorkspacePath(e.target.value)}
+              className="flex-1 border border-[var(--border-subtle)] rounded-[6px] px-3 py-1.5 text-[13px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)] transition-colors min-w-0"
+            />
+            <button
+              type="button"
+              onClick={handleBrowseNew}
+              disabled={isPickingNew}
+              className="shrink-0 px-3 py-1.5 rounded-[6px] text-[12px] border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[var(--text-heading)] hover:bg-[var(--bg-hover)] transition-colors font-medium cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+            >
+              {isPickingNew ? (
+                <>
+                  <Loader2 size={13} className="animate-spin" />
+                  <span>Browsing...</span>
+                </>
+              ) : (
+                <>
+                  <FolderOpen size={13} />
+                  <span>Browse...</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between py-1.5 bg-[var(--bg-elevated)]/40 px-3 rounded-[6px] border border-[var(--border-subtle)]">
+            <label className={`flex items-center gap-2 text-[12px] select-none ${gitAvailable === false ? 'opacity-50 cursor-not-allowed text-[var(--text-muted)]' : 'cursor-pointer text-[var(--text-heading)]'}`}>
+              <input
+                type="checkbox"
+                checked={initGit && gitAvailable === true}
+                onChange={(e) => setInitGit(e.target.checked)}
+                disabled={gitAvailable === false}
+                className="rounded border-[var(--border-subtle)] text-[var(--accent-brown)] focus:ring-0 cursor-pointer disabled:cursor-not-allowed"
+              />
+              <span className="flex items-center gap-1.5 font-medium">
+                <GitBranch size={13} />
+                <span>Initialize as Git repository</span>
+              </span>
+            </label>
+            {gitAvailable === false && (
+              <span className="text-[11px] text-[var(--text-muted)] italic">
+                (Git not found in PATH)
+              </span>
+            )}
+            {gitAvailable === true && gitVersion && (
+              <span className="text-[10px] text-[var(--text-muted)]">
+                {gitVersion.split(' ')[0]} {gitVersion.split(' ')[2] || ''}
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-3 mt-1">
+            <button
+              type="button"
+              onClick={handleCreateWorkspace}
+              disabled={isCreating || !newWorkspacePath.trim()}
+              className="px-4 py-1.5 rounded-[6px] text-[12px] bg-[var(--accent-brown)] text-[var(--text-inverse)] hover:bg-[var(--accent-brown)]/90 transition-colors font-medium cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+            >
+              {isCreating ? (
+                <>
+                  <Loader2 size={13} className="animate-spin" />
+                  <span>Creating Workspace...</span>
+                </>
+              ) : (
+                <>
+                  <Plus size={13} />
+                  <span>Create Workspace</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          {createStatus && (
+            <div className={`p-2.5 rounded-[6px] text-[12px] border ${
+              createStatus.type === 'success' ? 'bg-green-500/10 border-green-500/30 text-green-700 dark:text-green-300' :
+              createStatus.type === 'info'    ? 'bg-blue-500/10 border-blue-500/30 text-blue-700 dark:text-blue-300' :
+                                               'bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-300'
+            }`}>
+              {createStatus.message}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* Link Existing Workspace */}
+      <section className="border-t border-[var(--border-subtle)] pt-6">
+        <div className="flex items-center gap-2 mb-1">
+          <FolderOpen size={15} className="text-[var(--text-secondary)]" />
+          <h3 className="text-[13px] font-medium text-[var(--text-heading)]">Link Existing Workspace</h3>
+        </div>
+        <p className="text-[12px] text-[var(--text-secondary)] mb-3">Link an existing novel directory on your computer.</p>
         <div className="flex flex-col gap-2 max-w-xl">
           <div className="flex gap-2 w-full">
             <input
               type="text"
-              placeholder="e.g. /Users/username/my-novel"
+              placeholder={isWindows ? 'e.g. C:\\Users\\name\\my-novel' : 'e.g. /Users/name/my-novel'}
               value={workspacePath}
               onChange={(e) => setWorkspacePath(e.target.value)}
               className="flex-1 border border-[var(--border-subtle)] rounded-[6px] px-3 py-1.5 text-[13px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)] transition-colors min-w-0"
             />
             <button
-              onClick={handleBrowse}
-              disabled={isPicking}
-              className="shrink-0 px-3 py-1.5 rounded-[6px] text-[12px] border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[var(--text-heading)] hover:bg-[var(--bg-hover)] transition-colors font-medium cursor-pointer disabled:opacity-50"
+              type="button"
+              onClick={handleBrowseExisting}
+              disabled={isPickingExisting}
+              className="shrink-0 px-3 py-1.5 rounded-[6px] text-[12px] border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[var(--text-heading)] hover:bg-[var(--bg-hover)] transition-colors font-medium cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
             >
-              {isPicking ? 'Browsing...' : 'Browse...'}
+              {isPickingExisting ? (
+                <>
+                  <Loader2 size={13} className="animate-spin" />
+                  <span>Browsing...</span>
+                </>
+              ) : (
+                <>
+                  <FolderOpen size={13} />
+                  <span>Browse...</span>
+                </>
+              )}
             </button>
             <button
+              type="button"
               onClick={handleLink}
               className="shrink-0 px-3 py-1.5 rounded-[6px] text-[12px] bg-[var(--accent-brown)] text-[var(--text-inverse)] hover:bg-[var(--accent-brown)]/90 transition-colors font-medium cursor-pointer"
             >
               Link Path
             </button>
           </div>
-          {settings.linked_workspace_dir && (
-            <button
-              onClick={handleClear}
-              className="self-start text-[11px] text-[var(--text-secondary)] hover:text-red-500 transition-colors cursor-pointer"
-            >
-              Reset to default fallback workspace
-            </button>
+          {linkStatus && (
+            <div className={`p-2.5 rounded-[6px] text-[12px] border ${
+              linkStatus.type === 'success' ? 'bg-green-500/10 border-green-500/30 text-green-700 dark:text-green-300' :
+              linkStatus.type === 'info'    ? 'bg-blue-500/10 border-blue-500/30 text-blue-700 dark:text-blue-300' :
+                                             'bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-300'
+            }`}>
+              {linkStatus.message}
+            </div>
           )}
         </div>
-        <p className="text-[11px] text-[var(--text-muted)] mt-1.5">
-          {settings.linked_workspace_dir 
-            ? `Active Workspace: ${settings.linked_workspace_dir}` 
-            : 'Using default sample workspace in the repository.'}
-        </p>
       </section>
 
-      <section>
+      {/* Default Mode */}
+      <section className="border-t border-[var(--border-subtle)] pt-6">
         <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Default Mode</h3>
         <p className="text-[12px] text-[var(--text-secondary)] mb-3">Choose the default interface mode for new sessions.</p>
         <div className="flex gap-2">
@@ -250,6 +483,7 @@ function GeneralSettings({ settings, updateSettings }: { settings: AppSettings, 
         </div>
       </section>
 
+      {/* Default Verbosity */}
       <section>
         <h3 className="text-[13px] font-medium text-[var(--text-heading)] mb-1">Default Verbosity</h3>
         <p className="text-[12px] text-[var(--text-secondary)] mb-3">Control the target length of endpoint responses and edits. Endpoints only — harnesses manage their own output length.</p>

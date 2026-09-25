@@ -19,6 +19,13 @@ class CreateFileRequest(BaseModel):
     content: str = ""
 
 
+class CreateWorkspaceRequest(BaseModel):
+    path: str
+    init_git: bool = False
+    set_as_active: bool = True
+    force: bool = False
+
+
 class RenameFileRequest(BaseModel):
     name: str
 
@@ -36,70 +43,186 @@ class MediaFromUrlRequest(BaseModel):
 # Cross-platform folder picker
 # ---------------------------------------------------------------------------
 
-def _pick_folder_tkinter() -> str | None:
-    """Universal fallback using tkinter (ships with CPython on all platforms)."""
+# Interactive folder picker timeout (seconds). A picker is deliberately
+# interactive — a user may legitimately spend minutes browsing — so this is
+# intentionally long. Contrast with short backend timeouts (e.g. git
+# rev-parse timeout=5, git init/add/commit timeout=10). On timeout/expiry the
+# picker must degrade gracefully to the next picker (ultimately Tk), never
+# fail outright.
+PICKER_TIMEOUT = 120
+
+
+def _open_folder_picker() -> str | None:
+    """Open a native folder-picker dialog in an isolated subprocess.
+
+    On Windows, uses the modern native IFileOpenDialog (with FOS_PICKFOLDERS)
+    via ctypes in an isolated child process. This opens the modern Windows
+    File Explorer folder picker (with 'Select Folder' button, toolbar 'New folder',
+    navigation bar, and full shell context menu support) without freezing.
+    """
     try:
-        import tkinter as tk
-        from tkinter import filedialog
-        root = tk.Tk()
-        root.withdraw()          # hide the empty root window
-        root.wm_attributes("-topmost", True)
-        path = filedialog.askdirectory(title="Select Workspace Folder")
-        root.destroy()
-        return path or None
+        # Windows: modern native Explorer folder picker (IFileOpenDialog with FOS_PICKFOLDERS)
+        if sys.platform == "win32":
+            win_code = (
+                "import ctypes\n"
+                "from ctypes import wintypes\n"
+                "class GUID(ctypes.Structure):\n"
+                "    _fields_ = [('Data1', ctypes.c_uint32), ('Data2', ctypes.c_uint16), ('Data3', ctypes.c_uint16), ('Data4', ctypes.c_uint8 * 8)]\n"
+                "ole32 = ctypes.windll.ole32\n"
+                "ole32.OleInitialize(None)\n"
+                "def g(s):\n"
+                "    res = GUID()\n"
+                "    ole32.IIDFromString(ctypes.c_wchar_p(s), ctypes.byref(res))\n"
+                "    return res\n"
+                "clsid = g('{DC1C5A9C-E88A-4DDE-A5A1-60F82A20AEF7}')\n"
+                "iid_open = g('{d57c7288-d4ad-4768-be02-9d969532d960}')\n"
+                "pDialog = ctypes.c_void_p()\n"
+                "hr = ole32.CoCreateInstance(ctypes.byref(clsid), None, 1, ctypes.byref(iid_open), ctypes.byref(pDialog))\n"
+                "if hr == 0 and pDialog.value:\n"
+                "    try:\n"
+                "        vt = ctypes.cast(pDialog, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))).contents\n"
+                "        Show = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, wintypes.HWND)(vt[3])\n"
+                "        SetOptions = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, wintypes.DWORD)(vt[9])\n"
+                "        SetTitle = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, wintypes.LPCWSTR)(vt[17])\n"
+                "        SetOkButtonLabel = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, wintypes.LPCWSTR)(vt[18])\n"
+                "        GetResult = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p))(vt[20])\n"
+                "        Release = ctypes.WINFUNCTYPE(wintypes.ULONG, ctypes.c_void_p)(vt[2])\n"
+                "        SetOptions(pDialog, 0x00000020 | 0x00000040 | 0x00000800)\n"
+                "        SetTitle(pDialog, 'Select Workspace Folder')\n"
+                "        SetOkButtonLabel(pDialog, 'Select Folder')\n"
+                "        if Show(pDialog, None) == 0:\n"
+                "            pItem = ctypes.c_void_p()\n"
+                "            if GetResult(pDialog, ctypes.byref(pItem)) == 0 and pItem.value:\n"
+                "                item_vt = ctypes.cast(pItem, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))).contents\n"
+                "                GetDisplayName = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(wintypes.LPWSTR))(item_vt[5])\n"
+                "                ReleaseItem = ctypes.WINFUNCTYPE(wintypes.ULONG, ctypes.c_void_p)(item_vt[2])\n"
+                "                psz = wintypes.LPWSTR()\n"
+                "                if GetDisplayName(pItem, 0x80058000, ctypes.byref(psz)) == 0 and psz.value:\n"
+                "                    print(psz.value)\n"
+                "                    ole32.CoTaskMemFree(psz)\n"
+                "                ReleaseItem(pItem)\n"
+                "        Release(pDialog)\n"
+                "    finally:\n"
+                "        ole32.OleUninitialize()\n"
+            )
+            try:
+                res = subprocess.run(
+                    [sys.executable, "-c", win_code],
+                    capture_output=True,
+                    text=True,
+                    timeout=PICKER_TIMEOUT,
+                )
+                if res.returncode == 0 and res.stdout.strip():
+                    return res.stdout.strip()
+                # Native failure -> fall through to Tk fallback below.
+            except subprocess.TimeoutExpired:
+                # Interactive timeout -> degrade gracefully to Tk fallback.
+                pass
+
+        # macOS: native Cocoa dialog via osascript
+        elif sys.platform == "darwin":
+            try:
+                res = subprocess.run(
+                    [
+                        "osascript",
+                        "-e",
+                        'POSIX path of (choose folder with prompt "Select Workspace Folder")',
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=PICKER_TIMEOUT,
+                )
+                if res.returncode == 0 and res.stdout.strip():
+                    return res.stdout.strip()
+                # Native failure -> fall through to Tk fallback below.
+            except subprocess.TimeoutExpired:
+                # Interactive timeout -> degrade gracefully to Tk fallback.
+                pass
+
+        # Linux / BSD: native desktop dialogs if installed
+        elif sys.platform.startswith("linux") or sys.platform.startswith("freebsd"):
+            if shutil.which("zenity"):
+                try:
+                    res = subprocess.run(
+                        ["zenity", "--file-selection", "--directory", "--title=Select Workspace Folder"],
+                        capture_output=True,
+                        text=True,
+                        timeout=PICKER_TIMEOUT,
+                    )
+                    if res.returncode == 0 and res.stdout.strip():
+                        return res.stdout.strip()
+                except subprocess.TimeoutExpired:
+                    # Interactive timeout -> try next picker, ultimately Tk.
+                    pass
+            if shutil.which("kdialog"):
+                try:
+                    res = subprocess.run(
+                        ["kdialog", "--getexistingdirectory", ".", "--title", "Select Workspace Folder"],
+                        capture_output=True,
+                        text=True,
+                        timeout=PICKER_TIMEOUT,
+                    )
+                    if res.returncode == 0 and res.stdout.strip():
+                        return res.stdout.strip()
+                except subprocess.TimeoutExpired:
+                    # Interactive timeout -> try next picker, ultimately Tk.
+                    pass
+            if shutil.which("yad"):
+                try:
+                    res = subprocess.run(
+                        ["yad", "--file", "--directory", "--title=Select Workspace Folder"],
+                        capture_output=True,
+                        text=True,
+                        timeout=PICKER_TIMEOUT,
+                    )
+                    if res.returncode == 0 and res.stdout.strip():
+                        return res.stdout.strip()
+                except subprocess.TimeoutExpired:
+                    # Interactive timeout -> try next picker, ultimately Tk.
+                    pass
+            # All native options failed/missing -> fall through to Tk fallback below.
+
+        # Universal fallback: isolated Python Tkinter subprocess
+        py_code = (
+            "import tkinter as tk\n"
+            "from tkinter import filedialog\n"
+            "root = tk.Tk()\n"
+            "root.withdraw()\n"
+            "root.attributes('-topmost', True)\n"
+            "root.focus_force()\n"
+            "p = filedialog.askdirectory(parent=root, title='Select Workspace Folder')\n"
+            "root.destroy()\n"
+            "if p: print(p)\n"
+        )
+        try:
+            res = subprocess.run(
+                [sys.executable, "-c", py_code],
+                capture_output=True,
+                text=True,
+                timeout=PICKER_TIMEOUT,
+            )
+            if res.returncode == 0 and res.stdout.strip():
+                return res.stdout.strip()
+        except subprocess.TimeoutExpired:
+            return None
+
     except Exception:
         return None
 
-
-def _pick_folder_native() -> str | None:
-    """Try the best native picker for the current OS; return None on failure."""
-    try:
-        if sys.platform == "darwin":
-            result = subprocess.run(
-                ["osascript", "-e",
-                 'POSIX path of (choose folder with prompt "Select Workspace Folder")'],
-                capture_output=True, text=True, timeout=60,
-            )
-            if result.returncode == 0:
-                return result.stdout.strip() or None
-
-        elif sys.platform == "win32":
-            # PowerShell one-liner — works on Win 10/11 without extra deps
-            ps_cmd = (
-                "Add-Type -AssemblyName System.Windows.Forms; "
-                "$f = New-Object System.Windows.Forms.FolderBrowserDialog; "
-                "$f.Description = 'Select Workspace Folder'; "
-                "$f.ShowNewFolderButton = $true; "
-                "if ($f.ShowDialog() -eq 'OK') { $f.SelectedPath }"
-            )
-            result = subprocess.run(
-                ["powershell", "-NoProfile", "-Command", ps_cmd],
-                capture_output=True, text=True, timeout=60,
-            )
-            if result.returncode == 0:
-                return result.stdout.strip() or None
-
-        elif sys.platform.startswith("linux"):
-            # Try zenity (GTK / GNOME), then kdialog (KDE), then yad
-            for cmd in [
-                ["zenity", "--file-selection", "--directory",
-                 "--title=Select Workspace Folder"],
-                ["kdialog", "--getexistingdirectory", "."],
-                ["yad", "--file", "--directory"],
-            ]:
-                try:
-                    result = subprocess.run(
-                        cmd, capture_output=True, text=True, timeout=60,
-                    )
-                    if result.returncode == 0 and result.stdout.strip():
-                        return result.stdout.strip()
-                except FileNotFoundError:
-                    continue   # binary not installed — try next
-
-    except Exception as e:
-        print(f"Native folder picker error: {e}")
-
     return None
+
+
+def _is_subpath(target: Path, base: Path) -> bool:
+    """Check if target is the same as or a descendant of base, case-insensitively on Windows & macOS."""
+    try:
+        t_res = target.resolve()
+        b_res = base.resolve()
+        if sys.platform in ("win32", "darwin"):
+            t_res = Path(str(t_res).lower())
+            b_res = Path(str(b_res).lower())
+        return t_res == b_res or b_res in t_res.parents
+    except Exception:
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -124,18 +247,83 @@ def read_input_file(path: str):
         raise HTTPException(status_code=404, detail=str(e))
 
 
+@router.get("/git-status")
+def get_git_status():
+    return is_git_available()
+
+
 @router.get("/pick-folder")
 def pick_folder():
-    """Open a native folder-picker dialog.
-
-    Strategy:
-      1. Try the best native dialog for the running OS.
-      2. Fall back to tkinter (cross-platform, ships with CPython).
-      3. Return {"path": null} if nothing worked — the UI should then let
-         the user type a path manually.
-    """
-    path = _pick_folder_native() or _pick_folder_tkinter()
+    """Open a native folder-picker dialog."""
+    path = _open_folder_picker()
     return {"path": path}
+
+
+@router.post("/create")
+def create_workspace_endpoint(req: CreateWorkspaceRequest):
+    raw = (req.path or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Workspace path is required.")
+
+    raw_path = Path(raw).expanduser()
+    if not raw_path.is_absolute():
+        raise HTTPException(status_code=400, detail="Workspace path must be absolute.")
+
+    try:
+        resolved = raw_path.resolve()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid workspace path.")
+
+    # Block sensitive system / dot directories
+    if any(part.startswith(".") for part in resolved.parts):
+        raise HTTPException(
+            status_code=400,
+            detail="The selected path is not allowed as a workspace location."
+        )
+
+    for blocked in _SENSITIVE_PATH_PREFIXES:
+        try:
+            blocked_resolved = blocked.expanduser().resolve()
+            if _is_subpath(resolved, blocked_resolved):
+                raise HTTPException(
+                    status_code=400,
+                    detail="The selected path is not allowed as a workspace location."
+                )
+        except HTTPException:
+            raise
+        except Exception:
+            pass
+
+    # Reject non-empty directories unless force=True
+    if resolved.exists() and resolved.is_dir() and not req.force:
+        try:
+            if any(resolved.iterdir()):
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "The selected directory is not empty. "
+                        "Pass force=true to scaffold into an existing directory."
+                    )
+                )
+        except HTTPException:
+            raise
+        except Exception:
+            pass
+
+    try:
+        res = storage.create_workspace(
+            target_path=str(resolved),
+            init_git=req.init_git,
+        )
+        # Link the workspace AFTER scaffold succeeds — a git failure won't leave
+        # the app pointing at a half-built directory.
+        if req.set_as_active:
+            storage.update_settings({"linked_workspace_dir": res["path"]})
+            res["set_as_active"] = True
+        return res
+    except Exception:
+        raise HTTPException(status_code=400, detail="Failed to create workspace.")
+
 
 
 @router.post("/files")

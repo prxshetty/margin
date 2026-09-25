@@ -130,11 +130,9 @@ Custom folders don't need manifests -- the Planner auto-indexes any folder conte
 
 Your chapter or manuscript files go in a folder of your choice (commonly `chapters/`). The folder name is arbitrary — what matters is the `CHAPTERS.md` manifest that tells the Planner these are manuscript files.
 
-Links stay editable: clicking a link places the cursor so you can edit it, while ⌘/Ctrl+Click follows it in a new tab.
-
 ## Images
 
-Chapters can include images — maps, mood boards, character sketches, scene references. **Paste** an image or an image URL, **drag and drop** a file into the editor, or type `/image` and pick **Upload image** from the menu to choose a file from your device — margin files it into your workspace's `assets/` folder, no separate upload step, and no upload size limit. The `/` menu only appears at the start of an empty line, and it filters as you type — prefix matching across names and keywords finds the action without scrolling.
+Chapters can include images — maps, mood boards, character sketches, scene references. **Paste** an image or an image URL, **drag and drop** a file into the editor, or type `/image` and pick **Upload image** from the menu to choose a file from your device — margin files it into your workspace's `assets/` folder, no separate upload step, and no upload size limit. The `/` menu only appears at the start of an empty line.
 
 Pasted image URLs stay in your document as text, and margin saves a local copy into `assets/` for the actual image — your document never depends on the remote server afterwards.
 

@@ -72,6 +72,54 @@ async function handleBareImageUrl(
   insertStoredImageAt(editor, anchor, path)
 }
 
+interface SlashState {
+  query: string
+  range: { from: number; to: number }
+}
+
+// Upload pasted/dropped image files, inserting each stored asset in turn.
+async function handleImageFiles(editor: Editor, files: File[]): Promise<void> {
+  for (const file of files) {
+    try {
+      const path = await uploadImageFile(file)
+      insertStoredImage(editor, path, file.name.replace(/\.[^.]+$/, ''))
+    } catch (err) {
+      window.alert(`Image upload failed: ${err instanceof Error ? err.message : err}`)
+    }
+  }
+}
+
+// A bare image URL pasted on its own keeps its pasted text while the image
+// is downloaded into workspace/assets/ and inserted below. The download is
+// async, so the caller passes the pre-paste selection as the anchor —
+// `handlePaste` runs before the native paste transaction, so the live
+// selection is still the paste point. No position tracking: if the user
+// typed meanwhile the image may land slightly off, which is acceptable.
+//
+// File-switch guard: the originating document is identified by
+// `currentFilePath`. If it changed mid-download, the asset is still stored
+// but the insert is dropped — never into the wrong document.
+async function handleBareImageUrl(
+  editor: Editor,
+  url: string,
+  anchor: number,
+): Promise<void> {
+  const pastedUrl = url.trim()
+  const fileAtPaste = useEditorStore.getState().currentFilePath
+  const path = await importImageFromUrl(pastedUrl).catch((err) => {
+    // Quiet for users (their pasted text is already in the doc), traceable.
+    console.warn(`Margin: image download failed for ${pastedUrl}:`, err)
+    return null
+  })
+  if (path == null) return
+  if (editor.isDestroyed) return
+  if (useEditorStore.getState().currentFilePath !== fileAtPaste) {
+    console.warn('Margin: paste target file changed mid-download — dropping image')
+    return
+  }
+  insertStoredImageAt(editor, anchor, path)
+}
+
 export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: boolean }) {
   const content = useEditorStore(state => state.content)
   const setContent = useEditorStore(state => state.setContent)
