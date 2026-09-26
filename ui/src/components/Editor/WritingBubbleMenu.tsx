@@ -613,7 +613,7 @@ export function WritingBubbleMenu() {
                         {/* Cue — hand the selection to the AI */}
                         <button
                             onMouseDown={(e) => { e.preventDefault(); handleCue() }}
-                            className="flex items-center gap-1.5 h-6 px-1.5 text-[11.5px] font-medium text-[var(--text-secondary)] hover:text-[var(--accent-brown)] hover:bg-[var(--bg-hover)] rounded-[5px] transition-colors cursor-pointer leading-none whitespace-nowrap"
+                            className="flex items-center gap-1 h-6 px-1.5 text-[11.5px] font-medium text-[var(--text-secondary)] hover:text-[var(--accent-brown)] hover:bg-[var(--bg-hover)] rounded-[5px] transition-colors cursor-pointer leading-none whitespace-nowrap"
                         >
                             <span className="flex items-center justify-center w-4 h-4 shrink-0"><CueIcon className="w-3.5 h-3.5" /></span>
                             <span>Cue</span>
@@ -624,7 +624,7 @@ export function WritingBubbleMenu() {
                         {/* Rewrite */}
                         <button
                             onMouseDown={(e) => { e.preventDefault(); handleRewriteClick() }}
-                            className="flex items-center gap-1.5 h-6 px-1.5 text-[11.5px] font-medium text-[var(--text-secondary)] hover:text-[var(--accent-brown)] hover:bg-[var(--bg-hover)] rounded-[5px] transition-colors cursor-pointer leading-none whitespace-nowrap"
+                            className="flex items-center gap-1 h-6 px-1.5 text-[11.5px] font-medium text-[var(--text-secondary)] hover:text-[var(--accent-brown)] hover:bg-[var(--bg-hover)] rounded-[5px] transition-colors cursor-pointer leading-none whitespace-nowrap"
                         >
                             <span className="flex items-center justify-center w-4 h-4 shrink-0"><RewriteIcon className="w-3 h-3" /></span>
                             <span>Rewrite</span>
@@ -635,7 +635,7 @@ export function WritingBubbleMenu() {
                         {/* Imagine — selection becomes the starting material */}
                         <button
                             onMouseDown={(e) => { e.preventDefault(); handleImagineClick() }}
-                            className="flex items-center gap-1.5 h-6 px-1.5 text-[11.5px] font-medium text-[var(--text-secondary)] hover:text-[var(--accent-brown)] hover:bg-[var(--bg-hover)] rounded-[5px] transition-colors cursor-pointer leading-none whitespace-nowrap"
+                            className="flex items-center gap-1 h-6 px-1.5 text-[11.5px] font-medium text-[var(--text-secondary)] hover:text-[var(--accent-brown)] hover:bg-[var(--bg-hover)] rounded-[5px] transition-colors cursor-pointer leading-none whitespace-nowrap"
                         >
                             <span className="flex items-center justify-center w-4 h-4 shrink-0"><ImagineIcon className="w-3.5 h-3.5" /></span>
                             <span>Imagine</span>

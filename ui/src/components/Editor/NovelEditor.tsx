@@ -113,11 +113,11 @@ export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: bool
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
-        // Links open in a new tab (never a redirect away from the editor),
-        // and clicking them while editing places the cursor instead of
-        // navigating — use Cmd/Ctrl+Click to follow.
+        // Plain clicks open the link in a new tab (never a redirect away
+        // from the editor). The click handler lives in the Link extension —
+        // no editor-level override.
         link: {
-          openOnClick: false,
+          openOnClick: true,
           HTMLAttributes: {
             target: '_blank',
             rel: 'noopener noreferrer',
@@ -169,18 +169,6 @@ export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: bool
       handleKeyDown: (_view, event) => {
         if (slashRef.current?.onKeyDown(event)) return true
         return false
-      },
-      // Plain clicks on links only place the cursor (openOnClick is off).
-      // Cmd/Ctrl+Click follows the link in a new tab instead, opened
-      // exactly as stored.
-      handleClick: (_view, _pos, event) => {
-        if (!event.metaKey && !event.ctrlKey) return false
-        const anchor = (event.target as HTMLElement | null)?.closest?.('a[href]')
-        const href = anchor?.getAttribute('href')
-        if (!anchor || !href) return false
-        event.preventDefault()
-        window.open(href, '_blank', 'noopener,noreferrer')
-        return true
       },
       handlePaste: (_view, event) => {
         const editor = editorRef.current
