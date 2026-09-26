@@ -22,6 +22,11 @@ interface FileNode {
 
 type TreeNode = FolderNode | FileNode
 
+const TREE_BASE_PADDING = 6
+const TREE_GUIDE_OFFSET = 7
+const TREE_GUIDE_LINE = 'bg-[var(--text-muted)]/70'
+const TREE_HOVER_GAP = 4
+
 function buildTree(files: FileEntry[]): TreeNode[] {
   const rootNodes: TreeNode[] = []
 
@@ -112,24 +117,20 @@ function FolderOpenIcon({ className = '' }: { className?: string }) {
   )
 }
 
-// Tree guides: curved elbow per row (top → mid with a rounded corner,
-// then a horizontal stub into the icon). Strict-ancestor verticals run
-// full height; the elbow's below-mid segment is omitted for last children
-// so the line terminates instead of dangling.
+// Tree guides: one straight vertical spine per level, running through every
+// child down to the content bottom edge of the last child. Segments abut
+// exactly (no overlaps) so the translucent line never double-draws.
 function TreeGuides({ depth, guides, isLast }: { depth: number; guides: boolean[]; isLast: boolean }) {
   if (depth === 0) return null
-  const elbowX = (depth - 1) * 12 + 27
+  const spineX = (depth - 1) * 12 + TREE_BASE_PADDING + TREE_GUIDE_OFFSET
   return (
     <>
       {guides.slice(0, depth - 1).map((on, i) =>
         on ? (
-          <span key={i} aria-hidden="true" className="absolute top-0 bottom-0 w-px bg-[var(--border-subtle)]/70" style={{ left: `${i * 12 + 27}px` }} />
+          <span key={i} aria-hidden="true" className={`absolute top-0 bottom-0 w-px ${TREE_GUIDE_LINE}`} style={{ left: `${i * 12 + TREE_BASE_PADDING + TREE_GUIDE_OFFSET}px` }} />
         ) : null
       )}
-      <span aria-hidden="true" className="absolute top-0 h-1/2 w-[5px] border-l border-b border-[var(--border-subtle)]/70 rounded-bl-[5px]" style={{ left: `${elbowX}px` }} />
-      {!isLast && (
-        <span aria-hidden="true" className="absolute top-1/2 bottom-0 w-px bg-[var(--border-subtle)]/70" style={{ left: `${elbowX}px` }} />
-      )}
+      <span aria-hidden="true" className={`absolute top-0 w-px ${TREE_GUIDE_LINE} ${isLast ? 'bottom-2' : 'bottom-0'}`} style={{ left: `${spineX}px` }} />
     </>
   )
 }
@@ -753,7 +754,7 @@ export function FileSidebar({
 
       {/* File list — always show section headers once a workspace is linked */}
       {!loading && workspaceDir && (
-        <div className="flex flex-col gap-0 px-1">
+        <div className="flex flex-col gap-0">
           {rootFiles.length > 0 && (
             <div className="flex flex-col gap-0">
               {rootFiles.map((file) => (
@@ -866,6 +867,7 @@ function FolderRow({
   path,
   depth,
   isExpanded,
+  hasChildren = false,
   onToggle,
   onRowMenu,
   guides = [],
@@ -875,36 +877,48 @@ function FolderRow({
   path: string
   depth: number
   isExpanded: boolean
+  hasChildren?: boolean
   onToggle: () => void
   onRowMenu: (e: React.MouseEvent) => void
   guides?: boolean[]
   isLast?: boolean
 }) {
+  const hoverInset = depth === 0 ? 0 : (depth - 1) * 12 + TREE_BASE_PADDING + TREE_GUIDE_OFFSET + TREE_HOVER_GAP
+  const hoverPadding = depth * 12 + TREE_BASE_PADDING - hoverInset
   return (
     <div
       onClick={onToggle}
       data-folderpath={path}
-      style={{ paddingLeft: `${depth * 12 + 20}px` }}
-      className={`group relative flex items-center gap-1 pr-2.5 py-2 rounded-[6px] text-xs transition-colors duration-150 cursor-pointer select-none ${isExpanded
-        ? 'text-[var(--text)] hover:bg-[var(--border-sidebar)]/30'
-        : 'text-[var(--text-secondary)] hover:bg-[var(--border-sidebar)]/30 hover:text-[var(--text)]'
-        }`}
+      className="group relative select-none"
       title={isExpanded ? 'Collapse folder' : 'Expand folder'}
     >
       <TreeGuides depth={depth} guides={guides} isLast={isLast} />
-      <div className="flex items-center gap-1.5 flex-1 min-w-0 text-left">
-        {isExpanded
-          ? <FolderOpenIcon className="w-4 h-4 shrink-0 text-[var(--text-secondary)]" />
-          : <FolderClosedIcon className="w-4 h-4 shrink-0 text-[var(--text-secondary)]/60" />}
-        <span className="truncate font-sans font-medium">{name}</span>
-      </div>
-      <button
-        onClick={onRowMenu}
-        title="Folder actions"
-        className="flex items-center justify-center w-4 h-4 text-[var(--text-secondary)]/60 hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 rounded-[4px] transition-all cursor-pointer active:scale-[0.9] opacity-0 group-hover:opacity-100"
+      <div
+        style={{ marginLeft: `${hoverInset}px`, paddingLeft: `${hoverPadding}px` }}
+        className={`flex items-center gap-1 pr-2.5 py-2 rounded-[6px] text-xs transition-colors duration-150 cursor-pointer ${isExpanded
+          ? 'text-[var(--text)] hover:bg-[var(--border-sidebar)]/30'
+          : 'text-[var(--text-secondary)] hover:bg-[var(--border-sidebar)]/30 hover:text-[var(--text)]'
+          }`}
       >
-        <MoreHorizontal className="w-3 h-3" strokeWidth={2.25} />
-      </button>
+        {hasChildren ? (
+          <ChevronDown className={`w-3 h-3 shrink-0 text-[var(--text-muted)] transition-transform duration-150 ${isExpanded ? '' : '-rotate-90'}`} strokeWidth={2} />
+        ) : (
+          <span className="w-3 shrink-0" aria-hidden="true" />
+        )}
+        <div className="flex items-center gap-1.5 flex-1 min-w-0 text-left">
+          {isExpanded
+            ? <FolderOpenIcon className="w-4 h-4 shrink-0 text-[var(--text-secondary)]" />
+            : <FolderClosedIcon className="w-4 h-4 shrink-0 text-[var(--text-secondary)]/60" />}
+          <span className="truncate font-sans font-medium">{name}</span>
+        </div>
+        <button
+          onClick={onRowMenu}
+          title="Folder actions"
+          className="flex items-center justify-center w-4 h-4 text-[var(--text-secondary)]/60 hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 rounded-[4px] transition-all cursor-pointer active:scale-[0.9] opacity-0 group-hover:opacity-100"
+        >
+          <MoreHorizontal className="w-3 h-3" strokeWidth={2.25} />
+        </button>
+      </div>
     </div>
   )
 }
@@ -950,6 +964,7 @@ function TreeNodeComponent({
         path={node.path}
         depth={depth}
         isExpanded={isExpanded}
+        hasChildren={node.children.length > 0}
         onToggle={() => toggleFolder(node.path)}
         onRowMenu={(e) => onRowMenu(e, { folder: node.path })}
         guides={guides}
@@ -974,7 +989,7 @@ function TreeNodeComponent({
       )}
       {isExpanded && node.children.length === 0 && (
         <div
-          style={{ paddingLeft: `${(depth + 1) * 12 + 20}px` }}
+          style={{ paddingLeft: `${(depth + 1) * 12 + TREE_BASE_PADDING}px` }}
           className="text-[10px] text-[var(--text-muted)] py-1 select-none italic"
         >
           Empty folder
@@ -1000,22 +1015,28 @@ function FileRow({
   isLast?: boolean
 }) {
   const isActive = useEditorStore((s) => s.currentFilePath === file.path)
+  const hoverInset = depth === 0 ? 0 : (depth - 1) * 12 + TREE_BASE_PADDING + TREE_GUIDE_OFFSET + TREE_HOVER_GAP
+  const hoverPadding = depth * 12 + TREE_BASE_PADDING - hoverInset
 
   return (
     <div
       onClick={() => onSelect(file.path)}
       data-filepath={file.path}
-      style={{ paddingLeft: `${depth * 12 + 20}px` }}
-      className={`group relative flex items-center gap-1 pr-2.5 py-2 rounded-[6px] text-xs transition-colors duration-150 cursor-pointer ${isActive
-        ? 'text-[var(--text)]'
-        : 'text-[var(--text-secondary)] hover:bg-[var(--border-sidebar)]/30 hover:text-[var(--text)]'
-        }`}
+      className="group relative select-none"
     >
       <TreeGuides depth={depth} guides={guides} isLast={isLast} />
       <div
-        className="flex items-center gap-1.5 flex-1 min-w-0 text-left"
-        title={file.path}
+        style={{ marginLeft: `${hoverInset}px`, paddingLeft: `${hoverPadding}px` }}
+        className={`flex items-center gap-1 pr-2.5 py-2 rounded-[6px] text-xs transition-colors duration-150 cursor-pointer ${isActive
+          ? 'text-[var(--text)]'
+          : 'text-[var(--text-secondary)] hover:bg-[var(--border-sidebar)]/30 hover:text-[var(--text)]'
+          }`}
       >
+        <span className="w-3 shrink-0" aria-hidden="true" />
+        <div
+          className="flex items-center gap-1.5 flex-1 min-w-0 text-left"
+          title={file.path}
+        >
         <FileIcon className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-[var(--text)]' : 'text-[var(--text-secondary)]/60'}`} />
         <span className="truncate font-sans font-medium">{file.name}</span>
       </div>
@@ -1025,7 +1046,8 @@ function FileRow({
         className="flex items-center justify-center w-4 h-4 text-[var(--text-secondary)]/60 hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 rounded-[4px] transition-all cursor-pointer active:scale-[0.9] opacity-0 group-hover:opacity-100"
       >
         <MoreHorizontal className="w-3 h-3" strokeWidth={2.25} />
-      </button>
+        </button>
+      </div>
     </div>
   )
 }
