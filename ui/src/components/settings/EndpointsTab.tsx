@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { X, Plus, Trash2, Pencil, Download } from 'lucide-react'
+import { X, Plus, Trash2, Pencil, Download, Eye, Brain } from 'lucide-react'
 import type { AppSettings } from '../../stores/settingsStore'
 import { API_BASE } from '../../lib/api'
 import { toast } from '../../stores/toastStore'
@@ -58,7 +58,7 @@ function EndpointDialogForSave({
   prefilledFromEnv: boolean
   editingId: string | null
   settings: AppSettings
-  onSave: (data: { id: string; url: string; api_key: string; model: string; context_window?: number; is_thinking: boolean; custom_thinking_tags: Array<{ open: string; close: string }> }) => void
+  onSave: (data: { id: string; url: string; api_key: string; model: string; context_window?: number; is_thinking: boolean; supports_vision: boolean; custom_thinking_tags: Array<{ open: string; close: string }> }) => void
   onCancel: () => void
   onTest: (url: string, key: string, model?: string, opts?: { silent?: boolean }) => Promise<boolean>
   testResult: { status: 'idle' | 'testing' | 'success' | 'error', msg?: string }
@@ -69,6 +69,7 @@ function EndpointDialogForSave({
   const [model, setModel] = useState('')
   const [context, setContext] = useState('')
   const [isThinking, setIsThinking] = useState(true)
+  const [supportsVision, setSupportsVision] = useState(false)
   const [customTags, setCustomTags] = useState<{ open: string; close: string }[]>([])
 
   /* eslint-disable react-hooks/set-state-in-effect */
@@ -81,6 +82,7 @@ function EndpointDialogForSave({
       setModel(ep.model || '')
       setContext(ep.context_window ? String(ep.context_window) : '')
       setIsThinking(ep.is_thinking !== false)
+      setSupportsVision(ep.supports_vision === true)
       setCustomTags(ep.custom_thinking_tags || [])
     } else if (prefilledFromEnv) {
       const fetchEnv = async () => {
@@ -104,6 +106,7 @@ function EndpointDialogForSave({
       model,
       context_window: parseInt(context) || undefined,
       is_thinking: isThinking,
+      supports_vision: supportsVision,
       custom_thinking_tags: customTags,
     })
     onCancel()
@@ -178,6 +181,17 @@ function EndpointDialogForSave({
               className="w-[140px] border border-[var(--border-subtle)] rounded-[4px] px-3 py-2 text-[12px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)] shrink-0"
             />
           </div>
+        </div>
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex flex-col">
+            <span className="text-[12px] font-medium text-[var(--text-heading)]">Vision input</span>
+            <span className="text-[10.5px] text-[var(--text-secondary)]">Mark this endpoint when its model accepts images.</span>
+          </div>
+          <Toggle
+            checked={supportsVision}
+            onChange={(next) => setSupportsVision(next)}
+            label="Vision input"
+          />
         </div>
         <div className="flex flex-col gap-4 border-t border-[var(--border-subtle)]/50 pt-3">
           <div className="flex items-center justify-between gap-4">
@@ -296,7 +310,7 @@ export function EndpointsSettings({ settings, updateSettings, query }: { setting
     setPrefilledFromEnv(false)
   }
 
-  const handleSave = (data: { id: string; url: string; api_key: string; model: string; context_window?: number; is_thinking: boolean; custom_thinking_tags: Array<{ open: string; close: string }> }) => {
+  const handleSave = (data: { id: string; url: string; api_key: string; model: string; context_window?: number; is_thinking: boolean; supports_vision: boolean; custom_thinking_tags: Array<{ open: string; close: string }> }) => {
     const epId = data.id.trim().toLowerCase().replace(/\s+/g, '_')
     if (prefilledFromEnv && !editingId && settings.endpoints?.[epId]) {
       toast.error(`“${epId}” already exists — pick a different name for the .env copy.`)
@@ -310,6 +324,7 @@ export function EndpointsSettings({ settings, updateSettings, query }: { setting
         model: data.model,
         context_window: data.context_window,
         is_thinking: data.is_thinking,
+        supports_vision: data.supports_vision,
         custom_thinking_tags: data.custom_thinking_tags,
       },
     }
@@ -393,7 +408,23 @@ export function EndpointsSettings({ settings, updateSettings, query }: { setting
                 className="grid grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)_minmax(0,1fr)_52px_56px] gap-0 items-center border-b border-[var(--border-subtle)]/60 last:border-b-0 transition-colors hover:bg-[var(--bg-hover)]/40 group"
               >
                 <div className="px-3 py-2.5 min-w-0">
-                  <span className="block text-[13px] font-medium text-[var(--text-heading)] capitalize truncate" title={id.replace('_', ' ')}>{id.replace('_', ' ')}</span>
+                  <span className="flex items-center gap-1.5 min-w-0 text-[13px] font-medium text-[var(--text-heading)] capitalize">
+                    <span className="truncate" title={id.replace('_', ' ')}>{id.replace('_', ' ')}</span>
+                    {ep.supports_vision && (
+                      <span title="Supports image input" className="flex shrink-0 text-[var(--text-secondary)]">
+                        <Eye size={13} />
+                      </span>
+                    )}
+                    {ep.is_thinking !== false ? (
+                      <span title="Thinking enabled" className="flex shrink-0 text-[var(--text-secondary)]">
+                        <Brain size={13} />
+                      </span>
+                    ) : (
+                      <span title="Thinking disabled" className="flex shrink-0 text-[var(--text-muted)] opacity-50">
+                        <Brain size={13} />
+                      </span>
+                    )}
+                  </span>
                 </div>
                 <div className="px-3 py-2.5 min-w-0"><span className="block text-[12px] text-[var(--text-secondary)] truncate" title={ep.url}>{ep.url}</span></div>
                 <div className="px-3 py-2.5 min-w-0"><span className="block text-[12px] text-[var(--text-secondary)] truncate" title={ep.model || '—'}>{ep.model || '—'}</span></div>

@@ -21,6 +21,7 @@ Pick the active endpoint from the assistant panel's harness menu (Endpoint flyou
    | **API Key** | Your API key (required for cloud providers, optional for local). |
    | **Model** | The model name (e.g., `gpt-4o`, `qwen2.5-coder`). Optional -- some endpoints auto-detect. |
    | **Context Window** | The maximum context size in tokens (default: 8192). |
+| **Vision input** | Mark the endpoint when its model accepts images. Vision endpoints show an eye badge in settings and the endpoint menu. Thinking endpoints show a brain badge (dimmed when thinking is off). |
    | **Thinking Model** | When enabled (default), inline reasoning tags (e.g. `<think>`, `<\|channel\|>`) are stripped from the response. Disable to see the raw output including any tags the model emits. |
 
    When **Thinking Model** is checked, a **Custom Thinking Tags** section appears where you can add open/close tag pairs for models with non-standard reasoning tags.

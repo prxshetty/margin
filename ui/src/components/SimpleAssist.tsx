@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useEffectEvent, useRef, useCallback, useMemo } from 'react'
-import { AtSign, Check, ChevronDown, ChevronRight, Code2, MousePointer2, Settings, Trash2 } from 'lucide-react'
+import { AtSign, Check, ChevronDown, ChevronRight, Code2, Eye, Brain, MousePointer2, Settings, Trash2 } from 'lucide-react'
 import { useEditorStore } from '../stores/editorStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { toast } from '../stores/toastStore'
@@ -185,7 +185,7 @@ function HarnessOption({ id, label, hint, disabled, selected, onSelect }: {
       <HarnessIcon id={id} className="w-3.5 h-3.5" />
       <span className="text-[11px] truncate flex-1">{label}</span>
       {hint && <span className="text-[9px] text-[var(--text-muted)] shrink-0">{hint}</span>}
-      {selected && <Check size={14} className="shrink-0 text-[var(--accent-brown)]" />}
+      <Check size={14} className={`shrink-0 ${selected ? 'text-[var(--accent-brown)]' : 'invisible'}`} />
     </button>
   )
 }
@@ -458,6 +458,7 @@ export function SimpleAssist() {
   // the Settings → Endpoints tab writes — one selection model, not two.
   const [showEndpointFlyout, setShowEndpointFlyout] = useState(false)
   const [endpointFlyoutSide, setEndpointFlyoutSide] = useState<'left' | 'right'>('right')
+  const [endpointFlyoutWidth, setEndpointFlyoutWidth] = useState<number | null>(null)
   const harnessMenuRef = useRef<HTMLDivElement>(null)
   const [activeToolRows, setActiveToolRows] = useState<Array<{ tool: string; detail: string }>>([])
   const harnessBaseRef = useRef('')
@@ -483,8 +484,9 @@ export function SimpleAssist() {
   const handleEndpointRowClick = () => {
     if (!showEndpointFlyout) {
       const rect = harnessMenuRef.current?.getBoundingClientRect()
-      const need = 180 + 8
-      setEndpointFlyoutSide(rect && rect.right + need <= window.innerWidth ? 'right' : 'left')
+      const flyoutWidth = rect?.width ?? 180
+      setEndpointFlyoutWidth(flyoutWidth)
+      setEndpointFlyoutSide(rect && rect.right + flyoutWidth + 8 <= window.innerWidth ? 'right' : 'left')
     }
     setShowEndpointFlyout(v => !v)
   }
@@ -1425,7 +1427,7 @@ export function SimpleAssist() {
               <ChevronDown className={`w-2.5 h-2.5 opacity-60 shrink-0 transition-transform duration-150 ${showHarnessDropdown ? 'rotate-180' : ''}`} />
             </button>
             {showHarnessDropdown && (
-              <div ref={harnessMenuRef} className="absolute left-0 bottom-full mb-1 z-50 min-w-[140px] bg-[var(--bg-elevated)] border border-[var(--border-sidebar)]/70 rounded-[12px] p-1 animate-scale-in flex flex-col gap-0.5">
+              <div ref={harnessMenuRef} className="absolute left-0 bottom-full mb-1 z-50 min-w-[180px] bg-[var(--bg-elevated)] border border-[var(--border-sidebar)]/70 rounded-[12px] p-1 animate-scale-in flex flex-col gap-0.5">
                 {/* Endpoint row opens the endpoint flyout — single trailing
                     slot: check when endpoint-mode is live, chevron otherwise. */}
                 <button
@@ -1448,7 +1450,7 @@ export function SimpleAssist() {
                   />
                 ))}
                 {showEndpointFlyout && (
-                  <div className={`absolute top-0 z-50 min-w-[180px] max-w-[240px] bg-[var(--bg-elevated)] border border-[var(--border-sidebar)]/70 rounded-[12px] p-1 animate-scale-in flex flex-col gap-0.5 ${endpointFlyoutSide === 'right' ? 'left-full ml-1' : 'right-full mr-1'}`}>
+                  <div style={endpointFlyoutWidth ? { width: `${endpointFlyoutWidth}px` } : undefined} className={`absolute top-0 z-50 bg-[var(--bg-elevated)] border border-[var(--border-sidebar)]/70 rounded-[12px] p-1 animate-scale-in flex flex-col gap-0.5 ${endpointFlyoutSide === 'right' ? 'left-full ml-1' : 'right-full mr-1'}`}>
                     {endpointEntries.length === 0 ? (
                       <div className="px-2.5 py-1.5 text-[11px] text-[var(--text-muted)]">
                         No endpoints yet
@@ -1456,26 +1458,46 @@ export function SimpleAssist() {
                     ) : (
                       endpointEntries.map(([id, ep]) => {
                         const isActive = harness === 'none' && settings?.active_endpoint === id
+                        const displayName = id.replace('_', ' ')
                         return (
                           <button
                             key={id}
                             onClick={() => handlePickEndpoint(id)}
                             className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-[8px] text-left transition-colors cursor-pointer hover:bg-[var(--border-sidebar)]/40 ${isActive ? 'bg-[var(--border-sidebar)]/40 text-[var(--text-heading)]' : 'text-[var(--text-secondary)]'}`}
                           >
-                            <span className="text-[11px] truncate flex-1 capitalize">{id.replace('_', ' ')}</span>
-                            <span className="text-[9px] text-[var(--text-muted)] shrink-0 truncate max-w-[90px]" title={ep.model || '—'}>{ep.model || '—'}</span>
-                            {isActive && (
-                              <Check size={14} className="shrink-0 text-[var(--accent-brown)]" />
-                            )}
+                            <span className="flex-1 min-w-0">
+                              <span className="flex items-center gap-1.5">
+                                <span className="text-[11px] truncate min-w-0 capitalize" title={displayName}>{displayName}</span>
+                                {ep.supports_vision && (
+                                  <span title="Supports image input" className="flex shrink-0 text-[var(--text-muted)]">
+                                    <Eye size={11} />
+                                  </span>
+                                )}
+                                {ep.is_thinking !== false ? (
+                                  <span title="Thinking enabled" className="flex shrink-0 text-[var(--text-muted)]">
+                                    <Brain size={11} />
+                                  </span>
+                                ) : (
+                                  <span title="Thinking disabled" className="flex shrink-0 text-[var(--text-muted)] opacity-50">
+                                    <Brain size={11} />
+                                  </span>
+                                )}
+                              </span>
+                              {ep.model && (
+                                <span className="block text-[10px] leading-tight truncate text-[var(--text-muted)]" title={ep.model}>{ep.model}</span>
+                              )}
+                            </span>
+                            <Check size={14} className={`shrink-0 ${isActive ? 'text-[var(--accent-brown)]' : 'invisible'}`} />
                           </button>
                         )
                       })
                     )}
+                    <div className="h-px bg-[var(--border-sidebar)]/60 my-0.5" />
                     <button
                       onClick={handleManageEndpoints}
-                      className="w-full px-2 pt-0.5 pb-1 text-center text-[10.5px] text-[var(--text-muted)] hover:text-[var(--text-heading)] transition-colors cursor-pointer"
+                      className="w-full flex items-center px-2.5 py-1.5 rounded-[8px] text-[11px] text-[var(--text-secondary)] hover:bg-[var(--border-sidebar)]/40 transition-colors cursor-pointer"
                     >
-                      Manage endpoints
+                      <span className="font-sans font-medium">Manage endpoints</span>
                     </button>
                   </div>
                 )}

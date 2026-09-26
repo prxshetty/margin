@@ -14,6 +14,7 @@ export interface AppSettings {
     model: string
     context_window?: number
     is_thinking?: boolean
+    supports_vision?: boolean
     custom_thinking_tags?: Array<{ open: string; close: string }>
   }>
   default_context_window?: number
