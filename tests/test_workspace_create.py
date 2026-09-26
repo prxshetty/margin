@@ -186,7 +186,7 @@ class TestWorkspaceCreate(unittest.TestCase):
         self.assertEqual(res.status_code, 400)
         self.assertIn("not allowed", res.json()["detail"])
 
-    def test_api_create_workspace_non_empty_dir_rejected_without_force(self):
+    def test_api_create_workspace_non_empty_dir_rejected(self):
         client = TestClient(app)
         non_empty = os.path.join(self.temp_dir, "non_empty_dir")
         os.makedirs(non_empty, exist_ok=True)
@@ -194,25 +194,107 @@ class TestWorkspaceCreate(unittest.TestCase):
 
         res = client.post(
             "/api/workspace/create",
-            json={"path": non_empty, "init_git": False, "force": False}
+            json={"path": non_empty, "init_git": False}
         )
         self.assertEqual(res.status_code, 400)
         self.assertIn("not empty", res.json()["detail"])
 
-    def test_api_create_workspace_non_empty_dir_allowed_with_force(self):
-        client = TestClient(app)
-        non_empty = os.path.join(self.temp_dir, "non_empty_force")
-        os.makedirs(non_empty, exist_ok=True)
-        Path(non_empty, "existing.txt").write_text("hello", encoding="utf-8")
+    def test_create_workspace_symlink_rejected(self):
+        real_dir = os.path.join(self.temp_dir, "real_dir")
+        os.makedirs(real_dir, exist_ok=True)
+        symlink_target = os.path.join(self.temp_dir, "symlink_dir")
+        try:
+            os.symlink(real_dir, symlink_target)
+        except OSError:
+            self.skipTest("Symlinks not supported / privileges not held on this system")
 
+        with self.assertRaises(ValueError) as ctx:
+            self.storage.create_workspace(target_path=symlink_target, init_git=False)
+        self.assertIn("Symlink paths are not allowed", str(ctx.exception))
+
+    def test_api_create_workspace_symlink_rejected(self):
+        real_dir = os.path.join(self.temp_dir, "real_dir_api")
+        os.makedirs(real_dir, exist_ok=True)
+        symlink_target = os.path.join(self.temp_dir, "symlink_dir_api")
+        try:
+            os.symlink(real_dir, symlink_target)
+        except OSError:
+            self.skipTest("Symlinks not supported / privileges not held on this system")
+
+        client = TestClient(app)
         res = client.post(
             "/api/workspace/create",
-            json={"path": non_empty, "init_git": False, "force": True, "set_as_active": False}
+            json={"path": symlink_target, "init_git": False}
         )
-        self.assertEqual(res.status_code, 200)
-        data = res.json()
-        self.assertTrue(data["success"])
-        self.assertTrue(os.path.exists(os.path.join(non_empty, "chapters", "CHAPTERS.md")))
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("Symlink paths are not allowed", res.json()["detail"])
+
+    def test_api_create_workspace_root_directory_rejected(self):
+        client = TestClient(app)
+        # Test home root
+        res = client.post(
+            "/api/workspace/create",
+            json={"path": str(Path.home()), "init_git": False}
+        )
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("Root directories and home directory root cannot be used", res.json()["detail"])
+
+        # Test filesystem root
+        root_path = Path(self.temp_dir).anchor
+        res = client.post(
+            "/api/workspace/create",
+            json={"path": root_path, "init_git": False}
+        )
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("Root directories and home directory root cannot be used", res.json()["detail"])
+
+    def test_create_workspace_allows_dir_with_existing_git_or_ds_store(self):
+        target = os.path.join(self.temp_dir, "workspace_with_ds_store")
+        os.makedirs(target, exist_ok=True)
+        Path(target, ".DS_Store").write_bytes(b"")
+
+        res = self.storage.create_workspace(target_path=target, init_git=False)
+        self.assertTrue(res["success"])
+        self.assertTrue((Path(target) / "chapters" / "CHAPTERS.md").is_file())
+
+        client = TestClient(app)
+        api_target = os.path.join(self.temp_dir, "workspace_api_ds_store")
+        os.makedirs(api_target, exist_ok=True)
+        Path(api_target, ".DS_Store").write_bytes(b"")
+
+        api_res = client.post(
+            "/api/workspace/create",
+            json={"path": api_target, "init_git": False, "set_as_active": False}
+        )
+        self.assertEqual(api_res.status_code, 200)
+        self.assertTrue(api_res.json()["success"])
+
+    def test_git_commit_failure_records_error(self):
+        git_check = is_git_available()
+        if not git_check["available"]:
+            self.skipTest("Git not available")
+
+        target = os.path.join(self.temp_dir, "commit_failure_repo")
+        real_run = subprocess.run
+
+        def fake_run(cmd, *args, **kwargs):
+            if isinstance(cmd, list) and "commit" in cmd:
+                return subprocess.CompletedProcess(
+                    args=cmd,
+                    returncode=1,
+                    stdout="",
+                    stderr="Author identity unknown\n",
+                )
+            return real_run(cmd, *args, **kwargs)
+
+        with mock.patch("api.services.file_storage.subprocess.run", side_effect=fake_run):
+            res = self.storage.create_workspace(target_path=target, init_git=True)
+
+        self.assertTrue(res["success"])
+        self.assertTrue(res["git"]["initialized"])
+        self.assertFalse(res["git"]["committed"])
+        self.assertIsNotNone(res["git"]["error"])
+        self.assertIn("Author identity unknown", res["git"]["error"])
 
 
 class TestFolderPickerFallback(unittest.TestCase):

@@ -227,12 +227,15 @@ class FileStorageService:
 
     def _load_manifest(self, manifest_rel_path: str) -> Dict[str, str]:
         # Accept both forward and OS-native slashes
-        manifest_path = self.workspace_dir / Path(manifest_rel_path)
+        try:
+            manifest_path = self._safe_resolve(manifest_rel_path)
+        except (ValueError, OSError):
+            return {}
         if not manifest_path.exists():
             return {}
         try:
             content = manifest_path.read_text(encoding="utf-8")
-        except Exception:
+        except OSError:
             return {}
         mapping = {}
         for line in content.splitlines():
@@ -321,19 +324,14 @@ class FileStorageService:
         if "/" in name or "\\" in name or name.startswith(".") or ".." in name:
             raise ValueError("Invalid file name")
 
-        target_dir = (self.workspace_dir / folder).resolve()
-        try:
-            target_dir.relative_to(self.workspace_dir.resolve())
-        except ValueError:
-            raise ValueError("Access denied")
+        rel_path = f"{folder}/{name}"  # always posix-style
+        target_path = self._safe_resolve(rel_path)
 
-        target_dir.mkdir(parents=True, exist_ok=True)
-        target_path = target_dir / name
+        target_path.parent.mkdir(parents=True, exist_ok=True)
         if target_path.exists():
             raise FileExistsError(f"File already exists: {folder}/{name}")
 
         target_path.write_text(content or "", encoding="utf-8")
-        rel_path = f"{folder}/{name}"  # always posix-style
 
         return {"name": name, "path": rel_path, "content": content or ""}
 
@@ -575,77 +573,126 @@ class FileStorageService:
         except Exception as e:
             print(f"Failed to clear harness session mapping: {e}")
 
-    def create_workspace(
-        self,
-        target_path: str,
-        init_git: bool = False,
-    ) -> Dict[str, Any]:
-        """Scaffold a new workspace directory.
+    def _validate_workspace_path(self, target_path: str) -> Path:
+        raw = (target_path or "").strip()
+        if not raw:
+            raise ValueError("Workspace path is required")
 
-        update_settings() is intentionally NOT called here — the caller
-        (router) links the workspace after confirming success, so a git
-        failure cannot leave the app pointed at a half-built workspace.
-        """
-        path_obj = Path(target_path).expanduser().resolve()
-        if any(part.startswith(".") for part in path_obj.parts):
+        path_input = Path(raw).expanduser()
+        if not path_input.is_absolute():
+            raise ValueError("Workspace path must be an absolute path")
+
+        # Check for symlinks
+        if path_input.is_symlink() or any(p.is_symlink() for p in path_input.parents):
+            raise ValueError("Symlink paths are not allowed as workspace locations")
+
+        path_obj = path_input.resolve()
+
+        # Check dot directory name
+        if path_obj.name.startswith("."):
             raise ValueError("The selected path is not allowed as a workspace location.")
 
-        # Create root workspace directory if it doesn't exist
+        # Check against sensitive prefixes with case-insensitivity support
+        for blocked in _SENSITIVE_PATH_PREFIXES:
+            try:
+                blocked_resolved = blocked.expanduser().resolve()
+            except (ValueError, OSError):
+                continue  # Can't resolve this blocked prefix — skip it safely
+            p_check = str(path_obj).lower() if sys.platform in ("win32", "darwin") else str(path_obj)
+            b_check = str(blocked_resolved).lower() if sys.platform in ("win32", "darwin") else str(blocked_resolved)
+            sep = "\\" if sys.platform == "win32" else "/"
+            if p_check == b_check or p_check.startswith(b_check.rstrip("/\\") + sep):
+                raise ValueError("The selected path is not allowed as a workspace location.")
+
+        # Check root paths (e.g. C:\, /, or user home itself)
+        p_str = str(path_obj).lower() if sys.platform in ("win32", "darwin") else str(path_obj)
+        h_str = str(Path.home().resolve()).lower() if sys.platform in ("win32", "darwin") else str(Path.home().resolve())
+        if path_obj == path_obj.parent or p_str == h_str:
+            raise ValueError("Root directories and home directory root cannot be used as a workspace.")
+
+        # Require empty-or-new
+        if path_obj.exists():
+            if not path_obj.is_dir():
+                raise ValueError("Workspace path must be a directory")
+            contents = [p for p in path_obj.iterdir() if p.name not in (".git", ".DS_Store", "Thumbs.db")]
+            if contents:
+                raise ValueError("The selected directory is not empty. Please select an empty directory or specify a new folder name.")
+
+        return path_obj
+
+    def _scaffold_workspace_directories(self, path_obj: Path):
         path_obj.mkdir(parents=True, exist_ok=True)
+        for folder in ("chapters", "characters", "styles", "prompts", "outputs", "assets"):
+            (path_obj / folder).mkdir(parents=True, exist_ok=True)
 
-        # Subdirectories
-        chapters_dir = path_obj / "chapters"
-        characters_dir = path_obj / "characters"
-        styles_dir = path_obj / "styles"
-        prompts_dir = path_obj / "prompts"
-        outputs_dir = path_obj / "outputs"
-        assets_dir = path_obj / "assets"
-
-        chapters_dir.mkdir(parents=True, exist_ok=True)
-        characters_dir.mkdir(parents=True, exist_ok=True)
-        styles_dir.mkdir(parents=True, exist_ok=True)
-        prompts_dir.mkdir(parents=True, exist_ok=True)
-        outputs_dir.mkdir(parents=True, exist_ok=True)
-        assets_dir.mkdir(parents=True, exist_ok=True)
-
+    def _scaffold_initial_documents(self, path_obj: Path):
         # 1. Chapters
+        chapters_dir = path_obj / "chapters"
         chapters_manifest = chapters_dir / "CHAPTERS.md"
         if not chapters_manifest.exists():
             chapters_manifest.write_text(
                 "- chapter-1.md — Chapter 1: Introduction. Opening scene.\n",
-                encoding="utf-8"
+                encoding="utf-8",
             )
         chapter_1 = chapters_dir / "chapter-1.md"
         if not chapter_1.exists():
             chapter_1.write_text(
                 "# Chapter 1\n\nBegin drafting your opening chapter here.\n",
-                encoding="utf-8"
+                encoding="utf-8",
             )
 
         # 2. Characters
+        characters_dir = path_obj / "characters"
         characters_manifest = characters_dir / "CHARACTERS.md"
         if not characters_manifest.exists():
             characters_manifest.write_text(
                 "- protagonist.md — Protagonist: Main character overview and motivations.\n",
-                encoding="utf-8"
+                encoding="utf-8",
             )
         protagonist = characters_dir / "protagonist.md"
         if not protagonist.exists():
             protagonist.write_text(
                 "# Protagonist\n\n## Overview\nMain character description, background, and motivation.\n\n## Key Traits\n- **Goal:** Core driving objective.\n- **Conflict:** Internal and external obstacles.\n",
-                encoding="utf-8"
+                encoding="utf-8",
             )
 
         # 3. Styles
+        styles_dir = path_obj / "styles"
         styles_manifest = styles_dir / "STYLES.md"
         if not styles_manifest.exists():
             styles_manifest.write_text(
                 "- general — General-purpose scene writing with balanced narration and action\n"
                 "- cinematic — Full cinematic scene — narration sets the atmosphere, dialogue drives the conflict\n"
                 "- superman — Heroic, inspirational tone — characters rising to meet impossible odds with dramatic, cinematic prose\n",
-                encoding="utf-8"
+                encoding="utf-8",
+            )
+        self._write_default_styles(styles_dir)
+
+        # 4. Prompts
+        sample_prompts_dir = self.base_dir / "prompts"
+        prompts_dir = path_obj / "prompts"
+        if sample_prompts_dir.exists():
+            for p_file in sample_prompts_dir.glob("*.md"):
+                dest = prompts_dir / p_file.name
+                if not dest.exists():
+                    try:
+                        shutil.copy2(p_file, dest)
+                    except OSError:
+                        pass
+
+        # 5. Story State
+        story_state_file = path_obj / "story_state.yaml"
+        if not story_state_file.exists():
+            story_state_file.write_text(
+                "# Story State & Continuity Tracking\n"
+                "current_chapter: \"chapter-1.md\"\n"
+                "timeline: []\n"
+                "key_items: []\n"
+                "notes: \"Project workspace initialized.\"\n",
+                encoding="utf-8",
             )
 
+    def _write_default_styles(self, styles_dir: Path):
         sample_styles_dir = self.base_dir / "sample-workspace" / "styles"
         default_styles = {
             "general.md": (
@@ -696,7 +743,7 @@ class FileStorageService:
                 "- Resonant, direct, and principled\n"
                 "- Speech inspires hope and resolve in others\n"
                 "- Quiet convictions delivered with calm certainty\n"
-            )
+            ),
         }
         for style_name, style_content in default_styles.items():
             style_file = styles_dir / style_name
@@ -705,35 +752,12 @@ class FileStorageService:
                 if src_file.exists():
                     try:
                         shutil.copy2(src_file, style_file)
-                    except Exception:
+                    except OSError:
                         style_file.write_text(style_content, encoding="utf-8")
                 else:
                     style_file.write_text(style_content, encoding="utf-8")
 
-        # 4. Prompts
-        sample_prompts_dir = self.base_dir / "prompts"
-        if sample_prompts_dir.exists():
-            for p_file in sample_prompts_dir.glob("*.md"):
-                dest = prompts_dir / p_file.name
-                if not dest.exists():
-                    try:
-                        shutil.copy2(p_file, dest)
-                    except Exception:
-                        pass
-
-        # 5. Story State
-        story_state_file = path_obj / "story_state.yaml"
-        if not story_state_file.exists():
-            story_state_file.write_text(
-                "# Story State & Continuity Tracking\n"
-                "current_chapter: \"chapter-1.md\"\n"
-                "timeline: []\n"
-                "key_items: []\n"
-                "notes: \"Project workspace initialized.\"\n",
-                encoding="utf-8"
-            )
-
-        # 6. Git initialization
+    def _init_workspace_git(self, path_obj: Path) -> Dict[str, Any]:
         git_info: Dict[str, Any] = {
             "initialized": False,
             "committed": False,
@@ -741,88 +765,127 @@ class FileStorageService:
             "git_parent": None,
             "error": None,
         }
-        if init_git:
-            git_check = is_git_available()
-            if not git_check["available"]:
-                git_info["error"] = "Git is not installed or not available in PATH."
-            else:
-                git_bin = shutil.which("git") or "git"
-                # Detect if target is already inside a git work tree to avoid embedded repos
+        git_check = is_git_available()
+        if not git_check["available"]:
+            git_info["error"] = "Git is not installed or not available in PATH."
+            return git_info
+
+        git_bin = shutil.which("git") or "git"
+        # Detect if target is already inside a git work tree to avoid embedded repos
+        try:
+            res_toplevel = subprocess.run(
+                [git_bin, "rev-parse", "--show-toplevel"],
+                cwd=str(path_obj),
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if res_toplevel.returncode == 0:
+                git_info["already_tracked"] = True
+                git_info["git_parent"] = res_toplevel.stdout.strip()
+                return git_info
+        except (subprocess.SubprocessError, OSError):
+            pass
+
+        # Write .gitignore before init if it doesn't already exist
+        gitignore_file = path_obj / ".gitignore"
+        if not gitignore_file.exists():
+            gitignore_file.write_text(
+                "outputs/\n"
+                ".margin-shadow/\n"
+                ".DS_Store\n"
+                "Thumbs.db\n"
+                "*.tmp\n"
+                "*.log\n",
+                encoding="utf-8",
+            )
+
+        try:
+            res_init = subprocess.run(
+                [git_bin, "init", "-b", "main"],
+                cwd=str(path_obj),
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if res_init.returncode != 0:
+                # Fallback for git versions < 2.28
+                subprocess.run(
+                    [git_bin, "init"],
+                    cwd=str(path_obj),
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=True,
+                )
                 try:
-                    res_toplevel = subprocess.run(
-                        [git_bin, "rev-parse", "--show-toplevel"],
+                    subprocess.run(
+                        [git_bin, "symbolic-ref", "HEAD", "refs/heads/main"],
                         cwd=str(path_obj),
                         capture_output=True,
                         text=True,
                         timeout=5,
                     )
-                    if res_toplevel.returncode == 0:
-                        # Already inside a git work tree — skip init entirely
-                        git_info["already_tracked"] = True
-                        git_info["git_parent"] = res_toplevel.stdout.strip()
-                        return {
-                            "success": True,
-                            "path": str(path_obj),
-                            "git": git_info,
-                        }
-                except Exception:
-                    # rev-parse failed → fresh directory, safe to init
+                except (subprocess.SubprocessError, OSError):
                     pass
+            git_info["initialized"] = True
+        except (subprocess.SubprocessError, OSError) as e:
+            git_info["error"] = f"git init failed: {e}"
 
-                # Always write/overwrite .gitignore before init
-                gitignore_file = path_obj / ".gitignore"
-                gitignore_file.write_text(
-                    "outputs/\n"
-                    ".DS_Store\n"
-                    "Thumbs.db\n"
-                    "*.tmp\n"
-                    "*.log\n",
-                    encoding="utf-8"
+        if git_info["initialized"]:
+            try:
+                subprocess.run(
+                    [git_bin, "add", "--", "."],
+                    cwd=str(path_obj),
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=True,
                 )
-                try:
-                    subprocess.run(
-                        [git_bin, "init"],
-                        cwd=str(path_obj),
-                        capture_output=True,
-                        text=True,
-                        timeout=10,
-                        check=True,
-                    )
-                    git_info["initialized"] = True
-                except Exception as e:
-                    git_info["error"] = "git init failed."
+                res_commit = subprocess.run(
+                    [
+                        git_bin,
+                        "-c", "user.name=Margin",
+                        "-c", "user.email=margin@local",
+                        "commit",
+                        "-m", "Initial workspace scaffold",
+                    ],
+                    cwd=str(path_obj),
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                if res_commit.returncode == 0:
+                    git_info["committed"] = True
+                else:
+                    git_info["committed"] = False
+                    stderr = res_commit.stderr.strip()
+                    git_info["error"] = f"Initial commit failed: {stderr}" if stderr else "Initial commit failed."
+            except subprocess.TimeoutExpired:
+                git_info["committed"] = False
+                git_info["error"] = "Git commit timed out."
+            except (subprocess.SubprocessError, OSError) as e:
+                git_info["committed"] = False
+                git_info["error"] = f"git add/commit failed: {e}"
 
-                if git_info["initialized"]:
-                    # git add + initial commit — non-fatal (missing user.name/email is common)
-                    try:
-                        subprocess.run(
-                            [git_bin, "add", "."],
-                            cwd=str(path_obj),
-                            capture_output=True,
-                            text=True,
-                            timeout=10,
-                            check=True,
-                        )
-                        res_commit = subprocess.run(
-                            [git_bin, "commit", "-m", "Initial workspace scaffold"],
-                            cwd=str(path_obj),
-                            capture_output=True,
-                            text=True,
-                            timeout=10,
-                        )
-                        if res_commit.returncode == 0:
-                            git_info["committed"] = True
-                        else:
-                            git_info["committed"] = False
-                            stderr = res_commit.stderr.strip()
-                            git_info["error"] = (
-                                "Initial commit failed — Git user identity not configured. "
-                                "Run: git config --global user.name / user.email"
-                            ) if "user" in stderr.lower() else "Initial commit failed."
-                    except Exception:
-                        git_info["committed"] = False
-                        git_info["error"] = "git add/commit failed."
+        return git_info
 
+    def create_workspace(
+        self,
+        target_path: str,
+        init_git: bool = False,
+    ) -> Dict[str, Any]:
+        """Scaffold a new workspace directory."""
+        path_obj = self._validate_workspace_path(target_path)
+        self._scaffold_workspace_directories(path_obj)
+        self._scaffold_initial_documents(path_obj)
+        git_info = self._init_workspace_git(path_obj) if init_git else {
+            "initialized": False,
+            "committed": False,
+            "already_tracked": False,
+            "git_parent": None,
+            "error": None,
+        }
         return {
             "success": True,
             "path": str(path_obj),

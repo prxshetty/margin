@@ -192,7 +192,11 @@ function GeneralSettings({ settings, updateSettings }: { settings: AppSettings, 
   ) => {
     setIsPicking(true)
     try {
-      const res = await fetch(`${API_BASE}/api/workspace/pick-folder`)
+      const res = await fetch(`${API_BASE}/api/workspace/pick-folder`, {
+        // 130 s = backend PICKER_TIMEOUT (120 s) + 10 s FastAPI overhead buffer.
+        // Keep in sync with api/routers/workspace.py PICKER_TIMEOUT.
+        signal: AbortSignal.timeout(130000),
+      })
       if (res.ok) {
         const data = await res.json()
         if (data.path) onPicked(data.path)
@@ -244,8 +248,8 @@ function GeneralSettings({ settings, updateSettings }: { settings: AppSettings, 
           path,
           init_git: initGit && gitAvailable === true,
           set_as_active: true,
-          force: false,
-        })
+        }),
+        signal: AbortSignal.timeout(15000),
       })
       const data = await res.json()
       if (res.ok && data.success) {
@@ -267,8 +271,9 @@ function GeneralSettings({ settings, updateSettings }: { settings: AppSettings, 
       } else {
         setCreateStatus({ type: 'error', message: data.detail || 'Failed to create workspace.' })
       }
-    } catch (err: any) {
-      setCreateStatus({ type: 'error', message: err?.message || 'Error connecting to server.' })
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Error connecting to server.'
+      setCreateStatus({ type: 'error', message })
     } finally {
       setIsCreating(false)
     }
