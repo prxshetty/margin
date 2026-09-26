@@ -7,6 +7,7 @@ import tempfile
 import time
 import subprocess
 import warnings
+from datetime import datetime, timezone, timedelta
 from pathlib import Path, PurePosixPath
 from typing import List, Optional, Dict, Any, Tuple
 
@@ -304,6 +305,31 @@ except ImportError:
 def _posix_rel(path: Path, base: Path) -> str:
     """Return a forward-slash relative path string, safe on all platforms."""
     return path.relative_to(base).as_posix()
+
+
+def _parse_log_time(value: Any) -> Optional[datetime]:
+    """Normalize a log timestamp to UTC; None when missing or unparsable."""
+    try:
+        parsed = datetime.fromisoformat(str(value or ""))
+    except Exception:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _is_manifest_file(path: str) -> bool:
+    """True for scaffold manifests like chapters/CHAPTERS.md.
+
+    A manifest is an .md file whose stem matches its parent folder name
+    (case-insensitive). Root-level files never count as manifests.
+    """
+    parts = Path(path)
+    return (
+        parts.suffix.lower() == ".md"
+        and parts.parent.name != ""
+        and parts.stem.upper() == parts.parent.name.upper()
+    )
 
 
 # Image assets live alongside documents as first-class workspace resources:
@@ -817,15 +843,20 @@ class FileStorageService:
             files = self.list_input_files()
         except Exception:
             files = []
-        markdown_files = sum(
-            1 for f in files
+        content_files = [
+            f for f in files
             if isinstance(f, dict)
             and not str(f.get("path", "")).startswith("styles/")
-        )
+            and not _is_manifest_file(str(f.get("path", "")))
+        ]
+        markdown_files = len(content_files)
 
         prompt_tokens = 0
         completion_tokens = 0
         chat_sessions = 0
+        chat_days: Dict[str, int] = {}
+        image_days: Dict[str, int] = {}
+        latest: Optional[datetime] = None
         logs_dir = self.outputs_dir / "ai_logs"
         if logs_dir.exists():
             for session_file in logs_dir.glob("*.json"):
@@ -846,12 +877,51 @@ class FileStorageService:
                         completion_tokens += int(entry.get("completion_tokens") or 0)
                     except Exception:
                         continue
+                    stamped = _parse_log_time(entry.get("timestamp"))
+                    if stamped is not None:
+                        day = stamped.date().isoformat()
+                        chat_days[day] = chat_days.get(day, 0) + 1
+                        if latest is None or stamped > latest:
+                            latest = stamped
+
+        image_logs = self.get_image_logs()
+        for entry in image_logs:
+            stamped = _parse_log_time(entry.get("timestamp")) if isinstance(entry, dict) else None
+            if stamped is not None:
+                day = stamped.date().isoformat()
+                image_days[day] = image_days.get(day, 0) + 1
+                if latest is None or stamped > latest:
+                    latest = stamped
+
+        for f in content_files:
+            try:
+                mtime = datetime.fromtimestamp(
+                    (self.workspace_dir / str(f.get("path", ""))).stat().st_mtime,
+                    tz=timezone.utc,
+                )
+            except Exception:
+                continue
+            if latest is None or mtime > latest:
+                latest = mtime
+
+        today = datetime.now(timezone.utc).date()
+        activity = []
+        for back in range(13, -1, -1):
+            day = (today - timedelta(days=back)).isoformat()
+            activity.append({
+                "date": day,
+                "chats": chat_days.get(day, 0),
+                "images": image_days.get(day, 0),
+            })
 
         return {
             "markdown_files": markdown_files,
             "chat_sessions": chat_sessions,
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
+            "images_generated": len(image_logs),
+            "last_activity": latest.isoformat() if latest is not None else None,
+            "activity": activity,
         }
 
     def clear_simple_ai_logs(self) -> None:

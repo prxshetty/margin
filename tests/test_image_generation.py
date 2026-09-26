@@ -65,6 +65,7 @@ def _storage():
     tmp = tempfile.mkdtemp()
     svc = FileStorageService(base_dir=tmp)
     svc.workspace_dir = Path(tmp)
+    svc.outputs_dir = Path(tmp) / "outputs"
     return svc
 
 

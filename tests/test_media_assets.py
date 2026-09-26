@@ -16,6 +16,7 @@ def _storage():
     svc = FileStorageService(base_dir=tmp)
     # Point the workspace at the tmp dir so tests don't touch the repo.
     svc.workspace_dir = Path(tmp)
+    svc.outputs_dir = Path(tmp) / "outputs"
     return svc
 
 

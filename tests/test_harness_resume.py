@@ -122,6 +122,10 @@ class TestHarnessSessionMap(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.storage = FileStorageService(base_dir=self.tmp.name)
+        # Isolate settings so load_settings() never follows the developer's
+        # real linked workspace — otherwise these tests read/write it.
+        self.storage.settings_path = Path(self.tmp.name) / "settings.json"
+        self.storage.load_settings()
 
     def tearDown(self):
         self.tmp.cleanup()

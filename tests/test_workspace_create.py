@@ -616,12 +616,26 @@ class TestWorkspaceStats(unittest.TestCase):
 
     def test_empty_workspace_zeros(self):
         stats = self.storage.get_workspace_stats()
-        self.assertEqual(stats, {"markdown_files": 0, "chat_sessions": 0, "prompt_tokens": 0, "completion_tokens": 0})
+        self.assertEqual(stats["markdown_files"], 0)
+        self.assertEqual(stats["chat_sessions"], 0)
+        self.assertEqual(stats["prompt_tokens"], 0)
+        self.assertEqual(stats["completion_tokens"], 0)
+        self.assertEqual(stats["images_generated"], 0)
+        self.assertIsNone(stats["last_activity"])
+        self.assertEqual(len(stats["activity"]), 14)
+        self.assertTrue(all(d["chats"] == 0 and d["images"] == 0 for d in stats["activity"]))
 
     def test_counts_exclude_styles(self):
         self.storage.create_input_file("chapters", "ch1.md", "# Ch 1")
         self.storage.create_input_file("characters", "hero.md", "# Hero")
         self.storage.create_input_file("styles", "noir.md", "## Style")
+        stats = self.storage.get_workspace_stats()
+        self.assertEqual(stats["markdown_files"], 2)
+
+    def test_counts_exclude_manifests(self):
+        self.storage.create_input_file("chapters", "CHAPTERS.md", "# Chapters")
+        self.storage.create_input_file("chapters", "ch1.md", "# Ch 1")
+        self.storage.create_input_file("", "NOTES.md", "# Notes")
         stats = self.storage.get_workspace_stats()
         self.assertEqual(stats["markdown_files"], 2)
 
@@ -654,6 +668,25 @@ class TestWorkspaceStats(unittest.TestCase):
         data = res.json()
         self.assertTrue(data["success"])
         self.assertEqual(data["stats"]["markdown_files"], 1)
+
+    def test_images_and_last_activity(self):
+        from datetime import datetime, timezone
+        earlier = "2026-01-02T10:00:00+00:00"
+        later = datetime.now(timezone.utc).isoformat()
+        self.storage.save_simple_ai_log({"session_id": "s1", "mode": "chat", "timestamp": earlier})
+        self.storage.save_image_log({"timestamp": later, "prompt": "x", "path": "assets/generated/x.png"})
+        stats = self.storage.get_workspace_stats()
+        self.assertEqual(stats["images_generated"], 1)
+        self.assertEqual(stats["last_activity"], later)
+        today = datetime.now(timezone.utc).date().isoformat()
+        today_bucket = next(d for d in stats["activity"] if d["date"] == today)
+        self.assertEqual(today_bucket["images"], 1)
+        self.assertEqual(len(stats["activity"]), 14)
+
+    def test_file_write_counts_as_activity(self):
+        self.storage.create_input_file("chapters", "ch1.md", "# Ch 1")
+        stats = self.storage.get_workspace_stats()
+        self.assertIsNotNone(stats["last_activity"])
 
 
 class TestFolderOps(unittest.TestCase):
