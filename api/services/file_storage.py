@@ -7,8 +7,41 @@ import tempfile
 import time
 import subprocess
 import warnings
+from datetime import datetime, timezone, timedelta
 from pathlib import Path, PurePosixPath
 from typing import List, Optional, Dict, Any, Tuple
+
+LEGACY_IMAGE_KEYS = ("image_provider", "image_base_url", "image_api_key", "image_model")
+
+
+def _migrate_image_endpoints(data: Dict[str, Any]) -> None:
+    """One-time migration: legacy singleton image keys -> image_endpoints.
+
+    Mutates the loaded settings dict in place. There is no runtime fallback:
+    the resolver only reads image_endpoints/active_image_endpoint.
+    Pristine defaults migrate to an empty list; a configured singleton
+    becomes a single entry named after its provider type.
+    """
+    if "image_endpoints" in data or "active_image_endpoint" in data:
+        for k in LEGACY_IMAGE_KEYS:
+            data.pop(k, None)
+        return
+    provider = str(data.get("image_provider") or "openai-compatible").strip().lower() or "openai-compatible"
+    base_url = str(data.get("image_base_url") or "").strip()
+    api_key = str(data.get("image_api_key") or "")
+    model = str(data.get("image_model") or "").strip()
+    if provider == "openai-compatible" and not base_url and not api_key and not model:
+        data["image_endpoints"] = {}
+        data["active_image_endpoint"] = None
+    else:
+        entry_id = provider.replace("-", "_") or "openai_compatible"
+        data["image_endpoints"] = {
+            entry_id: {"provider": provider, "base_url": base_url, "api_key": api_key, "model": model}
+        }
+        data["active_image_endpoint"] = entry_id
+    for k in LEGACY_IMAGE_KEYS:
+        data.pop(k, None)
+
 
 def is_git_available() -> Dict[str, Any]:
     git_bin = shutil.which("git")
@@ -21,6 +54,178 @@ def is_git_available() -> Dict[str, Any]:
     except Exception:
         pass
     return {"available": False, "version": None}
+
+
+def _init_git_repo(path_obj: Path) -> Dict[str, Any]:
+    """Initialize a Git repository at path_obj.
+
+    Narrowly responsible for Git concerns only: availability, work-tree
+    detection, init, .gitignore, stage, initial commit. Never raises for
+    expected Git failures — they are reported in the returned dict.
+
+    Returned git_info keys:
+      initialized     — `git init` succeeded in path_obj
+      committed       — initial "Initial workspace scaffold" commit succeeded
+      already_tracked — path is already inside a Git work tree; init skipped
+      git_parent      — work-tree toplevel when already_tracked
+      git_unavailable — Git is not installed / not in PATH
+      init_failed     — `git init` itself failed
+      error           — human-readable note, or None
+    """
+    git_info: Dict[str, Any] = {
+        "initialized": False,
+        "committed": False,
+        "already_tracked": False,
+        "git_parent": None,
+        "git_unavailable": False,
+        "init_failed": False,
+        "error": None,
+    }
+    git_check = is_git_available()
+    if not git_check["available"]:
+        git_info["git_unavailable"] = True
+        git_info["error"] = "Git is not installed or not available in PATH."
+        return git_info
+
+    git_bin = shutil.which("git") or "git"
+    # Detect if target is already inside a git work tree to avoid embedded repos
+    try:
+        res_toplevel = subprocess.run(
+            [git_bin, "rev-parse", "--show-toplevel"],
+            cwd=str(path_obj),
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if res_toplevel.returncode == 0:
+            # Already inside a git work tree — skip init entirely
+            git_info["already_tracked"] = True
+            git_info["git_parent"] = res_toplevel.stdout.strip()
+            return git_info
+    except Exception:
+        # rev-parse failed → fresh directory, safe to init
+        pass
+
+    # Always write/overwrite .gitignore before init
+    gitignore_file = path_obj / ".gitignore"
+    gitignore_file.write_text(
+        "outputs/\n"
+        ".DS_Store\n"
+        "Thumbs.db\n"
+        "*.tmp\n"
+        "*.log\n",
+        encoding="utf-8"
+    )
+    try:
+        subprocess.run(
+            [git_bin, "init"],
+            cwd=str(path_obj),
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
+        )
+        git_info["initialized"] = True
+    except Exception:
+        git_info["init_failed"] = True
+        git_info["error"] = "git init failed."
+        return git_info
+
+    # git add + initial commit — non-fatal (missing user.name/email is common).
+    # A failed commit never fails workspace setup; init success stands alone.
+    try:
+        subprocess.run(
+            [git_bin, "add", "."],
+            cwd=str(path_obj),
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
+        )
+        res_commit = subprocess.run(
+            [git_bin, "commit", "-m", "Initial workspace scaffold"],
+            cwd=str(path_obj),
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if res_commit.returncode == 0:
+            git_info["committed"] = True
+        else:
+            git_info["committed"] = False
+            stderr = res_commit.stderr.strip()
+            git_info["error"] = (
+                "Initial commit failed — Git user identity not configured. "
+                "Run: git config --global user.name / user.email"
+            ) if "user" in stderr.lower() else "Initial commit failed."
+    except Exception:
+        git_info["committed"] = False
+        git_info["error"] = "git add/commit failed."
+
+    return git_info
+
+
+def _is_subpath(target: Path, base: Path) -> bool:
+    try:
+        t_res = target.resolve()
+        b_res = base.resolve()
+        if sys.platform in ("win32", "darwin"):
+            t_res = Path(str(t_res).lower())
+            b_res = Path(str(b_res).lower())
+        return t_res == b_res or b_res in t_res.parents
+    except Exception:
+        return False
+
+
+def _validate_workspace_name(name: str) -> str:
+    cleaned = (name or "").strip()
+    if not cleaned:
+        raise ValueError("Workspace name is required.")
+    if cleaned in (".", "..") or "/" in cleaned or "\\" in cleaned or cleaned.startswith("."):
+        raise ValueError("Workspace name must be a single folder name without path separators.")
+    return cleaned
+
+
+def _resolve_workspace_create_target(parent_path: str, name: str) -> Path:
+    raw_parent = (parent_path or "").strip()
+    if not raw_parent:
+        raise ValueError("Parent workspace path is required.")
+
+    parent_input = Path(raw_parent).expanduser()
+    if not parent_input.is_absolute():
+        raise ValueError("Parent workspace path must be absolute.")
+    try:
+        parent_resolved = parent_input.resolve()
+    except Exception:
+        raise ValueError("Invalid parent workspace path.")
+
+    target = (parent_resolved / _validate_workspace_name(name)).resolve()
+    if any(part.startswith(".") for part in target.parts):
+        raise ValueError("The selected path is not allowed as a workspace location.")
+
+    for blocked in _SENSITIVE_PATH_PREFIXES:
+        try:
+            blocked_resolved = blocked.expanduser().resolve()
+        except Exception:
+            continue
+        if _is_subpath(target, blocked_resolved):
+            raise ValueError("The selected path is not allowed as a workspace location.")
+
+    if target == target.parent or target == Path.home().resolve():
+        raise ValueError("Root directories and home directory root cannot be used as a workspace.")
+
+    if not parent_resolved.exists() or not parent_resolved.is_dir():
+        raise ValueError("The selected parent directory does not exist.")
+
+    if target.exists():
+        if not target.is_dir():
+            raise ValueError("Workspace path must be a directory.")
+        try:
+            if any(target.iterdir()):
+                raise ValueError("The selected directory is not empty. Please select an empty directory or specify a new folder name.")
+        except OSError:
+            raise ValueError("Cannot inspect the selected directory.")
+    return target
 
 
 def get_sensitive_path_prefixes() -> List[Path]:
@@ -102,6 +307,31 @@ def _posix_rel(path: Path, base: Path) -> str:
     return path.relative_to(base).as_posix()
 
 
+def _parse_log_time(value: Any) -> Optional[datetime]:
+    """Normalize a log timestamp to UTC; None when missing or unparsable."""
+    try:
+        parsed = datetime.fromisoformat(str(value or ""))
+    except Exception:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _is_manifest_file(path: str) -> bool:
+    """True for scaffold manifests like chapters/CHAPTERS.md.
+
+    A manifest is an .md file whose stem matches its parent folder name
+    (case-insensitive). Root-level files never count as manifests.
+    """
+    parts = Path(path)
+    return (
+        parts.suffix.lower() == ".md"
+        and parts.parent.name != ""
+        and parts.stem.upper() == parts.parent.name.upper()
+    )
+
+
 # Image assets live alongside documents as first-class workspace resources:
 # Markdown stores `![alt](assets/<file> "caption")`, bytes live on disk.
 ALLOWED_IMAGE_EXTS = {"png", "jpg", "jpeg", "webp", "gif"}
@@ -176,6 +406,7 @@ class FileStorageService:
     def get_settings(self) -> Dict[str, Any]:
         settings = {
             "linked_workspace_dir": None,
+            "workspace_profiles": [],
             "is_thinking": True,
             "prepend_thinking_preamble": False,
             "dialogue_density": 0.5,
@@ -193,13 +424,29 @@ class FileStorageService:
             "text_style": "system",
             "editor_stats": "both",
             "planner_include_outline": False,
-            "history_turns": 5
+            "history_turns": 5,
+            "image_endpoints": {},
+            "active_image_endpoint": None,
+            "image_default_style": None,
+            "image_custom_styles": [],
+            "image_deleted_styles": [],
+            "image_style_overrides": {},
+            "image_comfy_text_workflow": None,
+            "image_comfy_text_prompt_map": None,
+            "image_comfy_text_seed_map": None,
+            "image_comfy_edit_workflow": None,
+            "image_comfy_edit_prompt_map": None,
+            "image_comfy_edit_image_map": None,
+            "image_comfy_edit_seed_map": None,
+            # Reserved for a future negative-prompt mapping; v1 ignores it.
+            "image_comfy_negative_map": None,
         }
 
         if self.settings_path.exists():
             try:
                 with open(self.settings_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
+                    _migrate_image_endpoints(data)
                     for k, v in data.items():
                         if k not in ("context_mode", "context_threshold_pct"):
                             settings[k] = v
@@ -212,6 +459,10 @@ class FileStorageService:
         merged = {**current, **updates}
         merged.pop("context_mode", None)
         merged.pop("context_threshold_pct", None)
+        # Legacy singleton image keys were migrated to image_endpoints;
+        # never persist them again.
+        for k in LEGACY_IMAGE_KEYS:
+            merged.pop(k, None)
 
         try:
             with open(self.settings_path, "w", encoding="utf-8") as f:
@@ -274,6 +525,15 @@ class FileStorageService:
                         desc = manifest.get(f.name, "")
                         break
                 files.append({"name": f.name, "path": rel_path, "description": desc})
+        # Root-level markdown files (workspace root is a valid location).
+        if self.workspace_dir.exists():
+            for item in self.workspace_dir.iterdir():
+                if (
+                    item.is_file()
+                    and item.suffix.lower() == ".md"
+                    and not item.name.startswith(".")
+                ):
+                    files.append({"name": item.name, "path": item.name, "description": ""})
         files.sort(key=lambda f: f["path"])
         return files
 
@@ -309,8 +569,9 @@ class FileStorageService:
         return full_path.read_text(encoding="utf-8")
 
     def create_input_file(self, folder: str, name: str, content: str = "") -> Dict[str, str]:
-        folder = folder.strip("/")
-        if not folder or folder.startswith(".") or ".." in folder or folder.split("/")[0] == "outputs":
+        folder = (folder or "").strip("/")
+        # Empty folder == workspace root, which is a valid location.
+        if folder.startswith(".") or ".." in folder or folder.split("/")[0] == "outputs":
             raise ValueError("Invalid folder name")
 
         name = (name or "").strip()
@@ -330,10 +591,10 @@ class FileStorageService:
         target_dir.mkdir(parents=True, exist_ok=True)
         target_path = target_dir / name
         if target_path.exists():
-            raise FileExistsError(f"File already exists: {folder}/{name}")
+            raise FileExistsError(f"File already exists: {folder + '/' if folder else ''}{name}")
 
         target_path.write_text(content or "", encoding="utf-8")
-        rel_path = f"{folder}/{name}"  # always posix-style
+        rel_path = f"{folder}/{name}" if folder else name  # always posix-style
 
         return {"name": name, "path": rel_path, "content": content or ""}
 
@@ -383,8 +644,51 @@ class FileStorageService:
             "path": _posix_rel(new_path, self.workspace_dir.resolve()),
         }
 
+    def rename_folder(self, path: str, new_name: str) -> Dict[str, str]:
+        """Rename a workspace folder (contents move with it)."""
+        old_path = self._safe_resolve(path)
+        if not old_path.exists() or not old_path.is_dir():
+            raise FileNotFoundError(f"Folder not found: {path}")
+
+        new_name = (new_name or "").strip().lower().replace(" ", "_")
+        if not new_name:
+            raise ValueError("New folder name is required")
+        if "/" in new_name or "\\" in new_name or new_name.startswith(".") or ".." in new_name:
+            raise ValueError("Invalid folder name")
+        if not re.fullmatch(r"[a-z0-9_-]+", new_name):
+            raise ValueError("Invalid folder name")
+        if new_name == old_path.name:
+            return {
+                "name": old_path.name,
+                "path": _posix_rel(old_path, self.workspace_dir.resolve()),
+            }
+
+        new_path = old_path.with_name(new_name)
+        if new_path.exists():
+            raise FileExistsError(f"Folder already exists: {_posix_rel(new_path, self.workspace_dir.resolve())}")
+        old_path.rename(new_path)
+
+        return {
+            "name": new_path.name,
+            "path": _posix_rel(new_path, self.workspace_dir.resolve()),
+        }
+
+    def delete_folder(self, path: str) -> bool:
+        """Recursively delete a workspace folder and everything inside it."""
+        full_path = self._safe_resolve(path)
+        if not full_path.exists() or not full_path.is_dir():
+            raise FileNotFoundError(f"Folder not found: {path}")
+        shutil.rmtree(full_path)
+        return True
+
     def _media_dir(self) -> Path:
         d = self.workspace_dir / "assets"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def generated_dir(self) -> Path:
+        """Workspace assets/generated/ folder (created on demand)."""
+        d = self._media_dir() / "generated"
         d.mkdir(parents=True, exist_ok=True)
         return d
 
@@ -459,6 +763,37 @@ class FileStorageService:
         ext = full.suffix.lower().lstrip(".")
         return full, EXT_TO_MIME.get(ext, "application/octet-stream")
 
+    def save_generated_bytes(self, data: bytes,
+                             content_type: str = "") -> Dict[str, str]:
+        """Persist provider-generated image bytes to assets/generated/.
+
+        Separate from the upload path on purpose: uploads slugify the
+        user's filename into assets/, while generations use opaque ids
+        (prompts are long, unicode, often duplicated — never filesystem
+        metadata). Never overwrites: uuid4 collision retries.
+        Validates magic bytes the same way uploads do.
+        """
+        import uuid
+
+        if not data:
+            raise ValueError("Empty file")
+        sniffed = _sniff_image_ext(data[:12])
+        if sniffed is None:
+            raise ValueError("Not a supported image (png, jpg, webp, gif)")
+        ext = "jpg" if sniffed in ("jpg", "jpeg") else sniffed
+        if content_type:
+            main = content_type.split(";")[0].strip().lower()
+            if main.startswith("image/") and main != EXT_TO_MIME[ext]:
+                pass  # bytes win, same as uploads
+        gen_dir = self.generated_dir()
+        for _ in range(5):
+            fname = f"{uuid.uuid4().hex}.{ext}"
+            target = gen_dir / fname
+            if not target.exists():
+                target.write_bytes(data)
+                return {"name": fname, "path": f"assets/generated/{fname}"}
+        raise ValueError("Could not allocate a generated asset name")
+
     def get_simple_ai_logs(self) -> list:
         logs_dir = self.outputs_dir / "ai_logs"
         all_logs = []
@@ -496,6 +831,99 @@ class FileStorageService:
         except Exception:
             pass
 
+    def get_workspace_stats(self) -> Dict[str, Any]:
+        """Aggregate stats for the active workspace.
+
+        Token totals come from each ai_logs entry exactly once
+        (prompt_tokens + completion_tokens per entry — total_tokens is
+        never mixed in, so nothing is double-counted).
+        """
+        files = []
+        try:
+            files = self.list_input_files()
+        except Exception:
+            files = []
+        content_files = [
+            f for f in files
+            if isinstance(f, dict)
+            and not str(f.get("path", "")).startswith("styles/")
+            and not _is_manifest_file(str(f.get("path", "")))
+        ]
+        markdown_files = len(content_files)
+
+        prompt_tokens = 0
+        completion_tokens = 0
+        chat_sessions = 0
+        chat_days: Dict[str, int] = {}
+        image_days: Dict[str, int] = {}
+        latest: Optional[datetime] = None
+        logs_dir = self.outputs_dir / "ai_logs"
+        if logs_dir.exists():
+            for session_file in logs_dir.glob("*.json"):
+                try:
+                    with open(session_file, "r", encoding="utf-8") as fh:
+                        session_logs = json.load(fh)
+                except Exception:
+                    continue
+                if not isinstance(session_logs, list):
+                    continue
+                # One session file == one chat session by design.
+                chat_sessions += 1
+                for entry in session_logs:
+                    if not isinstance(entry, dict):
+                        continue
+                    try:
+                        prompt_tokens += int(entry.get("prompt_tokens") or 0)
+                        completion_tokens += int(entry.get("completion_tokens") or 0)
+                    except Exception:
+                        continue
+                    stamped = _parse_log_time(entry.get("timestamp"))
+                    if stamped is not None:
+                        day = stamped.date().isoformat()
+                        chat_days[day] = chat_days.get(day, 0) + 1
+                        if latest is None or stamped > latest:
+                            latest = stamped
+
+        image_logs = self.get_image_logs()
+        for entry in image_logs:
+            stamped = _parse_log_time(entry.get("timestamp")) if isinstance(entry, dict) else None
+            if stamped is not None:
+                day = stamped.date().isoformat()
+                image_days[day] = image_days.get(day, 0) + 1
+                if latest is None or stamped > latest:
+                    latest = stamped
+
+        for f in content_files:
+            try:
+                mtime = datetime.fromtimestamp(
+                    (self.workspace_dir / str(f.get("path", ""))).stat().st_mtime,
+                    tz=timezone.utc,
+                )
+            except Exception:
+                continue
+            if latest is None or mtime > latest:
+                latest = mtime
+
+        today = datetime.now(timezone.utc).date()
+        activity = []
+        for back in range(13, -1, -1):
+            day = (today - timedelta(days=back)).isoformat()
+            activity.append({
+                "date": day,
+                "chats": chat_days.get(day, 0),
+                "images": image_days.get(day, 0),
+            })
+
+        return {
+            "markdown_files": markdown_files,
+            "chat_sessions": chat_sessions,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "images_generated": len(image_logs),
+            "last_activity": latest.isoformat() if latest is not None else None,
+            "activity": activity,
+        }
+
     def clear_simple_ai_logs(self) -> None:
         logs_dir = self.outputs_dir / "ai_logs"
         if logs_dir.exists():
@@ -514,6 +942,58 @@ class FileStorageService:
         # A deleted Margin session must not resume a stale harness
         # conversation: drop the mapping too.
         self.clear_harness_session(session_id)
+
+    def _image_logs_path(self):
+        return self.outputs_dir / "image_logs" / "images.json"
+
+    def get_image_logs(self) -> list:
+        """Per-workspace image generation history (prompt, seed, asset).
+        Separate from chat ai_logs — different shape, different consumer."""
+        path = self._image_logs_path()
+        if not path.exists():
+            return []
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                logs = data if isinstance(data, list) else []
+        except Exception:
+            return []
+        logs.sort(key=lambda x: x.get("timestamp", ""))
+        return logs
+
+    def save_image_log(self, log_entry: dict) -> None:
+        import uuid
+
+        path = self._image_logs_path()
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+        logs = self.get_image_logs()
+        entry = dict(log_entry)
+        entry.setdefault("id", uuid.uuid4().hex)
+        logs.append(entry)
+        logs = logs[-100:]
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(logs, f, indent=2)
+        except Exception:
+            pass
+
+    def delete_image_log(self, log_id: str) -> bool:
+        """Delete one image log entry by id."""
+        path = self._image_logs_path()
+        logs = self.get_image_logs()
+        kept = [e for e in logs
+                if not (isinstance(e, dict) and e.get("id") == log_id)]
+        if len(kept) == len(logs):
+            return False
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(kept, f, indent=2)
+        except Exception:
+            pass
+        return True
 
     def _harness_sessions_path(self):
         return self.outputs_dir / "harness_sessions.json"
@@ -577,7 +1057,8 @@ class FileStorageService:
 
     def create_workspace(
         self,
-        target_path: str,
+        parent_path: str,
+        name: str,
         init_git: bool = False,
     ) -> Dict[str, Any]:
         """Scaffold a new workspace directory.
@@ -586,9 +1067,7 @@ class FileStorageService:
         (router) links the workspace after confirming success, so a git
         failure cannot leave the app pointed at a half-built workspace.
         """
-        path_obj = Path(target_path).expanduser().resolve()
-        if any(part.startswith(".") for part in path_obj.parts):
-            raise ValueError("The selected path is not allowed as a workspace location.")
+        path_obj = _resolve_workspace_create_target(parent_path, name)
 
         # Create root workspace directory if it doesn't exist
         path_obj.mkdir(parents=True, exist_ok=True)
@@ -733,95 +1212,19 @@ class FileStorageService:
                 encoding="utf-8"
             )
 
-        # 6. Git initialization
-        git_info: Dict[str, Any] = {
-            "initialized": False,
-            "committed": False,
-            "already_tracked": False,
-            "git_parent": None,
-            "error": None,
-        }
+        # 6. Git initialization (intent flag only — runs here at creation time)
         if init_git:
-            git_check = is_git_available()
-            if not git_check["available"]:
-                git_info["error"] = "Git is not installed or not available in PATH."
-            else:
-                git_bin = shutil.which("git") or "git"
-                # Detect if target is already inside a git work tree to avoid embedded repos
-                try:
-                    res_toplevel = subprocess.run(
-                        [git_bin, "rev-parse", "--show-toplevel"],
-                        cwd=str(path_obj),
-                        capture_output=True,
-                        text=True,
-                        timeout=5,
-                    )
-                    if res_toplevel.returncode == 0:
-                        # Already inside a git work tree — skip init entirely
-                        git_info["already_tracked"] = True
-                        git_info["git_parent"] = res_toplevel.stdout.strip()
-                        return {
-                            "success": True,
-                            "path": str(path_obj),
-                            "git": git_info,
-                        }
-                except Exception:
-                    # rev-parse failed → fresh directory, safe to init
-                    pass
-
-                # Always write/overwrite .gitignore before init
-                gitignore_file = path_obj / ".gitignore"
-                gitignore_file.write_text(
-                    "outputs/\n"
-                    ".DS_Store\n"
-                    "Thumbs.db\n"
-                    "*.tmp\n"
-                    "*.log\n",
-                    encoding="utf-8"
-                )
-                try:
-                    subprocess.run(
-                        [git_bin, "init"],
-                        cwd=str(path_obj),
-                        capture_output=True,
-                        text=True,
-                        timeout=10,
-                        check=True,
-                    )
-                    git_info["initialized"] = True
-                except Exception as e:
-                    git_info["error"] = "git init failed."
-
-                if git_info["initialized"]:
-                    # git add + initial commit — non-fatal (missing user.name/email is common)
-                    try:
-                        subprocess.run(
-                            [git_bin, "add", "."],
-                            cwd=str(path_obj),
-                            capture_output=True,
-                            text=True,
-                            timeout=10,
-                            check=True,
-                        )
-                        res_commit = subprocess.run(
-                            [git_bin, "commit", "-m", "Initial workspace scaffold"],
-                            cwd=str(path_obj),
-                            capture_output=True,
-                            text=True,
-                            timeout=10,
-                        )
-                        if res_commit.returncode == 0:
-                            git_info["committed"] = True
-                        else:
-                            git_info["committed"] = False
-                            stderr = res_commit.stderr.strip()
-                            git_info["error"] = (
-                                "Initial commit failed — Git user identity not configured. "
-                                "Run: git config --global user.name / user.email"
-                            ) if "user" in stderr.lower() else "Initial commit failed."
-                    except Exception:
-                        git_info["committed"] = False
-                        git_info["error"] = "git add/commit failed."
+            git_info = _init_git_repo(path_obj)
+        else:
+            git_info = {
+                "initialized": False,
+                "committed": False,
+                "already_tracked": False,
+                "git_parent": None,
+                "git_unavailable": False,
+                "init_failed": False,
+                "error": None,
+            }
 
         return {
             "success": True,

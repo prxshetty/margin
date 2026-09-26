@@ -449,8 +449,11 @@ async def run_harness(argv: list, cwd: str, stop_event: threading.Event, queue: 
     await asyncio.to_thread(_run_harness_sync, argv, cwd, stop_event, queue, loop)
 
 def _resolve_simple_assist_client() -> llm.LLMClient:
-    """Return an LLMClient configured with the active endpoint from settings,
-    falling back to .env defaults if no endpoint is active."""
+    """Return an LLMClient configured with the active endpoint from settings.
+
+    Raises HTTPException(400) when no valid endpoint is configured (none
+    selected, or the selected id no longer exists). There is intentionally no
+    .env fallback: endpoints are sourced centrally from Settings (v1.2+)."""
     s = storage.get_settings()
     ep_id = s.get("active_endpoint")
     if ep_id:
@@ -469,8 +472,10 @@ def _resolve_simple_assist_client() -> llm.LLMClient:
                 custom_opening_tags=custom_open,
                 custom_closing_tags=custom_close,
             )
-    is_thinking = s.get("is_thinking", True)
-    return llm.LLMClient(is_thinking=is_thinking)
+    raise HTTPException(
+        status_code=400,
+        detail="No endpoint configured — add one in Settings → Endpoints.",
+    )
 
 
 def _is_blocked(filepath: str, ignored: set) -> bool:
@@ -482,6 +487,20 @@ def _is_blocked(filepath: str, ignored: set) -> bool:
     if filepath in ignored:
         return True
     return False
+
+
+def _tagged_paths(payload) -> List[str]:
+    """Explicit @-tagged file paths from the request, deduped, order-preserved.
+
+    Threaded through planner → generator → prompt so no stage can silently
+    drop them. Blocked filtering happens at injection time (existing logic).
+    """
+    seen: List[str] = []
+    for f in payload.ref_files or []:
+        p = (f.get("path") if isinstance(f, dict) else None) or ""
+        if p and p not in seen:
+            seen.append(p)
+    return seen
 
 
 def _workspace_index_line() -> str:
@@ -756,12 +775,19 @@ def run_planner(
     selected_text: Optional[str] = None,
     cursor_paragraph_text: Optional[str] = None,
     session_id: Optional[str] = None,
+    tagged_files: Optional[List[str]] = None,
 ) -> tuple[dict, str, str, str, Optional[dict], str]:
     system = _load_simple_prompt("simple-planner.md")
-    
+
     user_prompt_lines = [f"USER_INSTRUCTION:\n{message}\n"]
 
     s = storage.get_settings()
+
+    # Explicit user tags survive the whole pipeline — planner sees them here,
+    # and the edit flow unions them into context_needed even if the planner
+    # forgets them.
+    if tagged_files:
+        user_prompt_lines.append(f"TAGGED_FILES (user explicitly attached):\n" + "\n".join(tagged_files) + "\n")
 
     # Build document outline if enabled
     if s.get("planner_include_outline", False):
@@ -873,6 +899,7 @@ def build_generator_prompts(
 
 async def _run_planner_turn(payload: SimpleAssistRequest, edit_mode: str, loop):
     """Run the planner and log the turn. Returns (plan, system, user, raw)."""
+    tagged = _tagged_paths(payload)
     plan, planner_system, planner_user, planner_raw, planner_usage, planner_model = await loop.run_in_executor(
         None,
         lambda: run_planner(
@@ -881,6 +908,7 @@ async def _run_planner_turn(payload: SimpleAssistRequest, edit_mode: str, loop):
             payload.selected_text,
             payload.cursor_paragraph_text,
             payload.session_id,
+            tagged,
         )
     )
 
@@ -924,6 +952,19 @@ def _compose_chat_prompts(payload: SimpleAssistRequest, message: str,
         history_str = _build_planner_history(payload.session_id, settings)
         if history_str:
             full_system += f"\n\n{history_str}"
+
+    # Tagged files: inject contents here so chat never drops them. Pinned
+    # files are planner/generator concerns; explicit tags belong in chat too.
+    tagged = _tagged_paths(payload)
+    if tagged:
+        ignored = set(settings.get("ignored_ref_files") or [])
+        available = [f.get("path", "") for f in (payload.available_files or []) if isinstance(f, dict)]
+        parts = [full_system]
+        for p in tagged:
+            if _is_blocked(p, ignored):
+                continue
+            context_injector.inject(p, p, parts, available, settings)
+        full_system = "\n\n".join(parts)
 
     if content:
         if payload.active_filename:
@@ -997,6 +1038,9 @@ async def simple_assist(payload: SimpleAssistRequest):
                         user_parts.append(f"SELECTED_TEXT:\n{payload.selected_text}")
                     elif payload.cursor_paragraph_text:
                         user_parts.append(f"ANCHOR_PARAGRAPH_TEXT:\n{payload.cursor_paragraph_text}")
+                    tagged = _tagged_paths(payload)
+                    if tagged:
+                        user_parts.append("TAGGED_FILES (user explicitly attached — read them):\n" + "\n".join(tagged))
                     user_parts.append(f"INSTRUCTION:\n{message}")
                     # No assembled history: one Margin session maps to one
                     # harness conversation, resumed below — the agent keeps
@@ -1170,11 +1214,18 @@ async def simple_assist(payload: SimpleAssistRequest):
                     loop = asyncio.get_running_loop()
                     plan, planner_system, planner_user, planner_raw = await _run_planner_turn(payload, edit_mode, loop)
 
-                    context_needed = plan.get("context_needed", [])
+                    context_needed = plan.get("context_needed", []) or []
                     query = plan.get("refined_query") or payload.message
                 else:
                     context_needed = []
                     query = payload.message
+
+                # Union explicit tags so the generator always sees them, even
+                # if the planner omitted them. Order: planner picks first,
+                # then any missing tagged paths appended.
+                for p in _tagged_paths(payload):
+                    if p not in context_needed:
+                        context_needed.append(p)
 
                 yield {"data": json.dumps({
                     "status": "context_resolved",

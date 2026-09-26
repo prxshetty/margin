@@ -61,6 +61,44 @@ export async function importImageFromUrl(url: string, name = ''): Promise<string
   return handleMediaResponse(res)
 }
 
+export interface GenerateImageInput {
+  prompt: string
+  styleName?: string | null
+  referencePath?: string | null
+  signal?: AbortSignal
+}
+
+export interface GenerateImageResult {
+  path: string
+  /** ComfyUI seed actually submitted (mapped runs); otherwise null. */
+  seed: number | null
+}
+
+/** Margin media boundary for AI generation: POST /api/images/generate. */
+export async function generateImage(input: GenerateImageInput): Promise<GenerateImageResult> {
+  const res = await fetch(`${API_BASE}/api/images/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      prompt: input.prompt,
+      style_name: input.styleName ?? null,
+      reference_path: input.referencePath ?? null,
+    }),
+    signal: input.signal ?? AbortSignal.timeout(180000),
+  })
+  if (!res.ok) {
+    let detail = 'Image generation failed'
+    try {
+      const data = await res.json()
+      if (data?.detail) detail = data.detail
+    } catch { /* ignore */ }
+    throw new Error(detail)
+  }
+  const data = await res.json()
+  if (!data?.path) throw new Error('Image generation failed')
+  return { path: data.path as string, seed: (data.seed as number | null) ?? null }
+}
+
 /** Insert a stored `assets/...` image at the current selection. */
 export function insertStoredImage(editor: Editor, path: string, alt = ''): void {
   editor

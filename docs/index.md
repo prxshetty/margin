@@ -14,11 +14,13 @@ Instead of treating AI as a chat window, Margin integrates it directly into the 
 - **Automatic Context Management** -- Organize characters, lore, outlines, and style guides into folders. Margin automatically includes the relevant context for each task.
 - **Customizable AI Workflows** -- Configure prompts, agents, and writing pipelines to match your process instead of adapting to rigid presets.
 - **Interactive Diff Review** -- Review AI-generated edits with clear inline diffs before accepting or rejecting changes.
+- **Imagine Images** -- Describe maps, mood boards, character sketches, or scene references in words and generate them with OpenAI, Stability, FAL, Google Gemini, or local ComfyUI workflows.
+- **Workspace Profiles** -- Link or scaffold multiple project folders, switch from the sidebar, with optional Git init.
 
 ### Sections
 
 - [Getting Started](./getting-started.md) -- System requirements, installation, and first launch.
-- [Configuration](./configuration/general.md) -- All settings explained: workspace, appearance, context, endpoints.
+- [Configuration](./configuration/workspaces.md) -- All settings explained: workspaces, appearance, context, endpoints, harness, images.
 - [Writing Guide](./writing-guide.md) -- How AI assist works, character profiles, style guides, manifests, custom prompts, and images.
 - [Debugging](./debugging.md) -- Inspecting AI logs and prompts, local telemetry, and fixing common image issues.
 

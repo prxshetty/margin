@@ -6,10 +6,9 @@ Endpoints connect margin to an AI model. You can use local models (completely pr
 
 ## Active Endpoint
 
-Select which endpoint margin should use for AI requests:
+Pick the active endpoint from the assistant panel's harness menu (Endpoint flyout).
 
-- **.env Default**: Uses settings from your `.env` file. This is the traditional method and useful if you prefer environment-based configuration.
-- **Custom endpoints**: Any endpoint you've added via the UI.
+> As of v1.2 there is no `.env` fallback: legacy users should add their values as an endpoint in Settings (use **Import from .env** if env values exist).
 
 ## Adding an Endpoint
 
@@ -22,6 +21,7 @@ Select which endpoint margin should use for AI requests:
    | **API Key** | Your API key (required for cloud providers, optional for local). |
    | **Model** | The model name (e.g., `gpt-4o`, `qwen2.5-coder`). Optional -- some endpoints auto-detect. |
    | **Context Window** | The maximum context size in tokens (default: 8192). |
+| **Vision input** | Mark the endpoint when its model accepts images. Vision endpoints show an eye badge in settings and the endpoint menu. Thinking endpoints show a brain badge (dimmed when thinking is off). |
    | **Thinking Model** | When enabled (default), inline reasoning tags (e.g. `<think>`, `<\|channel\|>`) are stripped from the response. Disable to see the raw output including any tags the model emits. |
 
    When **Thinking Model** is checked, a **Custom Thinking Tags** section appears where you can add open/close tag pairs for models with non-standard reasoning tags.

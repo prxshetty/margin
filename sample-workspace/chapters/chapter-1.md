@@ -1,8 +1,8 @@
-# Chapter 1: The Weight of the Canvas
+Chapter 1: The Weight of the Canvas
 
 Elara Vance spends the night obsessively painting over the same canvas until the surface becomes muddy and ruined. Around her studio are signs she hasn’t been functioning properly for weeks — unopened mail, dead plants, voice memos from collectors she refuses to answer, and a half-written interview draft calling her “the next great modern surrealist,” a label she secretly hates.
 
-She discovers someone online accusing her breakout work of being derivative. The comments get under her skin fast. She spirals, starts comparing herself to artists her age who already seem untouchable, and nearly destroys the canvas entirely before stopping herself.
+![generated image](assets/generated/fc085939a4374e44b2a9f05978bc93e8.jpg)She discovers someone online accusing her breakout work of being derivative. The comments get under her skin fast. She spirals, starts comparing herself to artists her age who already seem untouchable, and nearly destroys the canvas entirely before stopping herself.
 
 Elara snarls at Kaelen, ice in her gaze. "You think you know everything," she hisses. "Prove it—what makes your doodles so much better?" He scoffs, a faint grin tugging at his lips. "Yeah, right? I’ve seen those stuffy galleries full of pretenders too." She snaps back, barely holding in her seething rage.
 

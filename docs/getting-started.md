@@ -128,16 +128,15 @@ The editor will open at `http://localhost:5173`.
 2. Click the **gear icon** to open Settings.
 3. Go to **Endpoints** tab.
 4. Choose your AI provider:
-   - Select `.env Default` if you already configured it in your `.env` file.
-   - Or click **Add New Endpoint**, give it a name (e.g., "Ollama"), enter the URL, and click **Save Endpoint**.
+   - Click **Add New Endpoint**, give it a name (e.g., "Ollama"), enter the URL, and click **Save Endpoint** (or **Import from .env** if you already configured one in your `.env` file).
 5. Click **Test Connection** to verify everything works.
-6. Select your endpoint as the **Active Endpoint**.
+6. Pick your endpoint as active from the assistant panel's harness menu (**Endpoint** flyout).
 
 ### Step 5: Start writing
 
 The default workspace (`sample-workspace`) is loaded automatically. It includes sample characters, a chapter, and style presets so you can start experimenting right away.
 
-You can link your own workspace folder from **Settings > General > Workspace Directory**.
+You can link your own workspace folder from **Settings > Workspaces** (or the workspace switcher in the file sidebar header).
 
 ## Next Steps
 

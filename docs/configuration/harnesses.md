@@ -24,7 +24,7 @@ If Margin can't find a helper you installed, enter its location by hand in the "
 
 ## Configuration
 
-- **Default Harness**: `None — use endpoint` (the normal setting — nothing changes) or one of your helpers. You can also pick a helper per message from the dropdown in the Assist panel; the inline bubble always follows the default.
+- **Active helper**: pick it from the dropdown in the Assist panel (harness menu, next to the input); the inline bubble always follows the same choice. `None — use endpoint` (the normal setting — nothing changes) means requests go to the configured endpoint instead.
 - **Default model**: which model the helper should use. OpenCode and Antigravity show the list straight from the helper itself. Codex and Claude Code don't offer a list command, so Margin ships a built-in list for them[^1] — or just type any model name by hand.
 - **Custom program**: the helper's location on your computer, for installs Margin can't find on its own.
 - **Ctx**: the helper model's context window, used only for the usage ring next to the input. Leave empty to hide the ring — the token count still shows.

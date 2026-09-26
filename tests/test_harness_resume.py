@@ -2,6 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from api.routers import assist
 from api.services.file_storage import FileStorageService
@@ -14,6 +15,22 @@ def _subseq(argv, seq):
 
 
 class TestResumeArgv(unittest.TestCase):
+    """Argv construction only — never depends on the host's harness CLIs.
+
+    _resolve_harness_argv resolves a real executable and reads the saved
+    settings, so without both patched this class passes on a machine with
+    OpenCode/Claude/Codex/Agy installed and fails everywhere else, CI
+    included.
+    """
+
+    def setUp(self):
+        for patcher in (
+            mock.patch.object(assist.harness_env, "which_harness",
+                              return_value="/usr/bin/harness"),
+            mock.patch.object(assist.storage, "get_settings", return_value={}),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def test_opencode_resume_flag(self):
         argv = assist._resolve_harness_argv(
@@ -122,6 +139,10 @@ class TestHarnessSessionMap(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.storage = FileStorageService(base_dir=self.tmp.name)
+        # Isolate settings so load_settings() never follows the developer's
+        # real linked workspace — otherwise these tests read/write it.
+        self.storage.settings_path = Path(self.tmp.name) / "settings.json"
+        self.storage.load_settings()
 
     def tearDown(self):
         self.tmp.cleanup()

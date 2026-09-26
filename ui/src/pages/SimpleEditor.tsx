@@ -4,6 +4,7 @@ import { SimpleAssist } from '../components/SimpleAssist'
 import { FileSidebar } from '../components/FileSidebar'
 import { useEditorStore } from '../stores/editorStore'
 import { useSettingsStore } from '../stores/settingsStore'
+import { toast } from '../stores/toastStore'
 import { SettingsModal } from '../components/SettingsModal'
 import { API_BASE } from '../lib/api'
 
@@ -113,6 +114,7 @@ export default function SimpleEditor() {
         }
       } catch (err) {
         console.error("Failed to save prompt file:", err)
+        toast.error("Could not save prompt file — your changes are still in the editor.")
       }
       return
     }
@@ -130,6 +132,7 @@ export default function SimpleEditor() {
       }
     } catch (err) {
       console.error("Failed to save file:", err)
+      toast.error("Could not save file — your changes are still in the editor.")
     }
   }, [currentFilePath, markFileClean])
 

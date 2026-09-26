@@ -1,12 +1,14 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { AtSign, ChevronDown, Code2, MousePointer2, Settings, Trash2 } from 'lucide-react'
+import React, { useState, useEffect, useEffectEvent, useRef, useCallback, useMemo } from 'react'
+import { AtSign, Check, ChevronDown, ChevronRight, Code2, Eye, Brain, MousePointer2, Settings, Trash2 } from 'lucide-react'
 import { useEditorStore } from '../stores/editorStore'
 import { useSettingsStore } from '../stores/settingsStore'
+import { toast } from '../stores/toastStore'
 import { API_BASE } from '../lib/api'
 import { streamSSE } from '../lib/stream-sse'
 import { applyHarnessResult } from '../lib/applyHarnessResult'
 import { scheduleFileRefresh } from '../lib/refreshFiles'
 import { HarnessIcon } from './HarnessIcon'
+import { ImageDetailPopup, type ImageLogEntry } from './ImageDetailPopup'
 import type { FileEntry } from '../stores/editorStore'
 
 interface SimpleLogEntry {
@@ -40,12 +42,9 @@ interface MarkdownStorage {
 
 
 function cleanUserPrompt(log: SimpleLogEntry): string {
-  let text = ''
-  if (log.instruction && log.instruction.trim()) {
-    text = log.instruction.trim()
-  } else {
-    text = log.mode === 'chat' ? 'AI Assistant Query' : 'Edit text'
-  }
+  let text = log.instruction?.trim()
+    ? log.instruction.trim()
+    : log.mode === 'chat' ? 'AI Assistant Query' : 'Edit text'
 
   const hasAt = text.includes('@')
   if (!hasAt) {
@@ -178,15 +177,15 @@ function HarnessOption({ id, label, hint, disabled, selected, onSelect }: {
     <button
       onClick={onSelect}
       disabled={disabled}
-      className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-left transition-colors ${disabled
+      className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-[8px] text-left transition-colors ${disabled
         ? 'opacity-40 cursor-default'
-        : 'cursor-pointer hover:bg-[var(--bg-hover)]'
+        : 'cursor-pointer hover:bg-[var(--border-sidebar)]/40'
         } ${selected ? 'text-[var(--text-heading)]' : 'text-[var(--text-secondary)]'}`}
     >
       <HarnessIcon id={id} className="w-3.5 h-3.5" />
       <span className="text-[11px] truncate flex-1">{label}</span>
       {hint && <span className="text-[9px] text-[var(--text-muted)] shrink-0">{hint}</span>}
-      {selected && <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent-brown)] shrink-0" />}
+      <Check size={14} className={`shrink-0 ${selected ? 'text-[var(--accent-brown)]' : 'invisible'}`} />
     </button>
   )
 }
@@ -379,11 +378,7 @@ function inlineMarkdown(text: string): React.ReactNode[] {
 }
 
 function ThinkingDropdown({ text, defaultOpen = false }: { text: string; defaultOpen?: boolean }) {
-  const [open, setOpen] = useState(false)
-
-  useEffect(() => {
-    if (defaultOpen) setOpen(true)
-  }, [defaultOpen])
+  const [open, setOpen] = useState(defaultOpen)
 
   return (
     <div className="flex flex-col gap-0 self-start w-full mb-0">
@@ -438,6 +433,7 @@ export function SimpleAssist() {
       setTimeout(() => setCopiedId(null), 2000)
     } catch (err) {
       console.error('Failed to copy prompt text:', err)
+      toast.error('Could not copy to clipboard.')
     }
   }
 
@@ -447,17 +443,68 @@ export function SimpleAssist() {
   const [activeSessionId, setActiveSessionId] = useState<string>(() => crypto.randomUUID())
   const [showHistoryDropdown, setShowHistoryDropdown] = useState(false)
   const [sessionLoadCount, setSessionLoadCount] = useState(3)
+  const [historyView, setHistoryView] = useState<'chats' | 'images'>('chats')
+  const [imageLogs, setImageLogs] = useState<ImageLogEntry[] | null>(null)
+  const [imageLoadCount, setImageLoadCount] = useState(10)
+  const [selectedImage, setSelectedImage] = useState<ImageLogEntry | null>(null)
   const [mode, setMode] = useState<'chat' | 'edit'>('edit')
   const [activeHarness, setActiveHarness] = useState('none')
   const [harnessList, setHarnessList] = useState<Array<{ id: string; name: string; installed: boolean; version: string | null }>>([])
   const [noticeText, setNoticeText] = useState('')
   const [showHarnessDropdown, setShowHarnessDropdown] = useState(false)
   const harnessDropdownRef = useRef<HTMLDivElement>(null)
+  // Endpoint flyout: nested beside the harness menu, positioned left/right
+  // by measured space. Selection funnels through the same settings fields
+  // the Settings → Endpoints tab writes — one selection model, not two.
+  const [showEndpointFlyout, setShowEndpointFlyout] = useState(false)
+  const [endpointFlyoutSide, setEndpointFlyoutSide] = useState<'left' | 'right'>('right')
+  const [endpointFlyoutWidth, setEndpointFlyoutWidth] = useState<number | null>(null)
+  const harnessMenuRef = useRef<HTMLDivElement>(null)
   const [activeToolRows, setActiveToolRows] = useState<Array<{ tool: string; detail: string }>>([])
   const harnessBaseRef = useRef('')
   const harnessLabel = (id: string) => harnessList.find(h => h.id === id)?.name ?? id
   const hasSelection = !!pendingEditSelection
-  const { settings, fetchSettings, setShowSettings, updateSettings } = useSettingsStore()
+  const { settings, fetchSettings, setShowSettings, setSettingsTab, updateSettings } = useSettingsStore()
+  const [previousDefaultMode, setPreviousDefaultMode] = useState(settings?.default_mode)
+  if (previousDefaultMode !== settings?.default_mode) {
+    setPreviousDefaultMode(settings?.default_mode)
+    if (settings?.default_mode) {
+      setMode(settings.default_mode as 'chat' | 'edit')
+    }
+  }
+  // Active endpoint display name (same `id.replace('_', ' ')` convention as
+  // EndpointsTab). Empty when unset — there is no .env concept anymore.
+  const activeEndpointName = settings?.active_endpoint
+    ? settings.active_endpoint.replace('_', ' ')
+    : ''
+  const endpointEntries = Object.entries(settings?.endpoints || {})
+
+  // Click opens the flyout only — mode flips on pick, never on browse, so a
+  // dismissed flyout leaves the harness untouched.
+  const handleEndpointRowClick = () => {
+    if (!showEndpointFlyout) {
+      const rect = harnessMenuRef.current?.getBoundingClientRect()
+      const flyoutWidth = rect?.width ?? 180
+      setEndpointFlyoutWidth(flyoutWidth)
+      setEndpointFlyoutSide(rect && rect.right + flyoutWidth + 8 <= window.innerWidth ? 'right' : 'left')
+    }
+    setShowEndpointFlyout(v => !v)
+  }
+
+  // Picking an endpoint means "use this endpoint instead of the harness":
+  // same two fields the Endpoints tab writes, then close both levels.
+  const handlePickEndpoint = (id: string) => {
+    updateSettings({ active_endpoint: id, default_harness: 'none' })
+    setShowEndpointFlyout(false)
+    setShowHarnessDropdown(false)
+  }
+
+  const handleManageEndpoints = () => {
+    setSettingsTab('endpoints')
+    setShowSettings(true)
+    setShowEndpointFlyout(false)
+    setShowHarnessDropdown(false)
+  }
   // Single source of truth: the panel, SettingsModal, and bubble menu all
   // read/write settings.default_harness, so they can never disagree.
   const harness = settings?.default_harness || 'none'
@@ -466,13 +513,7 @@ export function SimpleAssist() {
 
   useEffect(() => {
     fetchSettings()
-  }, [])
-
-  useEffect(() => {
-    if (settings?.default_mode) {
-      setMode(settings.default_mode as 'chat' | 'edit')
-    }
-  }, [settings?.default_mode])
+  }, [fetchSettings])
 
   const [showFileDropdown, setShowFileDropdown] = useState(false)
   const [fileQuery, setFileQuery] = useState('')
@@ -508,9 +549,77 @@ export function SimpleAssist() {
       }
     } catch (err) {
       console.error('Failed to fetch simple logs:', err)
+      toast.error('Could not load chat history.')
     }
   }
 
+  const imageLogsFetchingRef = useRef(false)
+
+  const fetchImageLogs = useCallback(async () => {
+    // Dedup: rapid open/tab-switch sequences share one in-flight request.
+    if (imageLogsFetchingRef.current) return
+    imageLogsFetchingRef.current = true
+    try {
+      const res = await fetch(`${API_BASE}/api/images/logs`)
+      if (res.ok) {
+        const data = await res.json()
+        setImageLogs([...(data.logs || [])].reverse())
+      } else {
+        setImageLogs([])
+      }
+    } catch (err) {
+      console.error('Failed to fetch image logs:', err)
+      toast.error('Could not load image history.')
+      setImageLogs([])
+    } finally {
+      imageLogsFetchingRef.current = false
+    }
+  }, [])
+
+  const handleDeleteImageLog = async (e: React.MouseEvent, log: ImageLogEntry, i: number) => {
+    e.stopPropagation()
+    try {
+      const res = await fetch(
+        `${API_BASE}/api/images/logs/${encodeURIComponent(imageKey(log, i))}`,
+        { method: 'DELETE' },
+      )
+      if (!res.ok) {
+        console.warn('DELETE image log returned', res.status)
+        toast.error('Could not delete that history entry.')
+      }
+    } catch (err) {
+      console.error('Failed to delete image log:', err)
+      toast.error('Could not delete that history entry.')
+    }
+    // Don't leave the detail popup open on a deleted entry.
+    if (selectedImage != null) {
+      const same = selectedImage.id
+        ? selectedImage.id === log.id
+        : !log.id && selectedImage.timestamp === log.timestamp
+          && selectedImage.path === log.path
+      if (same) setSelectedImage(null)
+    }
+    await fetchImageLogs()
+  }
+
+  const handleHistoryOpen = () => {
+    const opening = !showHistoryDropdown
+    setShowHistoryDropdown(opening)
+    // Always refetch images on open — a generation may have landed since.
+    if (opening && historyView === 'images') {
+      void fetchImageLogs()
+    }
+  }
+
+  const handleHistoryViewChange = (view: 'chats' | 'images') => {
+    setHistoryView(view)
+    // Always refetch on tab switch — never show a stale cached list.
+    if (view === 'images') {
+      void fetchImageLogs()
+    }
+  }
+
+  const imageKey = (log: ImageLogEntry, i: number) => log.id || `img-${i}`
   const sessions = useMemo(() => {
     const map = new Map<string, { name: string; logCount: number; timestamp: string }>()
     const sessionLogs = new Map<string, SimpleLogEntry[]>()
@@ -521,15 +630,15 @@ export function SimpleAssist() {
       sessionLogs.get(sid)!.push(log)
     }
     for (const [sid, logs] of sessionLogs) {
-      const first = logs.reduce((a, b) => a.timestamp < b.timestamp ? a : b)
+      const first = logs.reduce((a, b) => (a.timestamp || '') < (b.timestamp || '') ? a : b)
       const raw = first.instruction || ''
       const name = raw.slice(0, 35) + (raw.length > 35 ? '...' : '') || 'Assist'
-      const latest = logs.reduce((a, b) => a.timestamp > b.timestamp ? a : b)
-      map.set(sid, { name, logCount: logs.length, timestamp: latest.timestamp })
+      const latest = logs.reduce((a, b) => (a.timestamp || '') > (b.timestamp || '') ? a : b)
+      map.set(sid, { name, logCount: logs.length, timestamp: latest.timestamp || '' })
     }
     return Array.from(map.entries())
       .map(([id, data]) => ({ id, ...data }))
-      .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+      .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''))
   }, [historyLogs])
 
   const filteredLogs = useMemo(() =>
@@ -583,18 +692,33 @@ export function SimpleAssist() {
     return Math.max(0, 100 - percentUsed)
   }, [percentUsed])
 
-  useEffect(() => {
+  const loadInitialData = useEffectEvent(() => {
     fetchLogs()
     fetch(`${API_BASE}/api/harnesses`)
       .then(res => res.ok ? res.json() : { harnesses: [] })
       .then(data => setHarnessList(data.harnesses || []))
-      .catch(err => console.error('Failed to fetch harnesses:', err))
+      .catch(err => {
+        console.error('Failed to fetch harnesses:', err)
+        toast.error('Could not load agent harnesses.')
+      })
+  })
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      loadInitialData()
+    })
   }, [])
 
-  // Reset all session state when the workspace directory changes
-  const workspaceDir = useEditorStore((s) => s.workspaceDir)
-  useEffect(() => {
+  // Reset all session state when the active workspace changes.
+  // Keyed on the linked path itself: workspaceDir is only a custom/sample
+  // flag, so custom → custom switches would never refire this effect.
+  const linkedWorkspaceDir = settings?.linked_workspace_dir ?? null
+  const [previousLinkedWorkspaceDir, setPreviousLinkedWorkspaceDir] = useState(linkedWorkspaceDir)
+  if (previousLinkedWorkspaceDir !== linkedWorkspaceDir) {
+    setPreviousLinkedWorkspaceDir(linkedWorkspaceDir)
     setHistoryLogs([])
+    setImageLogs(null)
+    setHistoryView('chats')
     setActiveSessionId(crypto.randomUUID())
     setPlannerContextFiles([])
     setStreamingThinkingText('')
@@ -602,7 +726,7 @@ export function SimpleAssist() {
     setActiveToolRows([])
     setActiveHarness('none')
     setNoticeText('')
-  }, [workspaceDir])
+  }
 
   useEffect(() => {
     if (historyLogs.length > 0 || isWorking || errorText) {
@@ -618,6 +742,7 @@ export function SimpleAssist() {
       }
       if (harnessDropdownRef.current && !harnessDropdownRef.current.contains(e.target as Node)) {
         setShowHarnessDropdown(false)
+        setShowEndpointFlyout(false)
       }
     }
     if (showFileDropdown || showHarnessDropdown) {
@@ -633,7 +758,7 @@ export function SimpleAssist() {
   )
 
 
-  const handleInput = () => {
+  const handleInput = useCallback(() => {
     const el = inputRef.current
     if (!el) return
 
@@ -658,7 +783,7 @@ export function SimpleAssist() {
     setFileQuery(query)
     setHighlightedIndex(0)
     setShowFileDropdown(true)
-  }
+  }, [pendingEditSelection, setPendingEditSelection])
 
   const handleSelectFile = useCallback((file: FileEntry) => {
     const div = inputRef.current
@@ -829,7 +954,11 @@ export function SimpleAssist() {
               }
               liveEditor.view.dispatch(tr)
               currentEndPos = tr.mapping.map(currentEndPos)
-              liveEditor.commands.setAiHighlight(startPos, currentEndPos)
+              // No diff highlight on untitled docs (no file identity) —
+              // plain insert only. Saved files keep the live highlight.
+              if (useEditorStore.getState().currentFilePath) {
+                liveEditor.commands.setAiHighlight(startPos, currentEndPos)
+              }
               liveEditor.commands.setTextSelection(currentEndPos)
             }
             }
@@ -864,33 +993,50 @@ export function SimpleAssist() {
 
             const liveEditor = useEditorStore.getState().editor || activeEditor
             if (liveEditor && liveEditor.view && liveEditor.state && !liveEditor.isDestroyed) {
-              const setAiPendingEdit = useEditorStore.getState().setAiPendingEdit
-              const beforeSize = liveEditor.state.doc.content.size
+              // File identity decides diff vs plain insert — not content
+              // emptiness. An untitled doc (no path) can never be saved, so
+              // never create a pending diff/highlight for it. A blank saved
+              // file (has path) still gets the normal diff flow.
+              const filePathAtApply = useEditorStore.getState().currentFilePath
+              if (!filePathAtApply) {
+                let chain = liveEditor.chain()
+                chain = chain.deleteRange({ from: startPos, to: currentEndPos })
+                chain = chain.insertContentAt(startPos, output)
+                chain.run()
+                liveEditor.commands.setTextSelection(startPos + output.length)
+                const storage = liveEditor.storage as unknown as MarkdownStorage
+                if (storage.markdown) {
+                  setContent(storage.markdown.getMarkdown())
+                }
+              } else {
+                const setAiPendingEdit = useEditorStore.getState().setAiPendingEdit
+                const beforeSize = liveEditor.state.doc.content.size
 
-              setAiPendingEdit({
-                previousContent,
-                selectionRange: localHasSelection && selectionInfo ? { from: selectionInfo.from, to: selectionInfo.to } : null,
-                highlightFrom: startPos
-              })
+                setAiPendingEdit({
+                  previousContent,
+                  selectionRange: localHasSelection && selectionInfo ? { from: selectionInfo.from, to: selectionInfo.to } : null,
+                  highlightFrom: startPos
+                })
 
-              let chain = liveEditor.chain()
-              chain = chain.deleteRange({ from: startPos, to: currentEndPos })
-              chain = chain.insertContentAt(startPos, output)
-              chain.run()
+                let chain = liveEditor.chain()
+                chain = chain.deleteRange({ from: startPos, to: currentEndPos })
+                chain = chain.insertContentAt(startPos, output)
+                chain.run()
 
-              const afterSize = liveEditor.state.doc.content.size
-              const endPos = currentEndPos + (afterSize - beforeSize)
+                const afterSize = liveEditor.state.doc.content.size
+                const endPos = currentEndPos + (afterSize - beforeSize)
 
-              if (endPos > startPos) {
-                liveEditor.commands.setAiHighlight(startPos, endPos)
-                liveEditor.commands.setTextSelection(endPos)
-              }
+                if (endPos > startPos) {
+                  liveEditor.commands.setAiHighlight(startPos, endPos)
+                  liveEditor.commands.setTextSelection(endPos)
+                }
 
-              const storage = liveEditor.storage as unknown as MarkdownStorage
-              if (storage.markdown) {
-                const md = storage.markdown.getMarkdown()
-                setContent(md)
-                if (currentFilePath) updateFileContent(currentFilePath, md)
+                const storage = liveEditor.storage as unknown as MarkdownStorage
+                if (storage.markdown) {
+                  const md = storage.markdown.getMarkdown()
+                  setContent(md)
+                  updateFileContent(filePathAtApply, md)
+                }
               }
             }
             setPendingEditSelection(null)
@@ -1189,7 +1335,7 @@ export function SimpleAssist() {
         handleInput()
       }
     }
-  }, [pendingEditSelection])
+  }, [pendingEditSelection, handleInput, setPendingEditSelection])
 
   const hasHistory = filteredLogs.length > 0 || isWorking || !!errorText || !!noticeText
 
@@ -1259,23 +1405,39 @@ export function SimpleAssist() {
             <PlanModeIcon />
           </button>
           {/* Harness selector: logo only, name in tooltip + dropdown */}
-          <div className="relative" ref={harnessDropdownRef}>
+          <div
+            className="relative"
+            ref={harnessDropdownRef}
+            onKeyDown={(e) => {
+              if (e.key !== 'Escape') return
+              // One level back per press: flyout first, then the dropdown.
+              e.stopPropagation()
+              if (showEndpointFlyout) setShowEndpointFlyout(false)
+              else setShowHarnessDropdown(false)
+            }}
+          >
             <button
               onClick={() => setShowHarnessDropdown(v => !v)}
-              title={harness === 'none' ? 'Endpoint — use configured endpoint' : harnessLabel(harness)}
+              aria-label={harness === 'none'
+                ? (activeEndpointName ? `Endpoint — ${activeEndpointName}` : 'Endpoint')
+                : harnessLabel(harness)}
               className="ml-1 flex items-center gap-0.5 text-[var(--text-secondary)] hover:text-[var(--text-heading)] transition-colors cursor-pointer"
             >
               <HarnessIcon id={harness} className="w-3.5 h-3.5" />
               <ChevronDown className={`w-2.5 h-2.5 opacity-60 shrink-0 transition-transform duration-150 ${showHarnessDropdown ? 'rotate-180' : ''}`} />
             </button>
             {showHarnessDropdown && (
-              <div className="absolute left-0 bottom-full mb-1 z-50 min-w-[140px] bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-[8px] overflow-hidden shadow-[0_4px_16px_rgba(0,0,0,0.06)] py-1">
-                <HarnessOption
-                  id="none"
-                  label="Endpoint"
-                  selected={harness === 'none'}
-                  onSelect={() => { updateSettings({ default_harness: 'none' }); setShowHarnessDropdown(false) }}
-                />
+              <div ref={harnessMenuRef} className="absolute left-0 bottom-full mb-1 z-50 min-w-[180px] bg-[var(--bg-elevated)] border border-[var(--border-sidebar)]/70 rounded-[12px] p-1 animate-scale-in flex flex-col gap-0.5">
+                {/* Endpoint row opens the endpoint flyout — single trailing
+                    slot: check when endpoint-mode is live, chevron otherwise. */}
+                <button
+                  onClick={handleEndpointRowClick}
+                  className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-[8px] text-left transition-colors cursor-pointer hover:bg-[var(--border-sidebar)]/40 ${harness === 'none' ? 'text-[var(--text-heading)]' : 'text-[var(--text-secondary)]'}`}
+                >
+                  <HarnessIcon id="none" className="w-3.5 h-3.5" />
+                  <span className="text-[11px] truncate flex-1">Endpoint</span>
+                  <ChevronRight size={14} className={`shrink-0 opacity-60 transition-transform duration-150 ${showEndpointFlyout ? 'rotate-90' : ''}`} />
+                </button>
                 {harnessList.map(h => (
                   <HarnessOption
                     key={h.id}
@@ -1284,9 +1446,61 @@ export function SimpleAssist() {
                     disabled={!h.installed}
                     hint={h.installed ? undefined : 'not installed'}
                     selected={harness === h.id}
-                    onSelect={() => { updateSettings({ default_harness: h.id }); setShowHarnessDropdown(false) }}
+                    onSelect={() => { updateSettings({ default_harness: h.id }); setShowHarnessDropdown(false); setShowEndpointFlyout(false) }}
                   />
                 ))}
+                {showEndpointFlyout && (
+                  <div style={endpointFlyoutWidth ? { width: `${endpointFlyoutWidth}px` } : undefined} className={`absolute top-0 z-50 bg-[var(--bg-elevated)] border border-[var(--border-sidebar)]/70 rounded-[12px] p-1 animate-scale-in flex flex-col gap-0.5 ${endpointFlyoutSide === 'right' ? 'left-full ml-1' : 'right-full mr-1'}`}>
+                    {endpointEntries.length === 0 ? (
+                      <div className="px-2.5 py-1.5 text-[11px] text-[var(--text-muted)]">
+                        No endpoints yet
+                      </div>
+                    ) : (
+                      endpointEntries.map(([id, ep]) => {
+                        const isActive = harness === 'none' && settings?.active_endpoint === id
+                        const displayName = id.replace('_', ' ')
+                        return (
+                          <button
+                            key={id}
+                            onClick={() => handlePickEndpoint(id)}
+                            className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-[8px] text-left transition-colors cursor-pointer hover:bg-[var(--border-sidebar)]/40 ${isActive ? 'bg-[var(--border-sidebar)]/40 text-[var(--text-heading)]' : 'text-[var(--text-secondary)]'}`}
+                          >
+                            <span className="flex-1 min-w-0">
+                              <span className="flex items-center gap-1.5">
+                                <span className="text-[11px] truncate min-w-0 capitalize" title={displayName}>{displayName}</span>
+                                {ep.supports_vision && (
+                                  <span title="Supports image input" className="flex shrink-0 text-[var(--text-muted)]">
+                                    <Eye size={11} />
+                                  </span>
+                                )}
+                                {ep.is_thinking !== false ? (
+                                  <span title="Thinking enabled" className="flex shrink-0 text-[var(--text-muted)]">
+                                    <Brain size={11} />
+                                  </span>
+                                ) : (
+                                  <span title="Thinking disabled" className="flex shrink-0 text-[var(--text-muted)] opacity-50">
+                                    <Brain size={11} />
+                                  </span>
+                                )}
+                              </span>
+                              {ep.model && (
+                                <span className="block text-[10px] leading-tight truncate text-[var(--text-muted)]" title={ep.model}>{ep.model}</span>
+                              )}
+                            </span>
+                            <Check size={14} className={`shrink-0 ${isActive ? 'text-[var(--accent-brown)]' : 'invisible'}`} />
+                          </button>
+                        )
+                      })
+                    )}
+                    <div className="h-px bg-[var(--border-sidebar)]/60 my-0.5" />
+                    <button
+                      onClick={handleManageEndpoints}
+                      className="w-full flex items-center px-2.5 py-1.5 rounded-[8px] text-[11px] text-[var(--text-secondary)] hover:bg-[var(--border-sidebar)]/40 transition-colors cursor-pointer"
+                    >
+                      <span className="font-sans font-medium">Manage endpoints</span>
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1345,14 +1559,7 @@ export function SimpleAssist() {
               </div>
             </div>
           </div>
-          ) : (
-            <span
-              className="text-[10px] font-mono text-[var(--text-secondary)]"
-              title={`Last request context: ${contextUsedTokens.toLocaleString()} (${sessionInputTokens.toLocaleString()} in / ${sessionOutputTokens.toLocaleString()} out this session; no context window set)`}
-            >
-              {contextUsedTokens.toLocaleString()}
-            </span>
-          )}
+          ) : null}
 
           {/* Action Button: Stop when working, Send/Submit otherwise */}
           <button
@@ -1405,7 +1612,7 @@ export function SimpleAssist() {
               const newId = crypto.randomUUID()
               setActiveSessionId(newId)
             }}
-            className="flex items-center justify-center w-7 h-7 text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 bg-[var(--bg-icon)]/20 rounded-[6px] transition-all cursor-pointer active:scale-[0.95]"
+            className="flex items-center justify-center w-7 h-7 text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 rounded-[6px] transition-all cursor-pointer active:scale-[0.95]"
             title="New Chat"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
@@ -1415,8 +1622,8 @@ export function SimpleAssist() {
 
           <div className="relative">
             <button
-              onClick={() => setShowHistoryDropdown(!showHistoryDropdown)}
-              className="flex items-center justify-center w-7 h-7 text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 bg-[var(--bg-icon)]/20 rounded-[6px] transition-all cursor-pointer active:scale-[0.95]"
+              onClick={handleHistoryOpen}
+              className="flex items-center justify-center w-7 h-7 text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 rounded-[6px] transition-all cursor-pointer active:scale-[0.95]"
               title="History"
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="var(--text-secondary)"><g fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5"><path d="M11.25 7.75v5h3" /><path d="M4.855 7.875a8.25 8.25 0 1 1-.824 6.26m-.176-5.26v-4.75m0 4.75h4.75" /></g></svg>
@@ -1426,7 +1633,26 @@ export function SimpleAssist() {
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setShowHistoryDropdown(false)} />
                 <div className="absolute right-0 top-full mt-1.5 z-50 bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-[10px] overflow-hidden shadow-[0_4px_16px_rgba(0,0,0,0.06)] w-[220px] py-1 animate-scale-in">
-                  {sessions.length === 0 ? (
+                  {/* Chats / Imagine toggle */}
+                  <div className="flex items-center mx-2 mt-1 mb-1 gap-3">
+                    {(['chats', 'images'] as const).map((view) => (
+                      <button
+                        key={view}
+                        onClick={() => handleHistoryViewChange(view)}
+                        className={`relative pb-1 text-[11px] capitalize transition-colors cursor-pointer ${historyView === view
+                          ? 'text-[var(--text-heading)] font-medium'
+                          : 'text-[var(--text-secondary)] hover:text-[var(--text-heading)]'
+                          }`}
+                      >
+                        {view === 'images' ? 'Imagine' : 'Chats'}
+                        {historyView === view && (
+                          <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-[var(--accent-brown)] rounded-full" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                  {historyView === 'chats' ? (
+                    sessions.length === 0 ? (
                     <div className="px-3 py-2 text-center text-[11px] text-[var(--text-muted)] font-sans">
                       No logs
                     </div>
@@ -1445,9 +1671,13 @@ export function SimpleAssist() {
                               e.stopPropagation()
                               try {
                                 const res = await fetch(`${API_BASE}/api/assist/simple/session/${session.id}`, { method: 'DELETE' })
-                                if (!res.ok) console.warn('DELETE session returned', res.status)
+                                if (!res.ok) {
+                                  console.warn('DELETE session returned', res.status)
+                                  toast.error('Could not delete that session.')
+                                }
                               } catch (e) {
                                 console.error('Failed to delete session:', e)
+                                toast.error('Could not delete that session.')
                               }
                               if (activeSessionId === session.id) {
                                 setActiveSessionId(crypto.randomUUID())
@@ -1470,6 +1700,68 @@ export function SimpleAssist() {
                         </button>
                       )}
                     </>
+                  )
+                  ) : (
+                    /* Images view: thumbnail + light info; details in popup */
+                    <div className="max-h-[320px] overflow-y-auto">
+                      {imageLogs === null ? (
+                        <div className="px-3 py-2 text-center text-[11px] text-[var(--text-muted)] font-sans">
+                          Loading…
+                        </div>
+                      ) : imageLogs.length === 0 ? (
+                        <div className="px-3 py-4 text-center font-sans">
+                          <div className="text-[11px] text-[var(--text-muted)]">No imagines yet</div>
+                        </div>
+                      ) : (
+                        <>
+                          {imageLogs.slice(0, imageLoadCount).map((log, i) => (
+                            <div
+                              key={imageKey(log, i)}
+                              className="group flex items-center gap-1 px-2 py-1 mx-1 mb-0.5 rounded-[4px] hover:bg-[var(--bg-hover)] transition-colors"
+                            >
+                              <button
+                                onClick={() => { setSelectedImage(log); setShowHistoryDropdown(false) }}
+                                className="flex-1 min-w-0 flex items-center gap-2 text-left cursor-pointer"
+                              >
+                                {log.path ? (
+                                  <img
+                                    src={`${API_BASE}/api/workspace/media/${log.path}`}
+                                    alt=""
+                                    className="h-9 w-9 rounded-[4px] border border-[var(--border-subtle)] object-cover shrink-0"
+                                  />
+                                ) : (
+                                  <span className="h-9 w-9 rounded-[4px] border border-[var(--border-subtle)] bg-[var(--bg-hover)] shrink-0" />
+                                )}
+                                <span className="flex-1 min-w-0">
+                                  <span className="truncate block text-[11px] text-[var(--text-secondary)] pr-1">
+                                    {(log.prompt || log.final_prompt || 'Untitled').slice(0, 60)}
+                                  </span>
+                                  <span className="truncate block text-[10px] text-[var(--text-muted)] pr-1">
+                                    {log.timestamp ? new Date(log.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : ''}
+                                    {log.timestamp ? ` ${new Date(log.timestamp).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}` : ''}
+                                  </span>
+                                </span>
+                              </button>
+                              <button
+                                onClick={(e) => handleDeleteImageLog(e, log, i)}
+                                className="flex items-center justify-center w-5 h-5 text-[var(--text-secondary)]/60 hover:text-red-500 hover:bg-[var(--border-sidebar)]/60 rounded-[4px] transition-all cursor-pointer active:scale-[0.9] opacity-0 group-hover:opacity-100 shrink-0"
+                                title="Delete log entry"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ))}
+                          {imageLogs.length > imageLoadCount && (
+                            <button
+                              onClick={() => setImageLoadCount(c => c + 10)}
+                              className="w-full px-3 py-2 text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-heading)] text-center transition-colors hover:bg-[var(--bg-hover)] cursor-pointer"
+                            >
+                              Show {imageLogs.length - imageLoadCount} more...
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
                   )}
                 </div>
               </>
@@ -1479,7 +1771,7 @@ export function SimpleAssist() {
           {/* Settings Button */}
           <button
             onClick={() => setShowSettings(true)}
-            className="flex items-center justify-center w-7 h-7 text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 bg-[var(--bg-icon)]/20 rounded-[6px] transition-all cursor-pointer active:scale-[0.95]"
+            className="flex items-center justify-center w-7 h-7 text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 rounded-[6px] transition-all cursor-pointer active:scale-[0.95]"
             title="Settings"
           >
             <Settings size={14} />
@@ -1505,8 +1797,8 @@ export function SimpleAssist() {
                       return data.context_needed
                     }
                   }
-                } catch (e) {
-                  // ignore
+                } catch {
+                  // Malformed planner output has no context entries.
                 }
                 return []
               })()
@@ -1780,6 +2072,10 @@ export function SimpleAssist() {
       <div className="shrink-0 mt-auto pt-2">
         {renderInputCard()}
       </div>
+
+      {selectedImage && (
+        <ImageDetailPopup log={selectedImage} onClose={() => setSelectedImage(null)} />
+      )}
     </div>
   )
 }

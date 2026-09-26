@@ -7,8 +7,10 @@ import { useEditorStore } from '../../stores/editorStore'
 import { useEffect, useRef, useState } from 'react'
 import { Markdown } from 'tiptap-markdown'
 import { WritingBubbleMenu } from './WritingBubbleMenu'
-import { MarginImage } from './MarginImage'
-import { SlashMenuView, computeSlash } from './SlashMenu'
+import { MarginImage } from './MarginImageExtension'
+import { ImageGenerateDialogHost } from './ImageGenerateDialog'
+import { SlashMenuView } from './SlashMenu'
+import { computeSlash } from './slashQuery'
 import type { SlashMenuHandle } from './SlashMenu'
 import { AiDiffHighlightExtension } from './AiDiffHighlightExtension'
 import { reapplyHarnessHighlight } from '../../lib/applyHarnessResult'
@@ -21,6 +23,7 @@ import {
   uploadImageFile,
 } from '../../lib/media'
 import { EditorState } from '@tiptap/pm/state'
+import { toast } from '../../stores/toastStore'
 
 interface SlashState {
   query: string
@@ -34,7 +37,7 @@ async function handleImageFiles(editor: Editor, files: File[]): Promise<void> {
       const path = await uploadImageFile(file)
       insertStoredImage(editor, path, file.name.replace(/\.[^.]+$/, ''))
     } catch (err) {
-      window.alert(`Image upload failed: ${err instanceof Error ? err.message : err}`)
+      toast.error(`Image upload failed: ${err instanceof Error ? err.message : err}`)
     }
   }
 }
@@ -109,7 +112,18 @@ export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: bool
 
   const editor = useEditor({
     extensions: [
-      StarterKit,
+      StarterKit.configure({
+        // Plain clicks open the link in a new tab (never a redirect away
+        // from the editor). The click handler lives in the Link extension —
+        // no editor-level override.
+        link: {
+          openOnClick: true,
+          HTMLAttributes: {
+            target: '_blank',
+            rel: 'noopener noreferrer',
+          },
+        },
+      }),
       MarginImage,
       Markdown.configure({ html: false, tightLists: true }),
       AiDiffHighlightExtension,
@@ -127,9 +141,9 @@ export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: bool
         editor.commands.clearAiHighlight()
         isProgrammaticUpdateRef.current = false
       }
-      const markdownStorage = (editor.storage as any).markdown as { getMarkdown: () => string }
-      if (markdownStorage) {
-        const newMarkdown = markdownStorage.getMarkdown()
+      const markdownStorage = editor.storage as { markdown?: { getMarkdown: () => string } }
+      const newMarkdown = markdownStorage.markdown?.getMarkdown()
+      if (newMarkdown) {
         lastContentRef.current = newMarkdown
         setContent(newMarkdown)
       }
@@ -272,6 +286,7 @@ export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: bool
     <div className="bg-[var(--bg)] relative">
       <EditorContent editor={editor} />
       {showInlinePopup && <WritingBubbleMenu />}
+      <ImageGenerateDialogHost />
       {editor && slash && createPortal(
         <div
           ref={slashElRef}

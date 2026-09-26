@@ -48,6 +48,7 @@ margin has **no external telemetry**. There are no analytics, no tracking script
 The only "telemetry" is local:
 
 - **AI logs** stored in `outputs/ai_logs/` for debugging your own requests
+- **Image logs** stored in `outputs/image_logs/images.json` — every generation's prompt, seed, provider, and asset path; viewable in-app under History → Images
 - **Settings** saved in your platform's config directory — `~/.config/slm-writing-engine/settings.json` on Linux, `~/Library/Application Support/slm-writing-engine/settings.json` on macOS, `%APPDATA%\slm-writing-engine\settings.json` on Windows
 - **No crash reports, no usage stats, no pings home**
 
@@ -63,7 +64,7 @@ The referenced asset file is missing — it was renamed, moved, or deleted. Chec
 
 ### Pasted image doesn't appear
 
-- If an upload alert appeared, the file wasn't a supported image (PNG, JPG, WebP, GIF) — the pasted text itself is untouched.
+- If an upload toast appeared, the file wasn't a supported image (PNG, JPG, WebP, GIF) — the pasted text itself is untouched.
 - If a pasted image URL produced no image, the download failed (bad link, offline host, or a non-image response). Your pasted URL text stays in the document; try the URL in a browser to check it.
 
 ### Wrong size after editing dimensions
@@ -76,4 +77,16 @@ Only explicitly pasted/imported image URLs are downloaded into `assets/`. An ima
 
 ### Image looks too large after import
 
-New images render at natural size bounded by the editor width. Select the image and drag a handle (or reset) to persist a smaller width.
+New images render at natural size bounded by the editor width. Select the image and drag a handle to persist a smaller width.
+
+### Image generation fails
+
+- **"Prompt is required" / unknown style / missing reference** — your request or style selection is wrong. Check the prompt and Settings → Images → Styles.
+- **"API key rejected", "not configured", stale mapping warnings** — your provider configuration is wrong. Re-check Settings → Images and use **Test provider**; for ComfyUI, re-import the workflow if you changed it (mappings go stale when nodes are renamed).
+- **Anything else (timeouts, execution failures, bad responses)** — the provider itself failed. Check the provider is reachable (local ComfyUI running? service status page?) and try again.
+- **Imagine again changed more than expected** — only your typed change description plus the style is submitted alongside the reference image. A bare instruction ("make it blue") gives the model little to anchor on, so results vary more — describe the change relative to the current image.
+- **Every Imagine again looks oddly similar** — your workflow's saved seed is being reused. Register a seed mapping in Settings → Images so each run gets a fresh random seed; the submitted seed is recorded in History → Images.
+
+### Generation history
+
+Image runs are logged to `outputs/image_logs/images.json` in your workspace (prompt, submitted text, seed, asset path) — separate from chat `ai_logs/`. Delete entries from History → Images in the sidebar; the asset files themselves are kept.

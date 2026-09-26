@@ -10,7 +10,18 @@ export async function streamSSE(
     signal,
     body: JSON.stringify(body),
   })
-  if (!res.ok) throw new Error(`Request failed: ${res.status}`)
+  if (!res.ok) {
+    let detail: string | null = null
+    try {
+      const data = await res.json()
+      if (data && typeof data.detail === 'string' && data.detail.trim()) {
+        detail = data.detail
+      }
+    } catch {
+      // Non-JSON body — fall through to the bare status below.
+    }
+    throw new Error(detail ?? `Request failed: ${res.status}`)
+  }
 
   const reader = res.body!.getReader()
   const decoder = new TextDecoder()

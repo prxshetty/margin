@@ -1,8 +1,10 @@
 # General Settings
 
-The General settings tab controls your workspace, default editor mode, and AI response length.
+The General settings tab controls your default editor mode and AI response length. Workspace management lives in **Settings → Workspaces** — see [Workspaces](./workspaces.md).
 
-## Workspace Directory
+## Workspace Directory (moved)
+
+Workspace linking, creating, profiles, and Git init moved to the dedicated **Workspaces** tab and the file-sidebar switcher. The notes below still apply:
 
 A **workspace** is a folder on your computer that contains your content project. It can hold chapters, character sheets, style guides, world-building notes -- whatever your project needs.
 
@@ -12,7 +14,7 @@ margin comes with a `sample-workspace` that has example files to help you get st
 2. Click **Browse...** to pick a folder using your system's file picker, then
 3. Click **Link Path**.
 
-To reset to the default sample workspace, click **Reset to default fallback workspace**.
+To reset to the default sample workspace, pick `sample-workspace` in the file-sidebar switcher.
 
 ::: tip Your workspace path is stored in your platform's config directory (`~/.config/slm-writing-engine/settings.json` on Linux, `~/Library/Application Support/slm-writing-engine/settings.json` on macOS, `%APPDATA%\slm-writing-engine\settings.json` on Windows) and never sent anywhere.
 :::

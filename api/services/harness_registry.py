@@ -71,6 +71,7 @@ HARNESS_DESCRIPTORS: Dict[str, HarnessDescriptor] = {
         "static_models": [
             "claude-fable-5-1",
             "claude-opus-5",
+            "claude-opus-5-5",
             "claude-sonnet-5",
             "claude-haiku-4-5-20251001",
         ],
@@ -97,9 +98,8 @@ HARNESS_DESCRIPTORS: Dict[str, HarnessDescriptor] = {
         # with Margin releases. Custom IDs always typeable in Settings.
         "static_models": [
             "gpt-6-astra",
-            "gpt-5.6-sol",
-            "gpt-5.6-terra",
-            "gpt-5.6-luna",
+            "gpt-6-sol",
+            "gpt-6-luna",
         ],
         "subcommand": "exec",
         "workspace_flag": "-C",
