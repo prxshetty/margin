@@ -12,7 +12,7 @@ import { streamSSE } from '../../lib/stream-sse'
 import { applyHarnessResult } from '../../lib/applyHarnessResult'
 import { generateImage, insertStoredImageAt } from '../../lib/media'
 import { imageStyleOptions } from './ImageGenerateDialog'
-import { CueIcon, RewriteIcon, ImagineIcon, LinkIcon } from './brandIcons'
+import { CueIcon, RewriteIcon, ImagineIcon, LinkIcon } from '../icons/BrandIcons'
 
 // ─── Node selector (paragraph / heading) ─────────────────────────────────────
 const NODE_ITEMS = [

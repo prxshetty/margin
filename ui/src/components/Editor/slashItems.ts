@@ -4,7 +4,7 @@ import { insertStoredImage, uploadImageFile } from '../../lib/media'
 import { useEditorStore } from '../../stores/editorStore'
 import { useImageGenStore } from '../../stores/imageGenStore'
 import { toast } from '../../stores/toastStore'
-import { ImagineIcon, UploadIcon } from './brandIcons'
+import { ImagineIcon, UploadIcon } from '../icons/BrandIcons'
 
 export interface SlashCtx {
   editor: Editor
@@ -49,8 +49,8 @@ function pickAndUpload(editor: Editor) {
 
 // Extensible item registry: add future entries here (each with label,
 // hint, icon, keywords, run) and they appear in the menu with no further
-// wiring. Image upload is currently the only entry — pasted image URLs
-// already import via the paste path, so no URL mode is needed.
+// wiring. Pasted image URLs already import via the paste path, so no URL
+// mode is needed.
 export const ITEMS: SlashItem[] = [
   {
     id: 'upload', label: 'Upload image', hint: 'PNG · JPG · GIF · WebP', icon: UploadIcon, keywords: 'upload image picture photo asset file png jpg gif webp',

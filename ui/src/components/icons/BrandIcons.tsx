@@ -1,6 +1,6 @@
 // Shared Margin glyphs — one source for the bubble, slash menu, and any
 // future surface. All currentColor so they tint with surrounding text.
-// (Lucide covers generic UI chrome; these four are product vocabulary.)
+// (Lucide covers generic UI chrome; these are product vocabulary.)
 interface BrandIconProps {
   className?: string
 }
