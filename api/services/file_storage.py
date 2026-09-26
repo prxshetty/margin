@@ -164,6 +164,69 @@ def _init_git_repo(path_obj: Path) -> Dict[str, Any]:
     return git_info
 
 
+def _is_subpath(target: Path, base: Path) -> bool:
+    try:
+        t_res = target.resolve()
+        b_res = base.resolve()
+        if sys.platform in ("win32", "darwin"):
+            t_res = Path(str(t_res).lower())
+            b_res = Path(str(b_res).lower())
+        return t_res == b_res or b_res in t_res.parents
+    except Exception:
+        return False
+
+
+def _validate_workspace_name(name: str) -> str:
+    cleaned = (name or "").strip()
+    if not cleaned:
+        raise ValueError("Workspace name is required.")
+    if cleaned in (".", "..") or "/" in cleaned or "\\" in cleaned or cleaned.startswith("."):
+        raise ValueError("Workspace name must be a single folder name without path separators.")
+    return cleaned
+
+
+def _resolve_workspace_create_target(parent_path: str, name: str) -> Path:
+    raw_parent = (parent_path or "").strip()
+    if not raw_parent:
+        raise ValueError("Parent workspace path is required.")
+
+    parent_input = Path(raw_parent).expanduser()
+    if not parent_input.is_absolute():
+        raise ValueError("Parent workspace path must be absolute.")
+    try:
+        parent_resolved = parent_input.resolve()
+    except Exception:
+        raise ValueError("Invalid parent workspace path.")
+
+    target = (parent_resolved / _validate_workspace_name(name)).resolve()
+    if any(part.startswith(".") for part in target.parts):
+        raise ValueError("The selected path is not allowed as a workspace location.")
+
+    for blocked in _SENSITIVE_PATH_PREFIXES:
+        try:
+            blocked_resolved = blocked.expanduser().resolve()
+        except Exception:
+            continue
+        if _is_subpath(target, blocked_resolved):
+            raise ValueError("The selected path is not allowed as a workspace location.")
+
+    if target == target.parent or target == Path.home().resolve():
+        raise ValueError("Root directories and home directory root cannot be used as a workspace.")
+
+    if not parent_resolved.exists() or not parent_resolved.is_dir():
+        raise ValueError("The selected parent directory does not exist.")
+
+    if target.exists():
+        if not target.is_dir():
+            raise ValueError("Workspace path must be a directory.")
+        try:
+            if any(target.iterdir()):
+                raise ValueError("The selected directory is not empty. Please select an empty directory or specify a new folder name.")
+        except OSError:
+            raise ValueError("Cannot inspect the selected directory.")
+    return target
+
+
 def get_sensitive_path_prefixes() -> List[Path]:
     home = Path.home()
     prefixes: List[Path] = [
@@ -924,7 +987,8 @@ class FileStorageService:
 
     def create_workspace(
         self,
-        target_path: str,
+        parent_path: str,
+        name: str,
         init_git: bool = False,
     ) -> Dict[str, Any]:
         """Scaffold a new workspace directory.
@@ -933,9 +997,7 @@ class FileStorageService:
         (router) links the workspace after confirming success, so a git
         failure cannot leave the app pointed at a half-built workspace.
         """
-        path_obj = Path(target_path).expanduser().resolve()
-        if any(part.startswith(".") for part in path_obj.parts):
-            raise ValueError("The selected path is not allowed as a workspace location.")
+        path_obj = _resolve_workspace_create_target(parent_path, name)
 
         # Create root workspace directory if it doesn't exist
         path_obj.mkdir(parents=True, exist_ok=True)

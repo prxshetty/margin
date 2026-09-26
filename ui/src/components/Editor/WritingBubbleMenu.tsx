@@ -11,7 +11,7 @@ import { API_BASE } from '../../lib/api'
 import { streamSSE } from '../../lib/stream-sse'
 import { applyHarnessResult } from '../../lib/applyHarnessResult'
 import { generateImage, insertStoredImageAt } from '../../lib/media'
-import { imageStyleOptions } from './ImageGenerateDialog'
+import { imageStyleOptions } from './imageStyleOptions'
 import { CueIcon, RewriteIcon, ImagineIcon, LinkIcon } from './brandIcons'
 import { Dropdown } from '../Dropdown'
 

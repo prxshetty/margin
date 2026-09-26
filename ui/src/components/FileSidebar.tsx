@@ -175,7 +175,13 @@ export function FileSidebar({
 
   const { settings, setShowSettings, setSettingsTab, updateSettings } = useSettingsStore()
 
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const linkedWorkspaceDir = settings?.linked_workspace_dir ?? null
+  const [previousLinkedWorkspaceDir, setPreviousLinkedWorkspaceDir] = useState(linkedWorkspaceDir)
+  if (previousLinkedWorkspaceDir !== linkedWorkspaceDir) {
+    setPreviousLinkedWorkspaceDir(linkedWorkspaceDir)
+    setLoading(true)
+  }
   const containerRef = useRef<HTMLDivElement>(null)
   const initialLoadDone = useRef(false)
 
@@ -294,7 +300,6 @@ export function FileSidebar({
   // Auto-fetch from backend whenever linked workspace directory changes
   useEffect(() => {
     let active = true
-    setLoading(true)
     clearFiles()
     initialLoadDone.current = true
     hasAutoExpanded.current = false
@@ -572,7 +577,7 @@ export function FileSidebar({
     try {
       await updateSettings({ linked_workspace_dir: path })
       toast.success(path ? 'Workspace switched.' : 'Reset to default fallback workspace.')
-    } catch (err) {
+    } catch {
       toast.error('Could not switch workspace.')
     }
   }, [updateSettings])

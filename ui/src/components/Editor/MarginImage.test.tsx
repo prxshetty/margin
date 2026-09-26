@@ -9,7 +9,7 @@ import type { Editor as EditorType } from '@tiptap/core'
 import { Editor } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import { Markdown } from 'tiptap-markdown'
-import { MarginImage } from './MarginImage'
+import { MarginImage } from './MarginImageExtension'
 
 // jsdom has no rAF; ProseMirror schedules through it.
 if (typeof window !== 'undefined' && !window.requestAnimationFrame) {

@@ -4,8 +4,16 @@ import type { AppSettings } from '../../stores/settingsStore'
 import { toast } from '../../stores/toastStore'
 import { API_BASE } from '../../lib/api'
 import { FilterSection, SectionCard, SectionLabel, Toggle } from './shared'
+import { workspaceNameError } from './workspaceName'
 
 type Profile = { id: string; name: string; path: string }
+
+interface WorkspaceGitInfo {
+  already_tracked?: boolean
+  initialized?: boolean
+  git_parent?: string | null
+  error?: string | null
+}
 
 function WorkspaceEditDialog({ profile, gitAvailable, onSaveName, onClose }: {
   profile: Profile
@@ -25,7 +33,6 @@ function WorkspaceEditDialog({ profile, gitAvailable, onSaveName, onClose }: {
       .then(res => (res.ok ? res.json() : null))
       .then(data => { if (data && data.tracked) setGitOn(true) })
       .catch(() => { /* toggle simply stays off */ })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile.path])
 
   const handleSave = async () => {
@@ -245,18 +252,18 @@ export function WorkspacesSettings({ settings, updateSettings, query }: { settin
     }
   }
 
-  const gitNote = (git: any): string | null => {
+  const gitNote = (git: WorkspaceGitInfo | null | undefined): string | null => {
     if (!git) return null
     if (git.already_tracked) {
-      const parent = git.git_parent ? ` (${String(git.git_parent).split(/[\\/]/).pop()})` : ''
+      const parent = typeof git.git_parent === 'string' && git.git_parent ? ` (${git.git_parent.split(/[\\/]/).pop()})` : ''
       return `Already inside a Git repository${parent} — git init skipped.`
     }
     if (git.initialized) {
       let msg = 'Git repository initialized.'
-      if (git.error) msg += ` Note: ${git.error}`
+      if (typeof git.error === 'string' && git.error) msg += ` Note: ${git.error}`
       return msg
     }
-    if (git.error) return git.error
+    if (typeof git.error === 'string' && git.error) return git.error
     return 'Git could not be initialized.'
   }
 
@@ -297,24 +304,20 @@ export function WorkspacesSettings({ settings, updateSettings, query }: { settin
       } else {
         toast.error(data.detail || 'Failed to link workspace.')
       }
-    } catch (err: any) {
-      toast.error(err?.message || 'Error connecting to server.')
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Error connecting to server.')
     } finally {
       setIsWorking(false)
     }
   }
 
-  const createPath = () => {
-    const loc = (pickedPath || '').replace(/[\\/]+$/, '')
-    const name = createName.trim().replace(/[\\/]+$/, '')
-    if (!loc || !name) return ''
-    return `${loc}/${name}`
-  }
+  const createNameValidation = workspaceNameError(createName)
+  const showCreateNameError = createName.trim() !== '' && createNameValidation !== null
 
   const handleCreateWorkspace = async () => {
-    const path = createPath()
-    if (!path) {
-      toast.error('Enter a name for the new workspace.')
+    const nameError = workspaceNameError(createName)
+    if (!pickedPath || nameError) {
+      toast.error(nameError || 'Enter a name for the new workspace.')
       return
     }
 
@@ -324,11 +327,10 @@ export function WorkspacesSettings({ settings, updateSettings, query }: { settin
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          path,
+          parent_path: pickedPath,
+          name: createName.trim(),
           init_git: initGitCreate && gitAvailable === true,
           set_as_active: true,
-          force: false,
-          name: createName.trim(),
         })
       })
       const data = await res.json()
@@ -350,8 +352,8 @@ export function WorkspacesSettings({ settings, updateSettings, query }: { settin
       } else {
         toast.error(data.detail || 'Failed to create workspace.')
       }
-    } catch (err: any) {
-      toast.error(err?.message || 'Error connecting to server.')
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Error connecting to server.')
     } finally {
       setIsWorking(false)
     }
@@ -376,8 +378,8 @@ export function WorkspacesSettings({ settings, updateSettings, query }: { settin
         toast.error(data.detail || 'Failed to rename workspace.')
         return false
       }
-    } catch (err: any) {
-      toast.error(err?.message || 'Error connecting to server.')
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Error connecting to server.')
       return false
     }
   }
@@ -406,8 +408,8 @@ export function WorkspacesSettings({ settings, updateSettings, query }: { settin
       } else {
         toast.error(data.detail || 'Failed to delete workspace.')
       }
-    } catch (err: any) {
-      toast.error(err?.message || 'Error connecting to server.')
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Error connecting to server.')
     }
   }
 
@@ -549,17 +551,25 @@ export function WorkspacesSettings({ settings, updateSettings, query }: { settin
             <div className="mt-3 flex flex-col gap-2">
               <input
                 type="text"
+                aria-label="Workspace name"
+                aria-invalid={showCreateNameError}
+                aria-describedby={showCreateNameError ? 'create-workspace-name-error' : undefined}
                 placeholder="Name — e.g. my-new-novel"
                 value={createName}
                 onChange={(e) => setCreateName(e.target.value)}
                 className="border border-[var(--border-subtle)] rounded-[8px] px-3 py-1.5 text-[13px] bg-[var(--bg-input)] text-[var(--text)] outline-none focus:border-[var(--text-secondary)] transition-colors min-w-0"
               />
+              {showCreateNameError && createNameValidation && (
+                <p id="create-workspace-name-error" role="alert" className="text-[12px] text-[var(--danger)]">
+                  {createNameValidation}
+                </p>
+              )}
               {gitToggleRow('Initialize as Git repository', initGitCreate, setInitGitCreate)}
               <div className="flex items-center gap-3">
                 <button
                   type="button"
                   onClick={handleCreateWorkspace}
-                  disabled={isWorking || !createPath()}
+                  disabled={isWorking || createName.trim() === '' || createNameValidation !== null}
                   className={primaryBtn}
                 >
                   <span>Create</span>

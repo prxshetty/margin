@@ -16,6 +16,7 @@ from api.services.file_storage import (
     storage,
     is_git_available,
     _init_git_repo,
+    _is_subpath,
     _SENSITIVE_PATH_PREFIXES,
     ALLOWED_IMAGE_EXTS,
 )
@@ -30,11 +31,10 @@ class CreateFileRequest(BaseModel):
 
 
 class CreateWorkspaceRequest(BaseModel):
-    path: str
+    parent_path: str
+    name: str
     init_git: bool = False
     set_as_active: bool = True
-    force: bool = False
-    name: str = ""
 
 
 class GitInitRequest(BaseModel):
@@ -255,19 +255,6 @@ def _open_folder_picker() -> str | None:
     return None
 
 
-def _is_subpath(target: Path, base: Path) -> bool:
-    """Check if target is the same as or a descendant of base, case-insensitively on Windows & macOS."""
-    try:
-        t_res = target.resolve()
-        b_res = base.resolve()
-        if sys.platform in ("win32", "darwin"):
-            t_res = Path(str(t_res).lower())
-            b_res = Path(str(b_res).lower())
-        return t_res == b_res or b_res in t_res.parents
-    except Exception:
-        return False
-
-
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -304,65 +291,17 @@ def pick_folder():
 
 @router.post("/create")
 def create_workspace_endpoint(req: CreateWorkspaceRequest):
-    raw = (req.path or "").strip()
-    if not raw:
-        raise HTTPException(status_code=400, detail="Workspace path is required.")
-
-    raw_path = Path(raw).expanduser()
-    if not raw_path.is_absolute():
-        raise HTTPException(status_code=400, detail="Workspace path must be absolute.")
-
-    try:
-        resolved = raw_path.resolve()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid workspace path.")
-
-    # Block sensitive system / dot directories
-    if any(part.startswith(".") for part in resolved.parts):
-        raise HTTPException(
-            status_code=400,
-            detail="The selected path is not allowed as a workspace location."
-        )
-
-    for blocked in _SENSITIVE_PATH_PREFIXES:
-        try:
-            blocked_resolved = blocked.expanduser().resolve()
-            if _is_subpath(resolved, blocked_resolved):
-                raise HTTPException(
-                    status_code=400,
-                    detail="The selected path is not allowed as a workspace location."
-                )
-        except HTTPException:
-            raise
-        except Exception:
-            pass
-
-    # Reject non-empty directories unless force=True
-    if resolved.exists() and resolved.is_dir() and not req.force:
-        try:
-            if any(resolved.iterdir()):
-                raise HTTPException(
-                    status_code=400,
-                    detail=(
-                        "The selected directory is not empty. "
-                        "Pass force=true to scaffold into an existing directory."
-                    )
-                )
-        except HTTPException:
-            raise
-        except Exception:
-            pass
-
     try:
         res = storage.create_workspace(
-            target_path=str(resolved),
+            parent_path=req.parent_path,
+            name=req.name,
             init_git=req.init_git,
         )
         # Link the workspace AFTER scaffold succeeds — a git failure won't leave
         # the app pointing at a half-built directory. Profile upsert rides in
         # the same write so rapid Creates can never clobber each other.
         if req.set_as_active:
-            profile_name = (req.name or "").strip() or resolved.name
+            profile_name = req.name.strip()
             profiles = [p for p in storage.get_settings().get("workspace_profiles", []) or []]
             profiles, profile = _upsert_profile_entry(profiles, res["path"], profile_name)
             storage.update_settings({"linked_workspace_dir": res["path"], "workspace_profiles": profiles})
@@ -370,6 +309,8 @@ def create_workspace_endpoint(req: CreateWorkspaceRequest):
             res["profiles"] = profiles
             res["profile"] = profile
         return res
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception:
         raise HTTPException(status_code=400, detail="Failed to create workspace.")
 

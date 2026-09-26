@@ -1,51 +1,28 @@
 import { useEffect, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
-import Image from '@tiptap/extension-image'
-import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
+import { NodeViewWrapper } from '@tiptap/react'
 import type { NodeViewProps } from '@tiptap/core'
 import { AlignCenter, AlignLeft, AlignRight, Pencil, ChevronsUpDown } from 'lucide-react'
 import { generateImage, toDisplaySrc } from '../../lib/media'
 import { Dropdown } from '../Dropdown'
 import { useSettingsStore } from '../../stores/settingsStore'
-import { imageStyleOptions } from './ImageGenerateDialog'
+import { imageStyleOptions } from './imageStyleOptions'
 import { toast } from '../../stores/toastStore'
-import { parseImageMarkdown, serializeImageMarkdown, splitAltDims } from '../../lib/imageMarkdown'
+import { parseImageMarkdown, serializeImageMarkdown } from '../../lib/imageMarkdown'
 import type { ImageAlign } from '../../lib/imageMarkdown'
-
-/**
- * Margin's image node. Keeps Tiptap's `image` node name (and its
- * src/alt/title attrs) so plain images round-trip as
- * `![alt](assets/foo.png "caption")` exactly as before.
- * (Raw-text storage is not an option: the markdown serializer escapes `[`
- * and `]` in text nodes, so a literal `![...]` line would save as
- * backslash soup and break AI context stripping. The node is what keeps
- * the file clean.)
- *
- * Dimensions (Obsidian-style `![alt|800](src)` / `![alt|800x600](src)`)
- * and alignment (`![alt](src){align=right}`): neither Tiptap's built-in
- * image Markdown serializer nor tiptap-markdown 0.9.0 preserves custom
- * attributes — 0.9.0 serializes via prosemirror-markdown's default `image()`
- * (alt/src/title only) and parses stock markdown-it image syntax into
- * `<img>`, ignoring the v3 `parseMarkdown`/`renderMarkdown` hooks entirely.
- * So this extension adds the smallest wiring that survives that pipeline:
- * `width`/`height` parsed from the alt suffix in the DOM, `align` recovered
- * from the `{align=…}` trailer by an `updateDOM` hook, plus a
- * `storage.markdown.serialize` override (merged over 0.9.0's default spec)
- * that writes both back. Dragging a handle is just a visual way to edit
- * the persisted Markdown width/height — there is no separate layout state.
- *
- * Layout mirrors the source: the markdown line on top (plain body text,
- * no chrome), the rendered image below it — like bold markers, the source
- * is visible exactly when the cursor is there. Clearing the line removes
- * the image. Caption lives in `title` and is included in the endpoint
- * text representation (`[image: alt — caption]`).
- */
-
-function numOrNull(v: unknown): number | null {
-  return typeof v === 'number' ? v : null
-}
+import { numOrNull } from './imageAttributes'
 
 const MIN_SIZE = 32
+
+function useSyncedState<T>(value: T): [T, React.Dispatch<React.SetStateAction<T>>] {
+  const [previousValue, setPreviousValue] = useState(value)
+  const [state, setState] = useState(value)
+  if (!Object.is(previousValue, value)) {
+    setPreviousValue(value)
+    setState(value)
+  }
+  return [state, setState]
+}
 
 // Filled submit — SimpleAssist's send treatment (solid accent idle, muted
 // disabled) in the 5px inner radius shared with the bubble's SendArrow.
@@ -81,14 +58,14 @@ interface ResizeDrag {
   h: number | null
 }
 
-function MarginImageView({ editor, node, selected, updateAttributes, deleteNode, getPos }: NodeViewProps) {
+export function MarginImageView({ editor, node, selected, updateAttributes, deleteNode, getPos }: NodeViewProps) {
   const { src, alt } = node.attrs
   const width = numOrNull(node.attrs.width)
   const height = numOrNull(node.attrs.height)
   const align = (node.attrs.align ?? null) as ImageAlign | null
   const storedCaption: string = node.attrs.title ?? ''
   const liveSettings = useSettingsStore((s) => s.settings)
-  const [captionDraft, setCaptionDraft] = useState(storedCaption)
+  const [captionDraft, setCaptionDraft] = useSyncedState(storedCaption)
   // The caption field only renders when a caption exists or the user
   // explicitly asked for one via the affordance below. Auto-showing it on
   // every selection trapped clicks just below the image inside the input,
@@ -98,11 +75,16 @@ function MarginImageView({ editor, node, selected, updateAttributes, deleteNode,
   const sourceText = serializeImageMarkdown(
     alt ?? '', src, storedCaption || null, width, height, align,
   )
-  const [sourceDraft, setSourceDraft] = useState(sourceText)
+  const [sourceDraft, setSourceDraft] = useSyncedState(sourceText)
   // A src that fails to load is a broken path, not an image: hide the img
   // (no broken logo) and caption, and keep the source visible as an
   // editable, hyperlink-styled path so the user can fix it.
   const [broken, setBroken] = useState(false)
+  const [previousSrc, setPreviousSrc] = useState(src)
+  if (previousSrc !== src) {
+    setPreviousSrc(src)
+    setBroken(false)
+  }
   // "Imagine again" request in flight — pill shows the Rewrite-style
   // shimmer and controls are disabled until the swap lands or fails.
   const [regenerating, setRegenerating] = useState(false)
@@ -117,32 +99,17 @@ function MarginImageView({ editor, node, selected, updateAttributes, deleteNode,
   const editAreaRef = useRef<HTMLTextAreaElement>(null)
 
   // External updates (doc switch, AI edits) flow back into the drafts.
-  useEffect(() => {
-    setCaptionDraft(storedCaption)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [storedCaption])
-  useEffect(() => {
-    setSourceDraft(sourceText)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sourceText])
   // A new src gets a fresh chance: retry the load instead of staying broken.
-  useEffect(() => {
-    setBroken(false)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [src])
   // Deselecting with no caption collapses the field again so the space
   // below the image stays a plain click-out target next time.
-  useEffect(() => {
-    if (!selected && !storedCaption) setCaptionEditing(false)
-  }, [selected, storedCaption])
+  if (!selected && !storedCaption && captionEditing) {
+    setCaptionEditing(false)
+  }
   // Deselecting closes the Imagine-again bar (never mid-flight).
-  useEffect(() => {
-    if (!selected && !regenerating) {
-      setEditing(false)
-      setEditExpanded(false)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected])
+  if (!selected && !regenerating && (editing || editExpanded)) {
+    setEditing(false)
+    setEditExpanded(false)
+  }
   // Opening the field via the affordance focuses it for immediate typing.
   useEffect(() => {
     if (captionEditing) captionRef.current?.focus()
@@ -288,9 +255,7 @@ function MarginImageView({ editor, node, selected, updateAttributes, deleteNode,
     if (locked) {
       const scaleW = d.startW > 0 ? w / d.startW : 1
       const scaleH = d.startH > 0 ? h / d.startH : 1
-      if (Math.abs(scaleW - 1) >= Math.abs(scaleH - 1)) {
-        h = w / d.ratio
-      } else {
+      if (Math.abs(scaleW - 1) < Math.abs(scaleH - 1)) {
         w = h * d.ratio
       }
       // Re-clamp while preserving the ratio: fit w to the editor width,
@@ -637,93 +602,3 @@ function MarginImageView({ editor, node, selected, updateAttributes, deleteNode,
     </NodeViewWrapper>
   )
 }
-
-export const MarginImage = Image.extend({
-  addAttributes() {
-    // NOTE: extend() replaces (not merges) the parent's addAttributes, so
-    // src/title must be re-declared here alongside the custom attrs.
-    // Unadorned attrs parse from same-name DOM attributes by default.
-    // Alt additionally strips the `|WxH` dims suffix so the doc stores
-    // clean alt text; width/height recover the suffix.
-    return {
-      src: {
-        default: null,
-      },
-      title: {
-        default: null,
-      },
-      alt: {
-        default: null,
-        parseHTML: (element: HTMLElement) => {
-          const raw = element.getAttribute('alt')
-          return raw == null ? null : splitAltDims(raw).alt
-        },
-      },
-      width: {
-        default: null,
-        parseHTML: (element: HTMLElement) =>
-          splitAltDims(element.getAttribute('alt') ?? '').width,
-      },
-      height: {
-        default: null,
-        parseHTML: (element: HTMLElement) =>
-          splitAltDims(element.getAttribute('alt') ?? '').height,
-      },
-      align: {
-        default: null,
-        parseHTML: (element: HTMLElement) => {
-          const v = element.getAttribute('data-align')
-          return v === 'left' || v === 'center' || v === 'right' ? v : null
-        },
-        renderHTML: (attributes: Record<string, unknown>) => {
-          const v = attributes.align
-          return v === 'left' || v === 'center' || v === 'right' ? { 'data-align': v } : {}
-        },
-      },
-    }
-  },
-
-  addStorage() {
-    return {
-      markdown: {
-        // Overrides tiptap-markdown 0.9.0's default image serializer (which
-        // drops width/height/align). Parse needs no serializer-side override:
-        // stock markdown-it carries the `|WxH` suffix through in the alt
-        // attribute (recovered by parseHTML above) and leaves the
-        // `{align=…}` trailer as a text sibling (recovered by updateDOM).
-        serialize: (
-          state: { write: (text: string) => void },
-          node: { attrs: Record<string, unknown> },
-        ) => {
-          const { alt, src, title, width, height, align } = node.attrs
-          state.write(serializeImageMarkdown(
-            typeof alt === 'string' ? alt : '',
-            typeof src === 'string' ? src : '',
-            typeof title === 'string' && title ? title : null,
-            numOrNull(width),
-            numOrNull(height),
-            align === 'left' || align === 'center' || align === 'right' ? align : null,
-          ))
-        },
-        parse: {
-          updateDOM: (element: HTMLElement) => {
-            element.querySelectorAll('img').forEach((img) => {
-              const next = img.nextSibling
-              if (!next || next.nodeType !== Node.TEXT_NODE) return
-              const m = /^\s*\{align=(left|center|right)\}/.exec(next.textContent ?? '')
-              if (!m) return
-              img.setAttribute('data-align', m[1])
-              const rest = (next.textContent ?? '').slice(m[0].length)
-              if (rest.trim() === '') next.parentNode?.removeChild(next)
-              else next.textContent = rest
-            })
-          },
-        },
-      },
-    }
-  },
-
-  addNodeView() {
-    return ReactNodeViewRenderer(MarginImageView)
-  },
-})

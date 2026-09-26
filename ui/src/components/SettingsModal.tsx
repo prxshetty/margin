@@ -33,7 +33,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   // Deep-link target from the store (e.g. the panel's "Manage endpoints…"):
   // consumed once as the initial tab, then cleared.
   const [activeTab, setActiveTab] = useState<SettingsTabId>(settingsTab ?? 'general')
-  useEffect(() => { setSettingsTab(null) }, [])
+  useEffect(() => { setSettingsTab(null) }, [setSettingsTab])
   const [availableFiles, setAvailableFiles] = useState<{ name: string; path: string }[]>([])
   const [query, setQuery] = useState('')
 
@@ -50,13 +50,9 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   const visibleTabs = TABS.filter((t) => matchesQuery(query, `${t.label} ${t.keywords}`))
 
   // When searching filters the current tab out, jump to the first match.
-  useEffect(() => {
-    if (query.trim() && visibleTabs.length > 0 && !visibleTabs.some((t) => t.id === activeTab)) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setActiveTab(visibleTabs[0].id)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query])
+  if (query.trim() && visibleTabs.length > 0 && !visibleTabs.some((t) => t.id === activeTab)) {
+    setActiveTab(visibleTabs[0].id)
+  }
 
   if (!settings) return null
 

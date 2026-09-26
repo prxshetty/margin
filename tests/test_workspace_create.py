@@ -29,8 +29,9 @@ class TestWorkspaceCreate(unittest.TestCase):
         self.assertIn("version", res)
 
     def test_create_workspace_structure_no_git(self):
-        target = os.path.join(self.temp_dir, "my_novel_no_git")
-        res = self.storage.create_workspace(target_path=target, init_git=False)
+        name = "my_novel_no_git"
+        target = os.path.join(self.temp_dir, name)
+        res = self.storage.create_workspace(parent_path=self.temp_dir, name=name, init_git=False)
 
         self.assertTrue(res["success"])
         self.assertEqual(res["path"], str(Path(target).resolve()))
@@ -62,7 +63,7 @@ class TestWorkspaceCreate(unittest.TestCase):
     def test_create_workspace_with_git(self):
         git_check = is_git_available()
         target = os.path.join(self.temp_dir, "my_novel_git")
-        res = self.storage.create_workspace(target_path=target, init_git=True)
+        res = self.storage.create_workspace(parent_path=self.temp_dir, name="my_novel_git", init_git=True)
 
         self.assertTrue(res["success"])
         target_path = Path(target)
@@ -72,24 +73,6 @@ class TestWorkspaceCreate(unittest.TestCase):
             self.assertTrue((target_path / ".gitignore").is_file())
         else:
             self.assertFalse(res["git"]["initialized"])
-
-    def test_create_workspace_already_tracked_root(self):
-        git_check = is_git_available()
-        if not git_check["available"]:
-            self.skipTest("Git not available")
-
-        # Initialize a git repo first
-        import subprocess
-        repo_dir = os.path.join(self.temp_dir, "existing_repo")
-        os.makedirs(repo_dir, exist_ok=True)
-        subprocess.run(["git", "init"], cwd=repo_dir, capture_output=True, check=True)
-
-        # Scaffolding with init_git=True inside existing repo should detect already_tracked
-        res = self.storage.create_workspace(target_path=repo_dir, init_git=True)
-        self.assertTrue(res["success"])
-        self.assertTrue(res["git"]["already_tracked"])
-        self.assertFalse(res["git"]["initialized"])
-        self.assertIsNotNone(res["git"]["git_parent"])
 
     def test_create_workspace_already_tracked_nested_subdir(self):
         git_check = is_git_available()
@@ -103,8 +86,10 @@ class TestWorkspaceCreate(unittest.TestCase):
         subprocess.run(["git", "init"], cwd=parent_repo, capture_output=True, check=True)
 
         # Target is a nested subfolder
-        nested_target = os.path.join(parent_repo, "subprojects", "novel")
-        res = self.storage.create_workspace(target_path=nested_target, init_git=True)
+        parent = os.path.join(parent_repo, "subprojects")
+        os.makedirs(parent, exist_ok=True)
+        nested_target = os.path.join(parent, "novel")
+        res = self.storage.create_workspace(parent_path=parent, name="novel", init_git=True)
         self.assertTrue(res["success"])
         self.assertTrue(res["git"]["already_tracked"])
         self.assertFalse(res["git"]["initialized"])
@@ -123,7 +108,7 @@ class TestWorkspaceCreate(unittest.TestCase):
         target = os.path.join(self.temp_dir, "api_workspace")
         res = client.post(
             "/api/workspace/create",
-            json={"path": target, "init_git": False, "set_as_active": False}
+            json={"parent_path": self.temp_dir, "name": "api_workspace", "init_git": False, "set_as_active": False}
         )
         self.assertEqual(res.status_code, 200)
         data = res.json()
@@ -131,29 +116,30 @@ class TestWorkspaceCreate(unittest.TestCase):
         self.assertTrue(os.path.exists(target))
         self.assertTrue(os.path.exists(os.path.join(target, "chapters", "CHAPTERS.md")))
 
-    def test_api_create_workspace_relative_path_rejected(self):
+    def test_api_create_workspace_parent_path_rejected(self):
         client = TestClient(app)
         res = client.post(
             "/api/workspace/create",
-            json={"path": "   ", "init_git": False}
+            json={"parent_path": "   ", "name": "novel", "init_git": False}
         )
         self.assertEqual(res.status_code, 400)
-        self.assertIn("Workspace path is required", res.json()["detail"])
+        self.assertIn("Parent workspace path is required", res.json()["detail"])
 
         for rel_path in ["my_novel", "relative/path", "./sub"]:
             res = client.post(
                 "/api/workspace/create",
-                json={"path": rel_path, "init_git": False}
+                json={"parent_path": rel_path, "name": "novel", "init_git": False}
             )
             self.assertEqual(res.status_code, 400)
-            self.assertIn("Workspace path must be absolute", res.json()["detail"])
+            self.assertIn("Parent workspace path must be absolute", res.json()["detail"])
 
     def test_create_workspace_in_temp_directory_allowed(self):
         # macOS uses /var/folders/... for temp directories.
         # Ensure create_workspace does not reject temp directories as sensitive.
-        temp_workspace = os.path.join(tempfile.gettempdir(), "margin_test_temp_workspace")
+        temp_parent = tempfile.gettempdir()
+        temp_workspace = os.path.join(temp_parent, "margin_test_temp_workspace")
         try:
-            res = self.storage.create_workspace(target_path=temp_workspace, init_git=False)
+            res = self.storage.create_workspace(parent_path=temp_parent, name="margin_test_temp_workspace", init_git=False)
             self.assertTrue(res["success"])
             self.assertTrue(Path(temp_workspace).is_dir())
         finally:
@@ -161,32 +147,37 @@ class TestWorkspaceCreate(unittest.TestCase):
                 shutil.rmtree(temp_workspace, ignore_errors=True)
 
     def test_create_workspace_dot_directory_rejected(self):
-        dot_target = os.path.join(self.temp_dir, ".hidden_novel")
         with self.assertRaises(ValueError) as ctx:
-            self.storage.create_workspace(target_path=dot_target, init_git=False)
+            self.storage.create_workspace(parent_path=self.temp_dir, name=".hidden_novel", init_git=False)
+        self.assertIn("single folder name", str(ctx.exception))
+
+    def test_create_workspace_dot_parent_rejected(self):
+        dot_parent = os.path.join(self.temp_dir, ".hidden-parent")
+        os.makedirs(dot_parent, exist_ok=True)
+        with self.assertRaises(ValueError) as ctx:
+            self.storage.create_workspace(parent_path=dot_parent, name="novel", init_git=False)
         self.assertIn("not allowed", str(ctx.exception))
 
     def test_api_create_workspace_dot_directory_rejected(self):
         client = TestClient(app)
-        dot_target = os.path.join(self.temp_dir, ".hidden_novel_api")
         res = client.post(
             "/api/workspace/create",
-            json={"path": dot_target, "init_git": False}
+            json={"parent_path": self.temp_dir, "name": ".hidden_novel_api", "init_git": False}
         )
         self.assertEqual(res.status_code, 400)
-        self.assertIn("not allowed", res.json()["detail"])
+        self.assertIn("single folder name", res.json()["detail"])
 
     def test_api_create_workspace_sensitive_path_rejected(self):
         client = TestClient(app)
-        sensitive = str(Path.home() / ".ssh" / "my_project")
+        sensitive_parent = str(Path.home() / ".ssh")
         res = client.post(
             "/api/workspace/create",
-            json={"path": sensitive, "init_git": False}
+            json={"parent_path": sensitive_parent, "name": "my_project", "init_git": False}
         )
         self.assertEqual(res.status_code, 400)
         self.assertIn("not allowed", res.json()["detail"])
 
-    def test_api_create_workspace_non_empty_dir_rejected_without_force(self):
+    def test_api_create_workspace_non_empty_dir_rejected(self):
         client = TestClient(app)
         non_empty = os.path.join(self.temp_dir, "non_empty_dir")
         os.makedirs(non_empty, exist_ok=True)
@@ -194,25 +185,70 @@ class TestWorkspaceCreate(unittest.TestCase):
 
         res = client.post(
             "/api/workspace/create",
-            json={"path": non_empty, "init_git": False, "force": False}
+            json={"parent_path": self.temp_dir, "name": "non_empty_dir", "init_git": False}
         )
         self.assertEqual(res.status_code, 400)
         self.assertIn("not empty", res.json()["detail"])
 
-    def test_api_create_workspace_non_empty_dir_allowed_with_force(self):
+    def test_api_create_workspace_empty_dir_accepted(self):
         client = TestClient(app)
-        non_empty = os.path.join(self.temp_dir, "non_empty_force")
-        os.makedirs(non_empty, exist_ok=True)
-        Path(non_empty, "existing.txt").write_text("hello", encoding="utf-8")
+        empty = os.path.join(self.temp_dir, "empty_dir")
+        os.makedirs(empty, exist_ok=True)
 
         res = client.post(
             "/api/workspace/create",
-            json={"path": non_empty, "init_git": False, "force": True, "set_as_active": False}
+            json={"parent_path": self.temp_dir, "name": "empty_dir", "init_git": False, "set_as_active": False}
         )
         self.assertEqual(res.status_code, 200)
-        data = res.json()
-        self.assertTrue(data["success"])
-        self.assertTrue(os.path.exists(os.path.join(non_empty, "chapters", "CHAPTERS.md")))
+        self.assertTrue(res.json()["success"])
+        self.assertTrue(os.path.exists(os.path.join(empty, "chapters", "CHAPTERS.md")))
+
+    def test_api_create_workspace_name_rejected(self):
+        client = TestClient(app)
+        for bad_name in ["", "   ", ".", "..", "novels/first", "novels\\first", ".hidden"]:
+            res = client.post(
+                "/api/workspace/create",
+                json={"parent_path": self.temp_dir, "name": bad_name, "init_git": False}
+            )
+            self.assertEqual(res.status_code, 400, bad_name)
+
+    def test_api_create_workspace_missing_parent_rejected(self):
+        client = TestClient(app)
+        res = client.post(
+            "/api/workspace/create",
+            json={"parent_path": os.path.join(self.temp_dir, "missing-parent"), "name": "novel", "init_git": False}
+        )
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("parent directory", res.json()["detail"])
+
+    def test_create_workspace_file_target_rejected(self):
+        target_file = os.path.join(self.temp_dir, "not-a-directory")
+        Path(target_file).write_text("hello", encoding="utf-8")
+        with self.assertRaises(ValueError) as ctx:
+            self.storage.create_workspace(parent_path=self.temp_dir, name="not-a-directory", init_git=False)
+        self.assertIn("must be a directory", str(ctx.exception))
+
+    @unittest.skipIf(os.name == "nt", "Symlink creation requires elevated permissions on Windows")
+    def test_create_workspace_safe_symlinked_parent_allowed(self):
+        real_parent = os.path.join(self.temp_dir, "real-parent")
+        linked_parent = os.path.join(self.temp_dir, "linked-parent")
+        os.makedirs(real_parent, exist_ok=True)
+        os.symlink(real_parent, linked_parent, target_is_directory=True)
+
+        res = self.storage.create_workspace(parent_path=linked_parent, name="novel", init_git=False)
+
+        self.assertTrue(res["success"])
+        self.assertEqual(res["path"], str(Path(real_parent, "novel").resolve()))
+
+    @unittest.skipIf(os.name == "nt", "Symlink creation requires elevated permissions on Windows")
+    def test_create_workspace_symlink_to_sensitive_path_rejected(self):
+        sensitive_target = str(Path.home() / ".ssh")
+        linked_name = "linked-sensitive"
+        os.symlink(sensitive_target, os.path.join(self.temp_dir, linked_name), target_is_directory=True)
+
+        with self.assertRaises(ValueError) as ctx:
+            self.storage.create_workspace(parent_path=self.temp_dir, name=linked_name, init_git=False)
+        self.assertIn("not allowed", str(ctx.exception))
 
 
 class TestInitGitRepo(unittest.TestCase):
@@ -489,16 +525,15 @@ class TestWorkspaceProfiles(unittest.TestCase):
 
     def test_create_with_name_records_profile(self):
         client = TestClient(app)
-        target = os.path.join(self.temp_dir, "fresh_novel")
         res = client.post(
             "/api/workspace/create",
-            json={"path": target, "init_git": False, "force": False, "set_as_active": True, "name": "Fresh"},
+            json={"parent_path": self.temp_dir, "name": "fresh_novel", "init_git": False, "set_as_active": True},
         )
         self.assertEqual(res.status_code, 200)
         data = res.json()
         self.assertTrue(data["success"])
         self.assertEqual(len(data["profiles"]), 1)
-        self.assertEqual(data["profiles"][0]["name"], "Fresh")
+        self.assertEqual(data["profiles"][0]["name"], "fresh_novel")
         stored = client.get("/api/settings/").json()
         self.assertEqual(stored["linked_workspace_dir"], data["path"])
 

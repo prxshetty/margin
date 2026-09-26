@@ -7,9 +7,10 @@ import { useEditorStore } from '../../stores/editorStore'
 import { useEffect, useRef, useState } from 'react'
 import { Markdown } from 'tiptap-markdown'
 import { WritingBubbleMenu } from './WritingBubbleMenu'
-import { MarginImage } from './MarginImage'
+import { MarginImage } from './MarginImageExtension'
 import { ImageGenerateDialogHost } from './ImageGenerateDialog'
-import { SlashMenuView, computeSlash } from './SlashMenu'
+import { SlashMenuView } from './SlashMenu'
+import { computeSlash } from './slashQuery'
 import type { SlashMenuHandle } from './SlashMenu'
 import { AiDiffHighlightExtension } from './AiDiffHighlightExtension'
 import { reapplyHarnessHighlight } from '../../lib/applyHarnessResult'
@@ -140,9 +141,9 @@ export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: bool
         editor.commands.clearAiHighlight()
         isProgrammaticUpdateRef.current = false
       }
-      const markdownStorage = (editor.storage as any).markdown as { getMarkdown: () => string }
-      if (markdownStorage) {
-        const newMarkdown = markdownStorage.getMarkdown()
+      const markdownStorage = editor.storage as { markdown?: { getMarkdown: () => string } }
+      const newMarkdown = markdownStorage.markdown?.getMarkdown()
+      if (newMarkdown) {
         lastContentRef.current = newMarkdown
         setContent(newMarkdown)
       }

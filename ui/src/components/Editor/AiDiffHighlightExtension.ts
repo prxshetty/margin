@@ -52,7 +52,7 @@ export const AiDiffHighlightExtension = Extension.create<AiDiffHighlightOptions>
             return DecorationSet.empty
           },
           apply: (tr, oldState) => {
-            let newState = oldState.map(tr.mapping, tr.doc)
+            const newState = oldState.map(tr.mapping, tr.doc)
             const meta = tr.getMeta(aiDiffHighlightPluginKey)
 
             if (meta) {

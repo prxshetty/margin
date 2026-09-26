@@ -327,7 +327,7 @@ export function EndpointsSettings({ settings, updateSettings, query }: { setting
   // skips toasts for the pre-save check, which reports inline instead.
   const handleTest = async (url: string, key: string, model?: string, opts?: { silent?: boolean }): Promise<boolean> => {
     const notify = opts?.silent
-      ? { success: (_msg: string) => {}, error: (_msg: string) => {} }
+      ? { success: () => {}, error: () => {} }
       : toast
     setTestResult({ status: 'testing' })
     try {

@@ -31,7 +31,7 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements-dev.txt
 
       - name: Smoke-test imports
         # Confirms all modules resolve without a running LM Studio instance
@@ -41,9 +41,8 @@ jobs:
           python -c "from api.routers.workspace import router; print('workspace OK')"
           python -c "import llm; print('llm OK')"
 
-      - name: Run tests (if any)
-        # Replace with `pytest` once you add a test suite
-        run: python -m pytest tests/ -v --tb=short 2>/dev/null || echo "No test suite yet — skipping"
+      - name: Run tests
+        run: python -m pytest tests/ -v --tb=short
         shell: bash   # use bash even on Windows (via git-bash) for consistent behaviour
 
   # ── Frontend ─────────────────────────────────────────────────────────────
@@ -54,7 +53,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        node-version: ["20"]
+        node-version: ["24"]
 
     defaults:
       run:
@@ -72,6 +71,9 @@ jobs:
 
       - name: Install
         run: npm ci
+
+      - name: Test
+        run: npm test
 
       - name: Type-check
         run: npm run build -- --emptyOutDir

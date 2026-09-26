@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import React, { useState, useEffect, useEffectEvent, useRef, useCallback, useMemo } from 'react'
 import { AtSign, Check, ChevronDown, ChevronRight, Code2, MousePointer2, Settings, Trash2 } from 'lucide-react'
 import { useEditorStore } from '../stores/editorStore'
 import { useSettingsStore } from '../stores/settingsStore'
@@ -42,12 +42,9 @@ interface MarkdownStorage {
 
 
 function cleanUserPrompt(log: SimpleLogEntry): string {
-  let text = ''
-  if (log.instruction && log.instruction.trim()) {
-    text = log.instruction.trim()
-  } else {
-    text = log.mode === 'chat' ? 'AI Assistant Query' : 'Edit text'
-  }
+  let text = log.instruction?.trim()
+    ? log.instruction.trim()
+    : log.mode === 'chat' ? 'AI Assistant Query' : 'Edit text'
 
   const hasAt = text.includes('@')
   if (!hasAt) {
@@ -381,11 +378,7 @@ function inlineMarkdown(text: string): React.ReactNode[] {
 }
 
 function ThinkingDropdown({ text, defaultOpen = false }: { text: string; defaultOpen?: boolean }) {
-  const [open, setOpen] = useState(false)
-
-  useEffect(() => {
-    if (defaultOpen) setOpen(true)
-  }, [defaultOpen])
+  const [open, setOpen] = useState(defaultOpen)
 
   return (
     <div className="flex flex-col gap-0 self-start w-full mb-0">
@@ -471,6 +464,13 @@ export function SimpleAssist() {
   const harnessLabel = (id: string) => harnessList.find(h => h.id === id)?.name ?? id
   const hasSelection = !!pendingEditSelection
   const { settings, fetchSettings, setShowSettings, setSettingsTab, updateSettings } = useSettingsStore()
+  const [previousDefaultMode, setPreviousDefaultMode] = useState(settings?.default_mode)
+  if (previousDefaultMode !== settings?.default_mode) {
+    setPreviousDefaultMode(settings?.default_mode)
+    if (settings?.default_mode) {
+      setMode(settings.default_mode as 'chat' | 'edit')
+    }
+  }
   // Active endpoint display name (same `id.replace('_', ' ')` convention as
   // EndpointsTab). Empty when unset — there is no .env concept anymore.
   const activeEndpointName = settings?.active_endpoint
@@ -511,13 +511,7 @@ export function SimpleAssist() {
 
   useEffect(() => {
     fetchSettings()
-  }, [])
-
-  useEffect(() => {
-    if (settings?.default_mode) {
-      setMode(settings.default_mode as 'chat' | 'edit')
-    }
-  }, [settings?.default_mode])
+  }, [fetchSettings])
 
   const [showFileDropdown, setShowFileDropdown] = useState(false)
   const [fileQuery, setFileQuery] = useState('')
@@ -696,7 +690,7 @@ export function SimpleAssist() {
     return Math.max(0, 100 - percentUsed)
   }, [percentUsed])
 
-  useEffect(() => {
+  const loadInitialData = useEffectEvent(() => {
     fetchLogs()
     fetch(`${API_BASE}/api/harnesses`)
       .then(res => res.ok ? res.json() : { harnesses: [] })
@@ -705,13 +699,21 @@ export function SimpleAssist() {
         console.error('Failed to fetch harnesses:', err)
         toast.error('Could not load agent harnesses.')
       })
+  })
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      loadInitialData()
+    })
   }, [])
 
   // Reset all session state when the active workspace changes.
   // Keyed on the linked path itself: workspaceDir is only a custom/sample
   // flag, so custom → custom switches would never refire this effect.
   const linkedWorkspaceDir = settings?.linked_workspace_dir ?? null
-  useEffect(() => {
+  const [previousLinkedWorkspaceDir, setPreviousLinkedWorkspaceDir] = useState(linkedWorkspaceDir)
+  if (previousLinkedWorkspaceDir !== linkedWorkspaceDir) {
+    setPreviousLinkedWorkspaceDir(linkedWorkspaceDir)
     setHistoryLogs([])
     setImageLogs(null)
     setHistoryView('chats')
@@ -722,8 +724,7 @@ export function SimpleAssist() {
     setActiveToolRows([])
     setActiveHarness('none')
     setNoticeText('')
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [linkedWorkspaceDir])
+  }
 
   useEffect(() => {
     if (historyLogs.length > 0 || isWorking || errorText) {
@@ -755,7 +756,7 @@ export function SimpleAssist() {
   )
 
 
-  const handleInput = () => {
+  const handleInput = useCallback(() => {
     const el = inputRef.current
     if (!el) return
 
@@ -780,7 +781,7 @@ export function SimpleAssist() {
     setFileQuery(query)
     setHighlightedIndex(0)
     setShowFileDropdown(true)
-  }
+  }, [pendingEditSelection, setPendingEditSelection])
 
   const handleSelectFile = useCallback((file: FileEntry) => {
     const div = inputRef.current
@@ -1332,7 +1333,7 @@ export function SimpleAssist() {
         handleInput()
       }
     }
-  }, [pendingEditSelection])
+  }, [pendingEditSelection, handleInput, setPendingEditSelection])
 
   const hasHistory = filteredLogs.length > 0 || isWorking || !!errorText || !!noticeText
 
@@ -1774,8 +1775,8 @@ export function SimpleAssist() {
                       return data.context_needed
                     }
                   }
-                } catch (e) {
-                  // ignore
+                } catch {
+                  // Malformed planner output has no context entries.
                 }
                 return []
               })()

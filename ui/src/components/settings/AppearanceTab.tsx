@@ -8,6 +8,8 @@ type ThemeMode = NonNullable<AppSettings['theme']>
 
 type TextStyle = NonNullable<AppSettings['text_style']>
 
+type EditorStats = NonNullable<AppSettings['editor_stats']>
+
 const themeFamilies: { id: ThemeFamily; name: string; description: string; swatches: string[] }[] = [
   {
     id: 'sand',
@@ -209,7 +211,7 @@ export function AppearanceSettings({ settings, updateSettings, query }: { settin
               control={
                 <Dropdown
                   value={selectedStats}
-                  onChange={(v) => updateSettings({ editor_stats: v as any })}
+                  onChange={(v) => updateSettings({ editor_stats: v as EditorStats })}
                   options={[
                     { value: 'both', label: 'Words & Characters' },
                     { value: 'words', label: 'Words Only' },
