@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
 from pathlib import Path
 import urllib.parse
@@ -14,8 +14,6 @@ import uuid
 
 from api.services.file_storage import (
     storage,
-    is_git_available,
-    _init_git_repo,
     _is_subpath,
     _SENSITIVE_PATH_PREFIXES,
     ALLOWED_IMAGE_EXTS,
@@ -37,8 +35,6 @@ class CreateWorkspaceRequest(BaseModel):
     set_as_active: bool = True
 
 
-class GitInitRequest(BaseModel):
-    path: str
 
 
 class ProfileUpsertRequest(BaseModel):
@@ -67,6 +63,9 @@ class UpdateFileRequest(BaseModel):
 class MediaFromUrlRequest(BaseModel):
     url: str
     name: str = ""
+
+
+from api.routers.git import GitInitRequest, RestoreDiffBaseRequest, StageFileRequest
 
 
 # ---------------------------------------------------------------------------
@@ -263,8 +262,14 @@ def _open_folder_picker() -> str | None:
 def get_input_files():
     try:
         return storage.list_input_files()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="File not found.")
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Access denied.")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="An internal error occurred.")
 
 
 @router.get("/files/{path:path}")
@@ -277,9 +282,6 @@ def read_input_file(path: str):
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.get("/git-status")
-def get_git_status():
-    return is_git_available()
 
 
 @router.get("/pick-folder")
@@ -309,6 +311,10 @@ def create_workspace_endpoint(req: CreateWorkspaceRequest):
             res["profiles"] = profiles
             res["profile"] = profile
         return res
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="File not found.")
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Access denied.")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception:
@@ -316,75 +322,7 @@ def create_workspace_endpoint(req: CreateWorkspaceRequest):
 
 
 
-@router.post("/git-init")
-def git_init_endpoint(req: GitInitRequest):
-    """Initialize a Git repository in an existing directory.
 
-    Used at Link time when the user toggles versioning on for an existing
-    workspace. Never raises for expected Git outcomes — they are reported in
-    `git` so the caller can surface partial success (linked, but Git failed).
-    """
-    resolved = _resolve_existing_dir(req.path)
-
-    git_info = _init_git_repo(resolved)
-    return {"success": True, "path": str(resolved), "git": git_info}
-
-
-def _resolve_existing_dir(raw: str | None) -> Path:
-    """Validate a workspace path argument: absolute, resolvable, an existing
-    directory. Shared by the git endpoints so their 400s stay identical."""
-    raw = (raw or "").strip()
-    if not raw:
-        raise HTTPException(status_code=400, detail="Workspace path is required.")
-
-    raw_path = Path(raw).expanduser()
-    if not raw_path.is_absolute():
-        raise HTTPException(status_code=400, detail="Workspace path must be absolute.")
-
-    try:
-        resolved = raw_path.resolve()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid workspace path.")
-
-    if not resolved.exists() or not resolved.is_dir():
-        raise HTTPException(status_code=400, detail="The selected directory does not exist.")
-    return resolved
-
-
-def _own_git_dir(resolved: Path) -> Path | None:
-    """<resolved>/.git when it exists as a directory, else None.
-
-    Only a directory is ever removed — gitlink files (submodules, linked
-    worktrees) are deliberately out of scope for the undo path."""
-    candidate = resolved / ".git"
-    return candidate if candidate.is_dir() else None
-
-
-@router.get("/git-tracked")
-def git_tracked(path: str = ""):
-    """Whether `path` has its own `.git` directory (the edit-dialog toggle's
-    initial state). 'Not a repo' is a normal answer, never an error."""
-    resolved = _resolve_existing_dir(path)
-    git_dir = _own_git_dir(resolved)
-    return {"tracked": git_dir is not None}
-
-
-@router.delete("/git")
-def git_remove_endpoint(path: str = ""):
-    """Undo a git init: delete <path>/.git (history lost, files kept).
-
-    Only ever removes the folder's own `.git` directory — never walks up to a
-    parent repo, never touches gitlink files. The UI gates this behind an
-    explicit destructive confirm."""
-    resolved = _resolve_existing_dir(path)
-    git_dir = _own_git_dir(resolved)
-    if git_dir is None:
-        raise HTTPException(status_code=400, detail="No Git repository in this folder.")
-    try:
-        shutil.rmtree(git_dir)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Could not remove the Git repository: {e}")
-    return {"success": True, "path": str(resolved)}
 
 
 
@@ -561,6 +499,20 @@ def delete_input_file(path: str):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.post("/finalize-deletions")
+def finalize_deletions():
+    try:
+        return storage.finalize_deletions()
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="File not found.")
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Access denied.")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="An internal error occurred.")
+
+
 @router.put("/files/{path:path}")
 def update_input_file(path: str, req: UpdateFileRequest):
     try:
@@ -617,8 +569,14 @@ def get_styles():
                     "description": desc or ""
                 })
         return styles
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="File not found.")
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Access denied.")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="An internal error occurred.")
 
 
 # ---------------------------------------------------------------------------

@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom'
 import { autoUpdate, computePosition, flip, offset, shift, size } from '@floating-ui/dom'
 import StarterKit from '@tiptap/starter-kit'
 import { useEditorStore } from '../../stores/editorStore'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Markdown } from 'tiptap-markdown'
 import { WritingBubbleMenu } from './WritingBubbleMenu'
 import { MarginImage } from './MarginImageExtension'
@@ -22,8 +22,20 @@ import {
   isImageFile,
   uploadImageFile,
 } from '../../lib/media'
-import { EditorState } from '@tiptap/pm/state'
 import { toast } from '../../stores/toastStore'
+import { isManifestPath, validateManifestText } from '../../lib/manifestValidator'
+
+interface MarkdownStorage {
+  markdown?: {
+    getMarkdown: () => string
+  }
+}
+
+declare global {
+  interface Window {
+    __marginEditor?: Editor
+  }
+}
 
 interface SlashState {
   query: string
@@ -73,7 +85,15 @@ async function handleBareImageUrl(
   insertStoredImageAt(editor, anchor, path)
 }
 
-export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: boolean }) {
+export function NovelEditor({
+  showInlinePopup = true,
+  onSave,
+  isDirty = false,
+}: {
+  showInlinePopup?: boolean
+  onSave?: () => Promise<boolean>
+  isDirty?: boolean
+}) {
   const content = useEditorStore(state => state.content)
   const setContent = useEditorStore(state => state.setContent)
   const setEditor = useEditorStore(state => state.setEditor)
@@ -82,16 +102,62 @@ export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: bool
   const setAnchorPosition = useEditorStore(state => state.setAnchorPosition)
   const aiPendingEdit = useEditorStore(state => state.aiPendingEdit)
   const setAiPendingEdit = useEditorStore(state => state.setAiPendingEdit)
+  const currentFilePath = useEditorStore(state => state.currentFilePath)
+  const fileStatusMap = useEditorStore(state => state.fileStatusMap)
+  const currentStatus = currentFilePath ? fileStatusMap[currentFilePath] : undefined
+  const isDeleted = currentStatus === 'staged_deleted' || currentStatus === 'unstaged_deleted'
   const lastContentRef = useRef('')
-  // Flag: true while we are programmatically calling setContent so onUpdate
-  // doesn't echo the change back into Zustand and cause an infinite loop.
+  const lastPathRef = useRef<string | null>(currentFilePath)
+  // Flag: true while we are programmatically calling setContent or setEditable so onUpdate
+  // doesn't echo the change back into Zustand and cause an infinite loop or overwrite content.
   const isProgrammaticUpdateRef = useRef(false)
   const editorRef = useRef<Editor | null>(null)
   const slashRef = useRef<SlashMenuHandle>(null)
   const [slash, setSlash] = useState<SlashState | null>(null)
   const slashElRef = useRef<HTMLDivElement | null>(null)
 
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const flushSave = useCallback(() => {
+    if (onSave && isDirty) {
+      onSave()
+    }
+  }, [onSave, isDirty])
+
+  const scheduleDebouncedSave = useCallback(() => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(() => {
+      flushSave()
+      saveTimerRef.current = null
+    }, 2000)
+  }, [flushSave])
+
+  const flushTimerPathRef = useRef(currentFilePath)
+  useEffect(() => {
+    if (currentFilePath !== flushTimerPathRef.current) {
+      if (saveTimerRef.current) {
+        flushSave()
+        clearTimeout(saveTimerRef.current)
+        saveTimerRef.current = null
+      }
+      flushTimerPathRef.current = currentFilePath
+    }
+  }, [currentFilePath, flushSave])
+
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) {
+        flushSave()
+        clearTimeout(saveTimerRef.current)
+      }
+    }
+  }, [flushSave])
+
   const refreshSlash = (editor: Editor) => {
+    if (isDeleted) {
+      setSlash(null)
+      return
+    }
     const found = computeSlash(editor)
     if (!found) {
       setSlash((prev) => (prev === null ? prev : null))
@@ -111,6 +177,7 @@ export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: bool
   }
 
   const editor = useEditor({
+    editable: !isDeleted,
     extensions: [
       StarterKit.configure({
         // Plain clicks open the link in a new tab (never a redirect away
@@ -130,9 +197,27 @@ export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: bool
     ],
     // Feed raw markdown — the Markdown extension parses it natively
     content: content || '',
+    onBlur: ({ editor }) => {
+      if (isDirty) {
+        flushSave()
+        if (saveTimerRef.current) {
+          clearTimeout(saveTimerRef.current)
+          saveTimerRef.current = null
+        }
+      }
+      const curPath = useEditorStore.getState().currentFilePath
+      if (curPath && isManifestPath(curPath)) {
+        const markdownStorage = (editor.storage as unknown as MarkdownStorage).markdown
+        const text = markdownStorage ? markdownStorage.getMarkdown() : useEditorStore.getState().content
+        const issues = validateManifestText(text)
+        useEditorStore.getState().setManifestIssues(curPath, issues)
+      }
+    },
     onUpdate: ({ editor }) => {
+      if (isDeleted || !editor.isEditable) return
       // Only propagate changes that come from the USER typing, not from us.
       if (isProgrammaticUpdateRef.current) return
+      if (currentFilePath !== lastPathRef.current) return
 
       // Auto-accept AI edits if the user types
       if (aiPendingEdit) {
@@ -141,11 +226,14 @@ export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: bool
         editor.commands.clearAiHighlight()
         isProgrammaticUpdateRef.current = false
       }
-      const markdownStorage = editor.storage as { markdown?: { getMarkdown: () => string } }
-      const newMarkdown = markdownStorage.markdown?.getMarkdown()
-      if (newMarkdown) {
+      const markdownStorage = (editor.storage as unknown as MarkdownStorage).markdown
+      if (markdownStorage) {
+        const newMarkdown = markdownStorage.getMarkdown()
         lastContentRef.current = newMarkdown
         setContent(newMarkdown)
+      }
+      if (!isProgrammaticUpdateRef.current) {
+        scheduleDebouncedSave()
       }
       refreshSlash(editor)
     },
@@ -167,12 +255,24 @@ export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: bool
         class: 'prose prose-slate relative max-w-none focus:outline-none min-h-[500px] px-8 py-6',
       },
       handleKeyDown: (_view, event) => {
+        if (isDeleted || !editorRef.current?.isEditable) return false
+        if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
+          event.preventDefault()
+          if (isDirty) {
+            flushSave()
+            if (saveTimerRef.current) {
+              clearTimeout(saveTimerRef.current)
+              saveTimerRef.current = null
+            }
+          }
+          return true
+        }
         if (slashRef.current?.onKeyDown(event)) return true
         return false
       },
       handlePaste: (_view, event) => {
         const editor = editorRef.current
-        if (!editor) return false
+        if (!editor || isDeleted || !editor.isEditable) return false
         const files = Array.from(event.clipboardData?.files ?? []).filter(isImageFile)
         if (files.length > 0) {
           event.preventDefault()
@@ -191,7 +291,7 @@ export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: bool
       },
       handleDrop: (_view, event) => {
         const editor = editorRef.current
-        if (!editor) return false
+        if (!editor || isDeleted || !editor.isEditable) return false
         const files = Array.from(event.dataTransfer?.files ?? []).filter(isImageFile)
         if (files.length === 0) return false
         event.preventDefault()
@@ -205,36 +305,35 @@ export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: bool
     if (editor) {
       setEditor(editor)
       editorRef.current = editor
+      if (typeof window !== 'undefined') {
+        window.__marginEditor = editor
+      }
     }
   }, [editor, setEditor])
+
+  useEffect(() => {
+    if (editor && !editor.isDestroyed) {
+      isProgrammaticUpdateRef.current = true
+      editor.setEditable(!isDeleted)
+      isProgrammaticUpdateRef.current = false
+    }
+  }, [editor, isDeleted])
 
   // Sync external content changes (e.g. doc switch, streaming) into the editor.
   // Pass raw markdown — tiptap-markdown parses it, no html intermediary needed.
   useEffect(() => {
     if (editor && content !== undefined) {
-      if (content !== lastContentRef.current) {
+      const isPathChange = currentFilePath !== lastPathRef.current
+      if (isPathChange || content !== lastContentRef.current) {
+        lastPathRef.current = currentFilePath
         lastContentRef.current = content
         isProgrammaticUpdateRef.current = true
-        editor.commands.setContent(content || '')
-        // prosemirror-history does not export clearHistory.
-        // Rebuild a fresh EditorState with the same doc + plugins so every
-        // plugin's state (including history) is reset to its initial value,
-        // preventing Cmd+Z from time-travelling into prior file content.
-        editor.view.updateState(
-          EditorState.create({
-            doc: editor.state.doc,
-            schema: editor.state.schema,
-            plugins: editor.state.plugins,
-          })
-        )
-        // The rebuild resets every plugin's state — a pending harness diff
-        // highlight set just before this is wiped with it. Doc is unchanged,
-        // so the same block positions re-apply cleanly.
+        editor.commands.setContent(content || '', { emitUpdate: false })
         reapplyHarnessHighlight(editor)
         isProgrammaticUpdateRef.current = false
       }
     }
-  }, [content, editor])
+  }, [content, currentFilePath, editor])
 
   // Floating-UI positioning for the slash menu: flips above the cursor near
   // the viewport bottom, shifts inside horizontal edges, constrains height
@@ -283,11 +382,11 @@ export function NovelEditor({ showInlinePopup = true }: { showInlinePopup?: bool
   }, [editor, slash])
 
   return (
-    <div className="bg-[var(--bg)] relative">
+    <div className={`bg-[var(--bg)] relative ${isDeleted ? 'editor-deleted-content' : ''}`}>
       <EditorContent editor={editor} />
-      {showInlinePopup && <WritingBubbleMenu />}
+      {!isDeleted && showInlinePopup && <WritingBubbleMenu />}
       <ImageGenerateDialogHost />
-      {editor && slash && createPortal(
+      {editor && !isDeleted && slash && createPortal(
         <div
           ref={slashElRef}
           className="fixed left-0 top-0 z-[10001]"
