@@ -1,5 +1,6 @@
 import { Check } from 'lucide-react'
 import type { AppSettings } from '../../stores/settingsStore'
+import { useEditorStore } from '../../stores/editorStore'
 import { Dropdown } from '../Dropdown'
 import { FilterSection, SectionCard, SectionLabel, Row } from './shared'
 type ThemeFamily = NonNullable<AppSettings['theme_family']>
@@ -87,6 +88,7 @@ export function AppearanceSettings({ settings, updateSettings, query }: { settin
   const selectedMode = settings.theme || 'light'
   const selectedTextStyle = settings.text_style || 'system'
   const selectedStats = settings.editor_stats || 'both'
+  const { isGitWorkspace } = useEditorStore()
 
   const modePreview: Record<ThemeMode, { bg: string; bar: string; dot: string }> = {
     light: { bg: '#FFFFFF', bar: '#E7E2DA', dot: '#734F2D' },
@@ -222,6 +224,27 @@ export function AppearanceSettings({ settings, updateSettings, query }: { settin
                 />
               }
             />
+          </SectionCard>
+        </section>
+      </FilterSection>
+
+      <FilterSection query={query} keywords="file management labels action buttons stage snapshot restore">
+        <section>
+          <SectionLabel description={isGitWorkspace ? 'Display text labels on the Stage and Restore document toolbar buttons.' : 'Display text labels on the Snapshot and Restore document toolbar buttons.'}>File Management Buttons</SectionLabel>
+          <SectionCard>
+            <label className="flex items-center gap-2.5 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={settings.show_file_action_labels ?? false}
+                onChange={(e) => updateSettings({ show_file_action_labels: e.target.checked })}
+                className="accent-[var(--accent-brown)] cursor-pointer w-4 h-4"
+              />
+              <span className="text-[12px] text-[var(--text)]">
+                {isGitWorkspace
+                  ? 'Show text labels on file management buttons (Stage, Restore)'
+                  : 'Show text labels on file management buttons (Snapshot, Restore)'}
+              </span>
+            </label>
           </SectionCard>
         </section>
       </FilterSection>
