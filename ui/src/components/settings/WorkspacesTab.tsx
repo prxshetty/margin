@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
-import { Pencil, Trash2, X, FolderOpen, Plus } from 'lucide-react'
+import { Pencil, Trash2, X, FolderOpen, Plus, Loader2 } from 'lucide-react'
 import type { AppSettings } from '../../stores/settingsStore'
+import { useEditorStore, type ApiFileItem, type FileStatus } from '../../stores/editorStore'
+import { refreshWorkspaceStatus } from '../../lib/workspaceStatus'
 import { toast } from '../../stores/toastStore'
 import { API_BASE } from '../../lib/api'
 import { FilterSection, SectionCard, SectionLabel, Toggle } from './shared'
@@ -171,6 +173,112 @@ export function WorkspacesSettings({ settings, updateSettings, query }: { settin
   const [isWorking, setIsWorking] = useState(false)
   const [mode, setMode] = useState<'open' | 'create' | null>(null)
   const [editProfile, setEditProfile] = useState<Profile | null>(null)
+  const isGitWorkspace = useEditorStore((state) => state.isGitWorkspace)
+  const openedFiles = useEditorStore((state) => state.openedFiles)
+  const fileStatusMap = useEditorStore((state) => state.fileStatusMap)
+  const [isFinalizing, setIsFinalizing] = useState(false)
+  const [finalizeStatus, setFinalizeStatus] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null)
+  const [hasDeleted, setHasDeleted] = useState<boolean | null>(null)
+  const [isCheckingDeleted, setIsCheckingDeleted] = useState(false)
+
+  const storeHasDeleted =
+    openedFiles.some((f) => Boolean(f.deleted)) ||
+    Object.values(fileStatusMap).some(
+      (s) => s === 'unstaged_deleted' || s === 'staged_deleted'
+    )
+
+  const hasDeletedFiles = hasDeleted !== null ? (hasDeleted || storeHasDeleted) : storeHasDeleted
+
+  useEffect(() => {
+    let active = true
+    const checkDeletedFiles = async () => {
+      setIsCheckingDeleted(true)
+      try {
+        const [filesRes, statusRes] = await Promise.all([
+          fetch(`${API_BASE}/api/workspace/files`, { signal: AbortSignal.timeout(5000) }),
+          fetch(`${API_BASE}/api/workspace/status`, { signal: AbortSignal.timeout(5000) }),
+        ])
+        if (!active) return
+        let anyDeleted = false
+        if (filesRes.ok) {
+          const files: ApiFileItem[] = await filesRes.json()
+          anyDeleted = files.some((f) => Boolean(f.deleted))
+        }
+        if (statusRes.ok) {
+          const statusData = await statusRes.json()
+          const statuses: Record<string, FileStatus> = statusData.statuses || {}
+          if (Object.values(statuses).some((s) => s === 'unstaged_deleted' || s === 'staged_deleted')) {
+            anyDeleted = true
+          }
+          useEditorStore.getState().setIsGitWorkspace(Boolean(statusData.is_git))
+          useEditorStore.getState().setFileStatusMap(statuses)
+        }
+        setHasDeleted(anyDeleted)
+      } catch {
+        // keep store state as fallback
+      } finally {
+        if (active) setIsCheckingDeleted(false)
+      }
+    }
+    checkDeletedFiles()
+    return () => {
+      active = false
+    }
+  }, [settings.linked_workspace_dir])
+
+  const handleFinalizeDeletions = async () => {
+    setIsFinalizing(true)
+    setFinalizeStatus(null)
+    try {
+      const res = await fetch(`${API_BASE}/api/workspace/finalize-deletions`, {
+        method: 'POST',
+        signal: AbortSignal.timeout(10000),
+      })
+      const data = await res.json()
+      if (res.ok && data.success) {
+        setHasDeleted(false)
+        setFinalizeStatus({
+          type: 'success',
+          message:
+            data.message ||
+            `Finalized: purged ${data.finalized_count ?? data.purged_count ?? 0} deleted file snapshot(s).`,
+        })
+        refreshWorkspaceStatus(true)
+        try {
+          const filesRes = await fetch(`${API_BASE}/api/workspace/files`, {
+            signal: AbortSignal.timeout(5000),
+          })
+          if (filesRes.ok) {
+            const files: ApiFileItem[] = await filesRes.json()
+            useEditorStore.getState().setOpenedFiles(
+              files.map((f) => ({
+                name: f.name,
+                path: f.path,
+                content: '',
+                originalContent: '',
+                deleted: Boolean(f.deleted),
+                tracked: Boolean(f.tracked),
+              }))
+            )
+          }
+        } catch {
+          // ignore
+        }
+      } else {
+        setFinalizeStatus({
+          type: 'error',
+          message: data.detail || 'Failed to finalize deletions.',
+        })
+      }
+    } catch {
+      setFinalizeStatus({
+        type: 'error',
+        message: 'Network error while finalizing deletions.',
+      })
+    } finally {
+      setIsFinalizing(false)
+    }
+  }
 
   const profiles: Profile[] = settings.workspace_profiles || []
   // Resolve the edit target from live settings so the dialog never holds a
@@ -591,6 +699,58 @@ export function WorkspacesSettings({ settings, updateSettings, query }: { settin
           onSaveName={(name) => handleRenameSave(liveEditProfile, name)}
           onClose={() => setEditProfile(null)}
         />
+      )}
+
+      {/* Finalize Deletions (Visible only for non-Git workspaces) */}
+      {!isGitWorkspace && (
+        <FilterSection query={query} keywords="finalize deletions snapshot shadow purge">
+          <section className="border-t border-[var(--border-subtle)] pt-6">
+            <div className="flex items-center gap-2 mb-1">
+              <Trash2 size={15} className="text-red-500" />
+              <h3 className="text-[13px] font-medium text-[var(--text-heading)]">Finalize Deletions</h3>
+            </div>
+            <p className="text-[12px] text-[var(--text-secondary)] mb-3">
+              Deleted files that have snapshots remain visible in the sidebar and can be restored using their snapshots. Finalizing deletions removes the snapshots of ALL deleted files and cannot be undone.
+            </p>
+            <div className="flex flex-col gap-3 max-w-xl">
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleFinalizeDeletions}
+                  disabled={isFinalizing || isCheckingDeleted || !hasDeletedFiles}
+                  title={!hasDeletedFiles ? 'No deleted files in workspace to finalize' : 'Finalize deletions'}
+                  className="px-4 py-1.5 rounded-[6px] text-[12px] bg-red-600 hover:bg-red-700 text-white transition-colors font-medium cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                >
+                  {isFinalizing ? (
+                    <>
+                      <Loader2 size={13} className="animate-spin" />
+                      <span>Finalizing Deletions...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 size={13} />
+                      <span>Finalize Deletions</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {finalizeStatus && (
+                <div
+                  className={`p-2.5 rounded-[6px] text-[12px] border ${
+                    finalizeStatus.type === 'success'
+                      ? 'bg-green-500/10 border-green-500/30 text-green-700 dark:text-green-300'
+                      : finalizeStatus.type === 'info'
+                      ? 'bg-blue-500/10 border-blue-500/30 text-blue-700 dark:text-blue-300'
+                      : 'bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-300'
+                  }`}
+                >
+                  {finalizeStatus.message}
+                </div>
+              )}
+            </div>
+          </section>
+        </FilterSection>
       )}
     </div>
   )

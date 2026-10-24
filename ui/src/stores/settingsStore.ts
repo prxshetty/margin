@@ -51,6 +51,7 @@ export interface AppSettings {
   image_comfy_edit_seed_map?: { nodeId: string; input: string } | null
   /** Reserved for a future reference-image mapping; v1 ignores it. */
   image_comfy_negative_map?: { nodeId: string; input: string } | null
+  show_file_action_labels?: boolean
 }
 
 interface SettingsState {
