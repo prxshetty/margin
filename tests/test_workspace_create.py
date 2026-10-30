@@ -61,6 +61,7 @@ class TestWorkspaceCreate(unittest.TestCase):
         self.assertFalse((target_path / ".git").exists())
 
     def test_create_workspace_with_git(self):
+        import subprocess
         git_check = is_git_available()
         target = os.path.join(self.temp_dir, "my_novel_git")
         res = self.storage.create_workspace(parent_path=self.temp_dir, name="my_novel_git", init_git=True)
@@ -69,8 +70,31 @@ class TestWorkspaceCreate(unittest.TestCase):
         target_path = Path(target)
         if git_check["available"]:
             self.assertTrue(res["git"]["initialized"])
+            self.assertTrue(res["git"]["committed"])
+            self.assertFalse(res["git"]["staged"])
             self.assertTrue((target_path / ".git").exists())
             self.assertTrue((target_path / ".gitignore").is_file())
+
+            # Verify the default branch is "main"
+            branch_res = subprocess.run(
+                ["git", "branch", "--show-current"],
+                cwd=target,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            # If no commits exist yet, git branch --show-current may be 'main' or git symbolic-ref HEAD gives refs/heads/main
+            current_branch = branch_res.stdout.strip()
+            if not current_branch:
+                ref_res = subprocess.run(
+                    ["git", "symbolic-ref", "--short", "HEAD"],
+                    cwd=target,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                current_branch = ref_res.stdout.strip()
+            self.assertEqual(current_branch, "main")
         else:
             self.assertFalse(res["git"]["initialized"])
 
@@ -83,7 +107,7 @@ class TestWorkspaceCreate(unittest.TestCase):
         import subprocess
         parent_repo = os.path.join(self.temp_dir, "parent_repo")
         os.makedirs(parent_repo, exist_ok=True)
-        subprocess.run(["git", "init"], cwd=parent_repo, capture_output=True, check=True)
+        subprocess.run(["git", "init"], cwd=parent_repo, capture_output=True, check=True, timeout=10)
 
         # Target is a nested subfolder
         parent = os.path.join(parent_repo, "subprojects")
@@ -283,7 +307,7 @@ class TestInitGitRepo(unittest.TestCase):
         self._require_git()
         repo = Path(self.temp_dir) / "repo"
         repo.mkdir()
-        subprocess.run(["git", "init"], cwd=repo, capture_output=True, check=True)
+        subprocess.run(["git", "init"], cwd=repo, capture_output=True, check=True, timeout=10)
         nested = repo / "sub" / "novel"
         nested.mkdir(parents=True)
 
@@ -392,7 +416,7 @@ class TestGitInitEndpoint(unittest.TestCase):
             self.skipTest("Git not available")
         repo = os.path.join(self.temp_dir, "tracked")
         os.makedirs(repo, exist_ok=True)
-        subprocess.run(["git", "init"], cwd=repo, capture_output=True, check=True)
+        subprocess.run(["git", "init"], cwd=repo, capture_output=True, check=True, timeout=10)
 
         client = TestClient(app)
         res = client.post("/api/workspace/git-init", json={"path": repo})

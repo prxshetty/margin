@@ -300,8 +300,9 @@ export function MarginImageView({ editor, node, selected, updateAttributes, dele
 
   // The source text hides only when an image actually rendered and the
   // cursor is elsewhere. Broken paths stay visible so they can be fixed.
-  const showSource = selected || broken
-  const showChrome = selected && !broken
+  const isEditable = editor.isEditable
+  const showSource = (selected || broken) && isEditable
+  const showChrome = selected && !broken && isEditable
 
   const handleModes: ResizeMode[] =
     // Aligned images anchor one edge, so the anchored side gets no handle —
@@ -553,7 +554,11 @@ export function MarginImageView({ editor, node, selected, updateAttributes, dele
               </div>
             )}
           </div>
-          {(storedCaption || captionEditing) ? (
+          {!isEditable ? (
+            storedCaption ? (
+              <span className="margin-image__caption">{storedCaption}</span>
+            ) : null
+          ) : (storedCaption || captionEditing) ? (
             <input
               ref={captionRef}
               value={captionDraft}

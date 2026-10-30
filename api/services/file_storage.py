@@ -3,6 +3,7 @@ import sys
 import json
 import re
 import shutil
+import logging
 import tempfile
 import time
 import subprocess
@@ -10,6 +11,8 @@ import warnings
 from datetime import datetime, timezone, timedelta
 from pathlib import Path, PurePosixPath
 from typing import List, Optional, Dict, Any, Tuple
+
+logger = logging.getLogger(__name__)
 
 LEGACY_IMAGE_KEYS = ("image_provider", "image_base_url", "image_api_key", "image_model")
 
@@ -43,126 +46,8 @@ def _migrate_image_endpoints(data: Dict[str, Any]) -> None:
         data.pop(k, None)
 
 
-def is_git_available() -> Dict[str, Any]:
-    git_bin = shutil.which("git")
-    if not git_bin:
-        return {"available": False, "version": None}
-    try:
-        res = subprocess.run([git_bin, "--version"], capture_output=True, text=True, timeout=5)
-        if res.returncode == 0:
-            return {"available": True, "version": res.stdout.strip()}
-    except Exception:
-        pass
-    return {"available": False, "version": None}
-
-
-def _init_git_repo(path_obj: Path) -> Dict[str, Any]:
-    """Initialize a Git repository at path_obj.
-
-    Narrowly responsible for Git concerns only: availability, work-tree
-    detection, init, .gitignore, stage, initial commit. Never raises for
-    expected Git failures — they are reported in the returned dict.
-
-    Returned git_info keys:
-      initialized     — `git init` succeeded in path_obj
-      committed       — initial "Initial workspace scaffold" commit succeeded
-      already_tracked — path is already inside a Git work tree; init skipped
-      git_parent      — work-tree toplevel when already_tracked
-      git_unavailable — Git is not installed / not in PATH
-      init_failed     — `git init` itself failed
-      error           — human-readable note, or None
-    """
-    git_info: Dict[str, Any] = {
-        "initialized": False,
-        "committed": False,
-        "already_tracked": False,
-        "git_parent": None,
-        "git_unavailable": False,
-        "init_failed": False,
-        "error": None,
-    }
-    git_check = is_git_available()
-    if not git_check["available"]:
-        git_info["git_unavailable"] = True
-        git_info["error"] = "Git is not installed or not available in PATH."
-        return git_info
-
-    git_bin = shutil.which("git") or "git"
-    # Detect if target is already inside a git work tree to avoid embedded repos
-    try:
-        res_toplevel = subprocess.run(
-            [git_bin, "rev-parse", "--show-toplevel"],
-            cwd=str(path_obj),
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if res_toplevel.returncode == 0:
-            # Already inside a git work tree — skip init entirely
-            git_info["already_tracked"] = True
-            git_info["git_parent"] = res_toplevel.stdout.strip()
-            return git_info
-    except Exception:
-        # rev-parse failed → fresh directory, safe to init
-        pass
-
-    # Always write/overwrite .gitignore before init
-    gitignore_file = path_obj / ".gitignore"
-    gitignore_file.write_text(
-        "outputs/\n"
-        ".DS_Store\n"
-        "Thumbs.db\n"
-        "*.tmp\n"
-        "*.log\n",
-        encoding="utf-8"
-    )
-    try:
-        subprocess.run(
-            [git_bin, "init"],
-            cwd=str(path_obj),
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=True,
-        )
-        git_info["initialized"] = True
-    except Exception:
-        git_info["init_failed"] = True
-        git_info["error"] = "git init failed."
-        return git_info
-
-    # git add + initial commit — non-fatal (missing user.name/email is common).
-    # A failed commit never fails workspace setup; init success stands alone.
-    try:
-        subprocess.run(
-            [git_bin, "add", "."],
-            cwd=str(path_obj),
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=True,
-        )
-        res_commit = subprocess.run(
-            [git_bin, "commit", "-m", "Initial workspace scaffold"],
-            cwd=str(path_obj),
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if res_commit.returncode == 0:
-            git_info["committed"] = True
-        else:
-            git_info["committed"] = False
-            stderr = res_commit.stderr.strip()
-            git_info["error"] = (
-                "Initial commit failed — Git user identity not configured. "
-                "Run: git config --global user.name / user.email"
-            ) if "user" in stderr.lower() else "Initial commit failed."
-    except Exception:
-        git_info["committed"] = False
-        git_info["error"] = "git add/commit failed."
-
-    return git_info
+from api.services import git_service
+from api.services.git_service import is_git_available, _init_git_repo
 
 
 def _is_subpath(target: Path, base: Path) -> bool:
@@ -304,7 +189,16 @@ except ImportError:
 
 def _posix_rel(path: Path, base: Path) -> str:
     """Return a forward-slash relative path string, safe on all platforms."""
-    return path.relative_to(base).as_posix()
+    try:
+        return path.relative_to(base).as_posix()
+    except ValueError:
+        p_parts = path.parts
+        b_parts = base.parts
+        if len(p_parts) >= len(b_parts) and [x.lower() for x in p_parts[:len(b_parts)]] == [
+            x.lower() for x in b_parts
+        ]:
+            return "/".join(p_parts[len(b_parts):])
+        raise
 
 
 def _parse_log_time(value: Any) -> Optional[datetime]:
@@ -366,6 +260,312 @@ def _slugify_media_name(name: str) -> str:
     base = base.rsplit(".", 1)[0] if "." in base else base
     slug = re.sub(r"[^a-z0-9]+", "-", base.lower()).strip("-")
     return slug[:60] or "image"
+
+
+def _normalize_markdown_content(text: str) -> str:
+    """Normalize markdown content for comparison across editors and platforms.
+
+    Normalizes:
+    - Line endings (\r\n -> \n)
+    - Heading spacing (ensures blank line between heading and following content block)
+    - Consecutive empty lines
+    - Trailing whitespace on lines and trailing newlines at EOF
+    """
+    if not text:
+        return ""
+    text = text.replace("\r\n", "\n")
+    # Normalize heading followed immediately by content (ensure blank line between blocks)
+    text = re.sub(r"(^|\n)(#{1,6}\s+[^\n]+)\n([^\n])", r"\1\2\n\n\3", text)
+    # Collapse 3+ newlines to 2
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    # Strip trailing whitespace on each line and strip overall trailing newlines
+    lines = [line.rstrip() for line in text.split("\n")]
+    return "\n".join(lines).strip()
+
+
+def _write_text_lf(path: Path, content: str) -> None:
+    """Write text file with explicit LF (\n) line endings and trailing EOF newline across all platforms."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = (content or "").replace("\r\n", "\n")
+    if text and not text.endswith("\n"):
+        text += "\n"
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(text)
+
+
+
+MANIFEST_ENTRY_REGEX = re.compile(
+    r"^\s*[-*]\s+(?:\*\*([^*]+)\*\*|([\w\.\(\)\[\]'](?:[\w\.\-\(\)\[\]' ]*?[\w\.\-\(\)\[\]'])?))\s*(?:[—–]|:(?=\s)|\s-(?=\s))\s*(.+)$"
+)
+
+
+def is_manifest_path(rel_path: str) -> bool:
+    """Check if a path corresponds to a section manifest file (<folder>/<FOLDER>.md)."""
+    cleaned = (rel_path or "").replace("\\", "/").strip("/")
+    parts = cleaned.split("/")
+    if len(parts) != 2:
+        return False
+    folder, filename = parts
+    return filename.upper() == f"{folder.upper()}.MD"
+
+
+def validate_manifest_content(content: str, max_reported: int = 5) -> Dict[str, Any]:
+    """Validate a manifest file's contents for adherence to the expected format.
+
+    Valid lines are:
+    - Blank or whitespace only
+    - An entry matching: - filename.md — Description (or style_identifier — Description)
+
+    Returns:
+      {
+        "is_valid": bool,
+        "invalid_lines": List[int],  # 1-indexed line numbers up to max_reported
+        "total_count": int,
+        "has_more": bool,
+      }
+    """
+    if not content or not content.strip():
+        return {
+            "is_valid": True,
+            "invalid_lines": [],
+            "total_count": 0,
+            "has_more": False,
+        }
+
+    invalid_lines: List[int] = []
+    total_count = 0
+
+    lines = content.splitlines()
+    for idx, line in enumerate(lines, start=1):
+        line_str = line.strip()
+        if not line_str:
+            continue
+        if not MANIFEST_ENTRY_REGEX.match(line):
+            total_count += 1
+            if len(invalid_lines) < max_reported:
+                invalid_lines.append(idx)
+
+    return {
+        "is_valid": total_count == 0,
+        "invalid_lines": invalid_lines,
+        "total_count": total_count,
+        "has_more": total_count > len(invalid_lines),
+    }
+
+
+def _parse_manifest_entries(content: str) -> Dict[str, str]:
+    mapping = {}
+    for line in (content or "").splitlines():
+        m = MANIFEST_ENTRY_REGEX.match(line)
+        if m:
+            raw_name = m.group(1) or m.group(2) or ""
+            name = raw_name.strip().lower()
+            desc = (m.group(3) or "").strip()
+            stem = name[:-3] if name.endswith(".md") else name
+            mapping[stem] = desc
+    return mapping
+
+
+def _match_manifest_line_name(line: str, target_name: str) -> Optional[Dict[str, Any]]:
+    m = re.match(
+        r"^(\s*[-*]\s+)(?:(\*\*)([^*]+)(\*\*)|([\w\.\(\)\[\]'](?:[\w\.\-\(\)\[\]' ]*?[\w\.\-\(\)\[\]'])?))(\s*(?:[—–]|:(?=\s)|\s-(?=\s))\s*)(.*)$",
+        line,
+    )
+    if not m:
+        return None
+    prefix, b1, name_bold, b2, name_plain, sep, desc = m.groups()
+    name = name_bold if b1 else name_plain
+    bold_start = b1 or ""
+    bold_end = b2 or ""
+    if not target_name:
+        return {
+            "prefix": prefix,
+            "bold_start": bold_start,
+            "name": name,
+            "bold_end": bold_end,
+            "separator": sep,
+            "description": desc,
+            "full_line": line,
+        }
+    t_clean = target_name.strip()
+    t_stem = t_clean[:-3] if t_clean.lower().endswith(".md") else t_clean
+    n_clean = name.strip()
+    n_stem = n_clean[:-3] if n_clean.lower().endswith(".md") else n_clean
+    if n_clean.lower() == t_clean.lower() or n_stem.lower() == t_stem.lower():
+        return {
+            "prefix": prefix,
+            "bold_start": bold_start,
+            "name": name,
+            "bold_end": bold_end,
+            "separator": sep,
+            "description": desc,
+            "full_line": line,
+        }
+    return None
+
+
+def _manifest_update_name(manifest_path: Path, old_name: str, new_name: str, baseline_content: str = "") -> bool:
+    if not manifest_path.exists():
+        return False
+    try:
+        content = manifest_path.read_text(encoding="utf-8")
+    except Exception:
+        return False
+
+    lines = content.splitlines()
+    updated = False
+    new_lines = []
+
+    new_name_safe = " ".join(new_name.splitlines())[:1000]
+    new_stem = new_name_safe[:-3] if new_name_safe.lower().endswith(".md") else new_name_safe
+
+    for line in lines:
+        matched = _match_manifest_line_name(line, old_name)
+        if matched:
+            if matched["name"].lower().endswith(".md"):
+                replaced_name = f"{new_stem}.md" if not new_name_safe.lower().endswith(".md") else new_name_safe
+            else:
+                replaced_name = new_stem
+
+            new_line = (
+                f"{matched['prefix']}{matched['bold_start']}{replaced_name}"
+                f"{matched['bold_end']}{matched['separator']}{matched['description']}"
+            )
+            new_lines.append(new_line)
+            updated = True
+        else:
+            new_lines.append(line)
+
+    if updated:
+        if baseline_content and _normalize_markdown_content("\n".join(new_lines)) == _normalize_markdown_content(baseline_content):
+            _write_text_lf(manifest_path, baseline_content)
+        else:
+            _write_text_lf(manifest_path, "\n".join(new_lines))
+    return updated
+
+
+def _manifest_remove_entry(manifest_path: Path, filename: str, baseline_content: str = "") -> bool:
+    if not manifest_path.exists():
+        return False
+    try:
+        content = manifest_path.read_text(encoding="utf-8")
+    except Exception:
+        return False
+
+    lines = content.splitlines()
+    new_lines = []
+    removed = False
+    for line in lines:
+        if _match_manifest_line_name(line, filename):
+            removed = True
+        else:
+            new_lines.append(line)
+
+    if removed:
+        if baseline_content and _normalize_markdown_content("\n".join(new_lines)) == _normalize_markdown_content(baseline_content):
+            _write_text_lf(manifest_path, baseline_content)
+        else:
+            _write_text_lf(manifest_path, "\n".join(new_lines))
+    return removed
+
+
+def _manifest_restore_entry(manifest_path: Path, filename: str, baseline_content: str = "") -> bool:
+    if not baseline_content:
+        return False
+
+    baseline_lines = baseline_content.splitlines()
+    target_line = None
+    target_b_idx = -1
+    for idx, line in enumerate(baseline_lines):
+        if _match_manifest_line_name(line, filename):
+            target_line = line
+            target_b_idx = idx
+            break
+
+    if not target_line:
+        return False
+
+    curr_content = ""
+    if manifest_path.exists():
+        try:
+            curr_content = manifest_path.read_text(encoding="utf-8")
+        except Exception:
+            curr_content = ""
+
+    lines = curr_content.splitlines() if curr_content else []
+
+    found_idx = -1
+    for idx, line in enumerate(lines):
+        if _match_manifest_line_name(line, filename):
+            found_idx = idx
+            break
+
+    if found_idx != -1:
+        if lines[found_idx] == target_line:
+            return False
+        lines[found_idx] = target_line
+    else:
+        # Find best insertion index based on baseline order
+        insert_idx = len(lines)
+        for b_idx in range(target_b_idx + 1, len(baseline_lines)):
+            b_name = baseline_lines[b_idx]
+            for c_idx, c_line in enumerate(lines):
+                m_match = _match_manifest_line_name(c_line, "")
+                if m_match and _match_manifest_line_name(b_name, m_match["name"]):
+                    insert_idx = c_idx
+                    break
+            if insert_idx != len(lines):
+                break
+        lines.insert(insert_idx, target_line)
+
+    if baseline_content and _normalize_markdown_content("\n".join(lines)) == _normalize_markdown_content(baseline_content):
+        _write_text_lf(manifest_path, baseline_content)
+    else:
+        _write_text_lf(manifest_path, "\n".join(lines))
+    return True
+
+
+def _finalize_single_shadow_file(sf: Path, shadow_dir: Path, workspace_root: Path) -> Optional[str]:
+    """If working file no longer exists, delete shadow file and update shadow manifest."""
+    try:
+        rel_path = _posix_rel(sf, shadow_dir)
+        if any(part.startswith(".") for part in Path(rel_path).parts):
+            return None
+        working_file = workspace_root / Path(rel_path)
+        if working_file.exists():
+            return None
+
+        sf.unlink()
+        if "/" in rel_path:
+            folder = rel_path.split("/")[0]
+            manifest_rel = f"{folder}/{folder.upper()}.md"
+            shadow_manifest = shadow_dir / Path(manifest_rel)
+            working_manifest = workspace_root / Path(manifest_rel)
+            if sf.name.upper() != f"{folder.upper()}.MD":
+                _manifest_remove_entry(shadow_manifest, sf.name)
+                if working_manifest.exists() and shadow_manifest.exists():
+                    try:
+                        w_text = working_manifest.read_text(encoding="utf-8")
+                        s_text = shadow_manifest.read_text(encoding="utf-8")
+                        if _parse_manifest_entries(w_text) == _parse_manifest_entries(s_text):
+                            _write_text_lf(shadow_manifest, w_text)
+                    except (ValueError, OSError):
+                        pass
+        return rel_path
+    except OSError as e:
+        logger.warning("Error finalizing deletion for shadow file %s: %s", sf, e)
+        return None
+
+
+def _cleanup_empty_shadow_dirs(shadow_dir: Path) -> None:
+    """Remove empty folders inside shadow_dir in bottom-up order."""
+    try:
+        for d in sorted(shadow_dir.rglob("*"), reverse=True):
+            if d.is_dir() and not any(d.iterdir()):
+                d.rmdir()
+    except OSError:
+        pass
+
 
 
 class FileStorageService:
@@ -440,6 +640,7 @@ class FileStorageService:
             "image_comfy_edit_seed_map": None,
             # Reserved for a future negative-prompt mapping; v1 ignores it.
             "image_comfy_negative_map": None,
+            "show_file_action_labels": False,
         }
 
         if self.settings_path.exists():
@@ -480,17 +681,26 @@ class FileStorageService:
         # Accept both forward and OS-native slashes
         manifest_path = self.workspace_dir / Path(manifest_rel_path)
         if not manifest_path.exists():
-            return {}
+            try:
+                shadow_path = (self.workspace_dir / ".margin-shadow" / Path(manifest_rel_path)).resolve()
+                shadow_root = (self.workspace_dir / ".margin-shadow").resolve()
+                shadow_path.relative_to(shadow_root)
+                manifest_path = shadow_path
+            except (ValueError, OSError):
+                return {}
+            if not manifest_path.exists():
+                return {}
         try:
             content = manifest_path.read_text(encoding="utf-8")
         except Exception:
             return {}
         mapping = {}
         for line in content.splitlines():
-            m = re.match(r"^\s*-\s+(?:\*\*|)?([a-zA-Z0-9_\.\-]+)(?:\*\*|)?\s*(?:[—–:\-]+)\s*(.+)", line)
+            m = MANIFEST_ENTRY_REGEX.match(line)
             if m:
-                name = m.group(1).strip()
-                desc = m.group(2).strip()
+                raw_name = m.group(1) or m.group(2) or ""
+                name = raw_name.strip()
+                desc = (m.group(3) or "").strip()
                 mapping[name] = desc
                 # Map keys both with and without .md extension
                 if name.lower().endswith(".md"):
@@ -499,12 +709,17 @@ class FileStorageService:
                     mapping[f"{name}.md"] = desc
         return mapping
 
-    def list_input_files(self) -> List[Dict[str, str]]:
+    def list_input_files(self) -> List[Dict[str, Any]]:
         folders = []
         if self.workspace_dir.exists():
             for item in self.workspace_dir.iterdir():
-                if item.is_dir() and not item.name.startswith(".") and item.name != "outputs":
+                if item.is_dir() and not item.name.startswith(".") and item.name.lower() != "outputs":
                     folders.append(item.name)
+            shadow_dir = self.workspace_dir / ".margin-shadow"
+            if shadow_dir.exists() and shadow_dir.is_dir():
+                for item in shadow_dir.iterdir():
+                    if item.is_dir() and not item.name.startswith(".") and item.name.lower() != "outputs" and item.name not in folders:
+                        folders.append(item.name)
 
         manifests = {}
         for folder in folders:
@@ -512,19 +727,46 @@ class FileStorageService:
             manifest_file = folder_path / f"{folder.upper()}.md"
             if manifest_file.exists():
                 manifests[f"{folder}/"] = self._load_manifest(f"{folder}/{manifest_file.name}")
+            elif (self.workspace_dir / ".margin-shadow" / folder / f"{folder.upper()}.md").exists():
+                manifests[f"{folder}/"] = self._load_manifest(f"{folder}/{folder.upper()}.md")
+
+        is_git = self.workspace_dir.exists() and self.is_git_repo()
+        tracked_files = git_service.get_git_tracked_files(self.workspace_dir) if is_git else set()
 
         files = []
+        seen_paths = set()
         for folder in folders:
             folder_path = self.workspace_dir / folder
             for f in folder_path.rglob("*.md"):
                 # Always use forward-slash paths — safe on all platforms
                 rel_path = _posix_rel(f, self.workspace_dir)
+                seen_paths.add(rel_path)
                 desc = ""
                 for prefix, manifest in manifests.items():
                     if rel_path.startswith(prefix):
                         desc = manifest.get(f.name, "")
                         break
-                files.append({"name": f.name, "path": rel_path, "description": desc})
+
+                manifest_issues = None
+                if is_manifest_path(rel_path):
+                    try:
+                        content = f.read_text(encoding="utf-8") if f.exists() else ""
+                        manifest_issues = validate_manifest_content(content)
+                    except Exception:
+                        manifest_issues = None
+
+                file_dict: Dict[str, Any] = {
+                    "name": f.name,
+                    "path": rel_path,
+                    "description": desc,
+                    "deleted": False,
+                    "tracked": (rel_path in tracked_files) if is_git else (self.workspace_dir / ".margin-shadow" / Path(rel_path)).exists(),
+                }
+                if manifest_issues and not manifest_issues["is_valid"]:
+                    file_dict["manifest_issues"] = manifest_issues
+
+                files.append(file_dict)
+
         # Root-level markdown files (workspace root is a valid location).
         if self.workspace_dir.exists():
             for item in self.workspace_dir.iterdir():
@@ -532,14 +774,78 @@ class FileStorageService:
                     item.is_file()
                     and item.suffix.lower() == ".md"
                     and not item.name.startswith(".")
+                    and item.name not in seen_paths
                 ):
-                    files.append({"name": item.name, "path": item.name, "description": ""})
+                    rel_path = item.name
+                    seen_paths.add(rel_path)
+                    manifest_issues = None
+                    if is_manifest_path(rel_path):
+                        try:
+                            content = item.read_text(encoding="utf-8") if item.exists() else ""
+                            manifest_issues = validate_manifest_content(content)
+                        except Exception:
+                            manifest_issues = None
+
+                    file_dict = {
+                        "name": item.name,
+                        "path": rel_path,
+                        "description": "",
+                        "deleted": False,
+                        "tracked": (rel_path in tracked_files) if is_git else (self.workspace_dir / ".margin-shadow" / Path(rel_path)).exists(),
+                    }
+                    if manifest_issues and not manifest_issues["is_valid"]:
+                        file_dict["manifest_issues"] = manifest_issues
+
+                    files.append(file_dict)
+
+        # In a git workspace, check for tracked markdown files that have been deleted in git
+        if is_git:
+            for deleted_rel in git_service.get_git_deleted_files(self.workspace_dir):
+                if deleted_rel.lower().endswith(".md") and deleted_rel not in seen_paths:
+                    top_folder = deleted_rel.split("/")[0] if "/" in deleted_rel else ""
+                    if top_folder.lower() != "outputs" and not top_folder.startswith("."):
+                        seen_paths.add(deleted_rel)
+                        desc = ""
+                        for prefix, manifest in manifests.items():
+                            if deleted_rel.startswith(prefix):
+                                desc = manifest.get(Path(deleted_rel).name, "")
+                                break
+                        files.append({
+                            "name": Path(deleted_rel).name,
+                            "path": deleted_rel,
+                            "description": desc,
+                            "deleted": True,
+                            "tracked": True,
+                        })
+        else:
+            # In a non-git workspace, check for shadow files that have been deleted from working directory
+            shadow_dir = self.workspace_dir / ".margin-shadow"
+            if shadow_dir.exists():
+                for sf in shadow_dir.rglob("*.md"):
+                    rel_path = _posix_rel(sf, shadow_dir)
+                    if any(part.startswith(".") for part in Path(rel_path).parts) or rel_path.lower() == "outputs" or rel_path.lower().startswith("outputs/"):
+                        continue
+                    if rel_path not in seen_paths:
+                        top_folder = rel_path.split("/")[0] if "/" in rel_path else ""
+                        if top_folder in folders or "/" not in rel_path:
+                            seen_paths.add(rel_path)
+                            desc = ""
+                            for prefix, manifest in manifests.items():
+                                if rel_path.startswith(prefix):
+                                    desc = manifest.get(sf.name, "")
+                                    break
+                            files.append({
+                                "name": sf.name,
+                                "path": rel_path,
+                                "description": desc,
+                                "deleted": True,
+                                "tracked": True,
+                            })
         files.sort(key=lambda f: f["path"])
         return files
 
     def _safe_resolve(self, path: str) -> Path:
         """Resolve a posix-style relative path to an absolute Path safely."""
-        # Path() on Windows handles forward slashes fine
         full_path = (self.workspace_dir / Path(path)).resolve()
         workspace_root = self.workspace_dir.resolve()
 
@@ -547,7 +853,13 @@ class FileStorageService:
         try:
             full_path.relative_to(workspace_root)
         except ValueError:
-            raise ValueError("Access denied")
+            if sys.platform == "win32":
+                full_str = str(full_path).lower()
+                ws_str = str(workspace_root).rstrip("/\\").lower() + os.sep
+                if not (full_str == ws_str.rstrip(os.sep) or full_str.startswith(ws_str)):
+                    raise ValueError("Access denied")
+            else:
+                raise ValueError("Access denied")
 
         outputs_root = workspace_root / "outputs"
         try:
@@ -565,13 +877,18 @@ class FileStorageService:
     def read_input_file(self, path: str) -> str:
         full_path = self._safe_resolve(path)
         if not full_path.exists() or not full_path.is_file():
+            # If deleted on disk, attempt to load baseline version from git or shadow for markdown files
+            if full_path.suffix.lower() == ".md":
+                base_info = self.get_diff_base(path)
+                if base_info.get("has_base") and base_info.get("base_content") is not None:
+                    return base_info["base_content"]
             raise FileNotFoundError(f"File not found: {path}")
         return full_path.read_text(encoding="utf-8")
 
     def create_input_file(self, folder: str, name: str, content: str = "") -> Dict[str, str]:
         folder = (folder or "").strip("/")
         # Empty folder == workspace root, which is a valid location.
-        if folder.startswith(".") or ".." in folder or folder.split("/")[0] == "outputs":
+        if folder.startswith(".") or ".." in folder or folder.split("/")[0].lower() == "outputs":
             raise ValueError("Invalid folder name")
 
         name = (name or "").strip()
@@ -579,7 +896,7 @@ class FileStorageService:
             raise ValueError("File name is required")
         if not name.lower().endswith(".md"):
             name = f"{name}.md"
-        if "/" in name or "\\" in name or name.startswith(".") or ".." in name:
+        if "/" in name or "\\" in name or name.startswith(".") or ".." in name or "\n" in name or "\r" in name:
             raise ValueError("Invalid file name")
 
         target_dir = (self.workspace_dir / folder).resolve()
@@ -593,7 +910,7 @@ class FileStorageService:
         if target_path.exists():
             raise FileExistsError(f"File already exists: {folder + '/' if folder else ''}{name}")
 
-        target_path.write_text(content or "", encoding="utf-8")
+        _write_text_lf(target_path, content or "")
         rel_path = f"{folder}/{name}" if folder else name  # always posix-style
 
         return {"name": name, "path": rel_path, "content": content or ""}
@@ -602,7 +919,7 @@ class FileStorageService:
         target_path = self._safe_resolve(path)
         if not target_path.exists():
             raise FileNotFoundError(f"File not found: {path}")
-        target_path.write_text(content or "", encoding="utf-8")
+        _write_text_lf(target_path, content or "")
         return True
 
     def delete_input_file(self, path: str) -> bool:
@@ -611,10 +928,68 @@ class FileStorageService:
             raise FileNotFoundError(f"File not found: {path}")
         if full_path.suffix.lower() != ".md":
             raise ValueError("Only markdown files can be deleted via this endpoint")
-        full_path.unlink()
+
+        workspace_root = self.workspace_dir.resolve()
+        rel_path = _posix_rel(full_path, workspace_root)
+
+        deleted_via_git = False
+        if self.is_git_repo():
+            if git_service.is_git_tracked(self.workspace_dir, rel_path):
+                git_service.delete_git_file(workspace_root, rel_path)
+                deleted_via_git = True
+
+        if not deleted_via_git and full_path.exists():
+            full_path.unlink()
+
+        # Update manifest file if applicable
+        if "/" in rel_path:
+            folder = rel_path.split("/")[0]
+            manifest_rel = f"{folder}/{folder.upper()}.md"
+            manifest_path = workspace_root / Path(manifest_rel)
+            if full_path.name.upper() != f"{folder.upper()}.MD":
+                if _manifest_remove_entry(manifest_path, full_path.name):
+                    if self.is_git_repo() and deleted_via_git:
+                        git_service.stage_git_file(workspace_root, manifest_rel)
+
         return True
 
-    def rename_input_file(self, path: str, new_name: str) -> Dict[str, str]:
+    def finalize_deletions(self) -> Dict[str, Any]:
+        """In a non-git workspace, permanently remove shadow copies of deleted files so they no longer appear."""
+        if self.is_git_repo():
+            return {
+                "success": False,
+                "is_git": True,
+                "finalized_count": 0,
+                "finalized_files": [],
+                "message": "Finalize deletions is only applicable to non-git workspaces.",
+            }
+
+        workspace_root = self.workspace_dir.resolve()
+        shadow_dir = workspace_root / ".margin-shadow"
+        if not shadow_dir.exists():
+            return {
+                "success": True,
+                "is_git": False,
+                "finalized_count": 0,
+                "finalized_files": [],
+            }
+
+        finalized = []
+        for sf in list(shadow_dir.rglob("*.md")):
+            rel_path = _finalize_single_shadow_file(sf, shadow_dir, workspace_root)
+            if rel_path is not None:
+                finalized.append(rel_path)
+
+        _cleanup_empty_shadow_dirs(shadow_dir)
+
+        return {
+            "success": True,
+            "is_git": False,
+            "finalized_count": len(finalized),
+            "finalized_files": finalized,
+        }
+
+    def rename_input_file(self, path: str, new_name: str) -> Dict[str, Any]:
         old_path = self._safe_resolve(path)
         if not old_path.exists() or not old_path.is_file():
             raise FileNotFoundError(f"File not found: {path}")
@@ -626,22 +1001,73 @@ class FileStorageService:
             raise ValueError("New file name is required")
         if not new_name.lower().endswith(".md"):
             new_name = f"{new_name}.md"
-        if "/" in new_name or "\\" in new_name or new_name.startswith("."):
+        if "/" in new_name or "\\" in new_name or new_name.startswith(".") or ".." in new_name or "\n" in new_name or "\r" in new_name:
             raise ValueError("Invalid file name")
         if new_name == old_path.name:
+            workspace_root = self.workspace_dir.resolve()
+            old_rel = _posix_rel(old_path, workspace_root)
+            is_tracked = (
+                git_service.is_git_tracked(self.workspace_dir, old_rel)
+                if self.is_git_repo()
+                else (workspace_root / ".margin-shadow" / Path(old_rel)).exists()
+            )
             return {
                 "name": old_path.name,
-                "path": _posix_rel(old_path, self.workspace_dir.resolve()),
+                "path": old_rel,
+                "tracked": is_tracked,
             }
 
         new_path = old_path.with_name(new_name)
-        if new_path.exists():
-            raise FileExistsError(f"File already exists: {_posix_rel(new_path, self.workspace_dir.resolve())}")
-        old_path.rename(new_path)
+        workspace_root = self.workspace_dir.resolve()
+        old_rel = _posix_rel(old_path, workspace_root)
+        new_rel = _posix_rel(new_path, workspace_root)
+
+        if new_path.exists() and new_path.resolve() != old_path.resolve():
+            raise FileExistsError(f"File already exists: {new_rel}")
+
+        renamed_via_git = False
+        is_tracked = False
+        if self.is_git_repo():
+            is_tracked = git_service.is_git_tracked(self.workspace_dir, old_rel)
+            if is_tracked:
+                git_service.rename_git_file(workspace_root, old_rel, new_rel)
+                renamed_via_git = True
+        else:
+            is_tracked = (workspace_root / ".margin-shadow" / Path(old_rel)).exists()
+
+        if not renamed_via_git:
+            os.replace(old_path, new_path)
+            if self.is_git_repo() and is_tracked:
+                git_service.stage_git_file(workspace_root, new_rel)
+
+        # If shadow file exists, rename it too
+        shadow_old = workspace_root / ".margin-shadow" / Path(old_rel)
+        if shadow_old.exists():
+            shadow_new = workspace_root / ".margin-shadow" / Path(new_rel)
+            shadow_new.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                os.replace(shadow_old, shadow_new)
+            except Exception:
+                pass
+
+        # Update manifest file if applicable
+        if "/" in old_rel:
+            folder = old_rel.split("/")[0]
+            manifest_rel = f"{folder}/{folder.upper()}.md"
+            manifest_path = workspace_root / Path(manifest_rel)
+            if old_path.name.upper() != f"{folder.upper()}.MD":
+                if _manifest_update_name(manifest_path, old_path.name, new_name):
+                    if not self.is_git_repo():
+                        shadow_manifest = workspace_root / ".margin-shadow" / Path(manifest_rel)
+                        if shadow_manifest.exists():
+                            _manifest_update_name(shadow_manifest, old_path.name, new_name)
+                    elif is_tracked:
+                        git_service.stage_git_file(workspace_root, manifest_rel)
 
         return {
             "name": new_path.name,
-            "path": _posix_rel(new_path, self.workspace_dir.resolve()),
+            "path": new_rel,
+            "tracked": is_tracked,
         }
 
     def rename_folder(self, path: str, new_name: str) -> Dict[str, str]:
@@ -1055,6 +1481,268 @@ class FileStorageService:
         except Exception as e:
             print(f"Failed to clear harness session mapping: {e}")
 
+    def is_git_repo(self) -> bool:
+        """Check if the current workspace directory is inside a git work tree."""
+        return git_service.is_git_repo(self.workspace_dir)
+
+    def get_diff_base(self, path: str) -> Dict[str, Any]:
+        """Resolve the diff base content for a document."""
+        full_path = self._safe_resolve(path)
+        if full_path.suffix.lower() != ".md":
+            raise ValueError("Only markdown files are supported")
+        workspace_root = self.workspace_dir.resolve()
+        rel_path = _posix_rel(full_path, workspace_root)
+        is_git = self.is_git_repo()
+
+        if is_git:
+            return git_service.get_git_diff_base(workspace_root, rel_path)
+        else:
+            # Non-git workspace: shadow file copy in .margin-shadow/
+            shadow_path = workspace_root / ".margin-shadow" / Path(rel_path)
+            if not shadow_path.exists():
+                return {
+                    "is_git": False,
+                    "base_content": None,
+                    "has_base": False,
+                    "is_new": True,
+                    "tracked": False,
+                    "has_committed_version": False,
+                }
+
+            try:
+                shadow_content = shadow_path.read_text(encoding="utf-8")
+                return {
+                    "is_git": False,
+                    "base_content": shadow_content,
+                    "has_base": True,
+                    "is_new": False,
+                    "tracked": True,
+                    "has_committed_version": True,
+                }
+            except OSError:
+                return {
+                    "is_git": False,
+                    "base_content": None,
+                    "has_base": False,
+                    "is_new": True,
+                    "tracked": False,
+                    "has_committed_version": False,
+                }
+
+    def get_workspace_status(self) -> Dict[str, Any]:
+        """Get git/modification status for all files in the workspace.
+
+        Returns:
+            {
+                "is_git": bool,
+                "statuses": {
+                    "chapters/chapter-1.md": "unstaged_modified" | "staged" | "staged_modified" | "clean",
+                    ...
+                }
+            }
+        """
+        if not self.workspace_dir.exists() or not self.workspace_dir.is_dir():
+            return {"is_git": False, "statuses": {}}
+
+        workspace_root = self.workspace_dir.resolve()
+        is_git = self.is_git_repo()
+
+        statuses = (
+            git_service.get_git_workspace_status(workspace_root)
+            if is_git
+            else self._get_non_git_workspace_status(workspace_root)
+        )
+
+        return {
+            "is_git": is_git,
+            "statuses": statuses,
+        }
+
+    def _get_non_git_workspace_status(self, workspace_root: Path) -> Dict[str, str]:
+        statuses: Dict[str, str] = {}
+        try:
+            files = self.list_input_files()
+            for file_info in files:
+                rel_path = file_info["path"]
+                full_path = workspace_root / Path(rel_path)
+                shadow_path = workspace_root / ".margin-shadow" / Path(rel_path)
+
+                if not full_path.exists() and shadow_path.exists():
+                    statuses[rel_path] = "unstaged_deleted"
+                elif not shadow_path.exists():
+                    if full_path.exists() and (full_path.stat().st_size == 0 or not full_path.read_text(encoding="utf-8", errors="replace").strip()):
+                        statuses[rel_path] = "clean"
+                    else:
+                        statuses[rel_path] = "unstaged_modified"
+                else:
+                    try:
+                        current_text = full_path.read_text(encoding="utf-8") if full_path.exists() else ""
+                        shadow_text = shadow_path.read_text(encoding="utf-8")
+                        if _normalize_markdown_content(current_text) == _normalize_markdown_content(shadow_text):
+                            statuses[rel_path] = "clean"
+                        else:
+                            statuses[rel_path] = "unstaged_modified"
+                    except OSError:
+                        statuses[rel_path] = "unstaged_modified"
+        except (OSError, ValueError) as e:
+            logger.error("Failed to get non-git shadow status: %s", e)
+            raise RuntimeError(f"Failed to get non-git shadow status: {e}")
+
+        return statuses
+
+    def stage_file(self, path: str, content: Optional[str] = None) -> Dict[str, Any]:
+        """Stage the document in git or update the shadow copy in non-git."""
+        full_path = self._safe_resolve(path)
+        if full_path.suffix.lower() != ".md":
+            raise ValueError("Only markdown files can be staged via this endpoint")
+        workspace_root = self.workspace_dir.resolve()
+        rel_path = _posix_rel(full_path, workspace_root)
+
+        is_git = self.is_git_repo()
+        if is_git:
+            return git_service.stage_git_file(workspace_root, rel_path, content=content)
+        else:
+            if content is not None:
+                _write_text_lf(full_path, content)
+            else:
+                if not full_path.exists():
+                    raise FileNotFoundError(f"File not found: {rel_path}")
+                content = full_path.read_text(encoding="utf-8")
+            shadow_path = workspace_root / ".margin-shadow" / Path(rel_path)
+            shadow_path.parent.mkdir(parents=True, exist_ok=True)
+            _write_text_lf(shadow_path, content or "")
+            return {"success": True, "is_git": False, "base_content": content, "has_committed_version": True}
+
+    def get_restore_info(self, path: str) -> Dict[str, Any]:
+        """Get restore capabilities, options validity, and git rename context for a file."""
+        full_path = self._safe_resolve(path)
+        if full_path.suffix.lower() != ".md":
+            raise ValueError("Only markdown files are supported")
+        workspace_root = self.workspace_dir.resolve()
+        rel_path = _posix_rel(full_path, workspace_root)
+        is_git = self.is_git_repo()
+
+        if not is_git:
+            shadow_path = workspace_root / ".margin-shadow" / Path(rel_path)
+            has_snapshot = shadow_path.exists()
+            is_del = not full_path.exists() and has_snapshot
+            has_unstaged = False
+            if has_snapshot:
+                if is_del:
+                    has_unstaged = True
+                elif full_path.exists():
+                    try:
+                        curr_text = full_path.read_text(encoding="utf-8")
+                        base_text = shadow_path.read_text(encoding="utf-8")
+                        has_unstaged = _normalize_markdown_content(curr_text) != _normalize_markdown_content(base_text)
+                    except OSError:
+                        has_unstaged = True
+            return {
+                "is_git": False,
+                "path": rel_path,
+                "fileName": full_path.name,
+                "is_renamed": False,
+                "renamed_from": None,
+                "is_deleted": is_del,
+                "has_snapshot": has_snapshot,
+                "has_committed_version": has_snapshot,
+                "has_staged_changes": False,
+                "has_unstaged_changes": has_unstaged,
+                "can_restore_worktree_only": False,
+                "can_restore_staged_and_unstage": False,
+                "can_restore_committed": has_snapshot,
+            }
+
+        return git_service.get_git_restore_info(workspace_root, rel_path)
+
+    def restore_file(self, path: str, mode: str = "committed") -> Dict[str, Any]:
+        """Restore a file according to selected mode:
+        - 'worktree_only': restore staged version to worktree only (e.g. git restore)
+        - 'staged_and_unstage': restore staged version and unstage it (i.e. git restore + git restore --staged)
+        - 'committed': restore to committed version while unstaging it (i.e. git restore --staged --worktree)
+        """
+        full_path = self._safe_resolve(path)
+        if full_path.suffix.lower() != ".md":
+            raise ValueError("Only markdown files can be restored via this endpoint")
+        workspace_root = self.workspace_dir.resolve()
+        rel_path = _posix_rel(full_path, workspace_root)
+        is_git = self.is_git_repo()
+
+        if not isinstance(mode, str) or mode.strip().lower() not in ("worktree_only", "staged_and_unstage", "committed"):
+            raise ValueError(f"Invalid restore mode: {mode}")
+        mode = mode.strip().lower()
+
+        if is_git:
+            return git_service.restore_git_file(
+                workspace_root,
+                rel_path,
+                mode=mode,
+                manifest_restore_fn=_manifest_restore_entry,
+                manifest_remove_fn=_manifest_remove_entry,
+                manifest_update_fn=_manifest_update_name,
+            )
+        else:
+            if mode != "committed":
+                raise ValueError(f"Restore mode '{mode}' is not supported in non-Git workspaces")
+            shadow_path = workspace_root / ".margin-shadow" / Path(rel_path)
+
+            if not shadow_path.exists():
+                raise FileNotFoundError(f"No shadow snapshot available for: {rel_path}")
+            was_deleted = not full_path.exists()
+            shadow_content = shadow_path.read_text(encoding="utf-8")
+            _write_text_lf(full_path, shadow_content)
+
+            # Restore manifest entry if applicable
+            if was_deleted and "/" in rel_path:
+                folder = rel_path.split("/")[0]
+                manifest_rel = f"{folder}/{folder.upper()}.md"
+                manifest_path = workspace_root / Path(manifest_rel)
+                if full_path.name.upper() != f"{folder.upper()}.MD":
+                    shadow_manifest = workspace_root / ".margin-shadow" / Path(manifest_rel)
+                    if shadow_manifest.exists():
+                        try:
+                            baseline_manifest = shadow_manifest.read_text(encoding="utf-8")
+                            _manifest_restore_entry(manifest_path, full_path.name, baseline_manifest)
+                        except Exception:
+                            pass
+
+            return {
+                "success": True,
+                "is_git": False,
+                "mode": "committed",
+                "restored_path": rel_path,
+                "restored_content": shadow_content,
+                "base_content": shadow_content,
+            }
+
+    def _scaffold_shadow_baselines(self, path_obj: Path):
+        shadow_root = path_obj / ".margin-shadow"
+        if not path_obj.exists() or not path_obj.is_dir():
+            return
+        for item in path_obj.iterdir():
+            if item.name.startswith(".") or item.name.lower() == "outputs":
+                continue
+            if item.is_dir():
+                for f in item.rglob("*.md"):
+                    if f.is_file() and not any(p.startswith(".") for p in f.relative_to(path_obj).parts):
+                        rel = _posix_rel(f, path_obj)
+                        shadow_dest = shadow_root / Path(rel)
+                        shadow_dest.parent.mkdir(parents=True, exist_ok=True)
+                        if not shadow_dest.exists():
+                            try:
+                                shutil.copy2(f, shadow_dest)
+                            except OSError:
+                                pass
+            elif item.is_file() and item.suffix.lower() == ".md":
+                rel = _posix_rel(item, path_obj)
+                shadow_dest = shadow_root / Path(rel)
+                shadow_dest.parent.mkdir(parents=True, exist_ok=True)
+                if not shadow_dest.exists():
+                    try:
+                        shutil.copy2(item, shadow_dest)
+                    except OSError:
+                        pass
+
     def create_workspace(
         self,
         parent_path: str,
@@ -1219,12 +1907,16 @@ class FileStorageService:
             git_info = {
                 "initialized": False,
                 "committed": False,
+                "staged": False,
                 "already_tracked": False,
                 "git_parent": None,
                 "git_unavailable": False,
                 "init_failed": False,
                 "error": None,
             }
+
+        if not git_info["initialized"] and not git_info.get("already_tracked"):
+            self._scaffold_shadow_baselines(path_obj)
 
         return {
             "success": True,
