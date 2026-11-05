@@ -187,6 +187,28 @@ except ImportError:
     _PLATFORMDIRS_AVAILABLE = False
 
 
+#: Environment overrides used to run an isolated instance (E2E tests): where
+#: settings.json lives, and which workspace to fall back to when no valid
+#: workspace is linked. Unset in normal use.
+CONFIG_DIR_ENV = "MARGIN_CONFIG_DIR"
+DEFAULT_WORKSPACE_ENV = "MARGIN_DEFAULT_WORKSPACE_DIR"
+
+
+def resolve_config_dir(default: Path, env: Optional[Dict[str, str]] = None) -> Path:
+    """The settings directory: $MARGIN_CONFIG_DIR when set, else `default`."""
+    override = (env if env is not None else os.environ).get(CONFIG_DIR_ENV, "").strip()
+    return Path(override) if override else default
+
+
+def resolve_default_workspace_dir(base_dir: Path, env: Optional[Dict[str, str]] = None) -> Path:
+    """Fallback workspace: $MARGIN_DEFAULT_WORKSPACE_DIR when set, else <base_dir>/sample-workspace."""
+    override = (env if env is not None else os.environ).get(DEFAULT_WORKSPACE_ENV, "").strip()
+    return Path(override) if override else base_dir / "sample-workspace"
+
+
+_CONFIG_DIR = resolve_config_dir(_CONFIG_DIR)
+
+
 def _posix_rel(path: Path, base: Path) -> str:
     """Return a forward-slash relative path string, safe on all platforms."""
     try:
@@ -574,13 +596,13 @@ class FileStorageService:
         # Settings live in a platform-appropriate config directory
         _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         self.settings_path = _CONFIG_DIR / "settings.json"
-        self.workspace_dir = self.base_dir / "sample-workspace"
+        self.workspace_dir = resolve_default_workspace_dir(self.base_dir)
         self.outputs_dir = self.workspace_dir / "outputs"
         self.load_settings()
 
     def load_settings(self):
-        # Default back to sample-workspace first
-        self.workspace_dir = self.base_dir / "sample-workspace"
+        # Default back to the fallback workspace (sample-workspace) first
+        self.workspace_dir = resolve_default_workspace_dir(self.base_dir)
         self.outputs_dir = self.workspace_dir / "outputs"
 
         if self.settings_path.exists():

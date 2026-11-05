@@ -13,8 +13,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { mkdirSync, writeFileSync, readFileSync } from 'fs'
 import { execFileSync } from 'child_process'
-
-const API_BASE = process.env.API_BASE_URL || 'http://127.0.0.1:8000'
+import { E2E_API_BASE as API_BASE } from '../../isolated-env'
 
 test.describe('Group 7: PR #14 Review Regressions', () => {
   test('Issue 1: rejects unknown restore mode ("commited" typo) and unenforced restore modes without wiping worktree/staged changes', async ({

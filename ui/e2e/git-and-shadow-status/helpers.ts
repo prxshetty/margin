@@ -2,8 +2,10 @@ import { test as base, expect, Page } from '@playwright/test'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { rmSync, statSync, readdirSync, chmodSync, existsSync } from 'fs'
+import { E2E_API_BASE, E2E_UI_BASE } from '../isolated-env'
 
-const API_BASE = process.env.API_BASE_URL || 'http://127.0.0.1:8000'
+// Always the isolated backend — never the user's app on :8000.
+const API_BASE = E2E_API_BASE
 
 export function safeRemoveDirSync(dirPath: string) {
   try {
@@ -147,13 +149,13 @@ export const test = base.extend<{ testWorkspace: TestWorkspace }>({
 export { expect }
 
 /**
- * Navigates to the app root, automatically falling back to http://localhost:5173 if baseURL is not configured.
+ * Navigates to the isolated app instance's root.
  */
 export async function gotoApp(page: Page) {
   try {
     await page.goto('/', { timeout: 15000 })
   } catch {
-    await page.goto(process.env.BASE_URL || 'http://localhost:5173', { timeout: 15000 })
+    await page.goto(E2E_UI_BASE, { timeout: 15000 })
   }
 }
 
