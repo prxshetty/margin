@@ -1,10 +1,28 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom'
-import { FileText, Loader, Check, ChevronDown, FilePlus, FolderPlus, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
-import { useEditorStore, type FileEntry } from '../stores/editorStore'
+import {
+  FileText,
+  Loader,
+  Check,
+  ChevronDown,
+  FilePlus,
+  FolderPlus,
+  MoreHorizontal,
+  Pencil,
+  Trash2,
+  Plus,
+  FolderSync,
+  AlertTriangle,
+} from 'lucide-react'
+import { useEditorStore, type FileEntry, type ApiFileItem } from '../stores/editorStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { toast } from '../stores/toastStore'
 import { API_BASE } from '../lib/api'
+import { refreshWorkspaceStatus, normalizeMarkdownText, syncManifestFile } from '../lib/workspaceStatus'
+import { formatManifestTooltip, isManifestPath } from '../lib/manifestValidator'
+import { DeleteConfirmModal } from './DeleteConfirmModal'
+import { RenameModal } from './RenameModal'
+import { CreateFileModal } from './CreateFileModal'
 
 interface FolderNode {
   type: 'folder'
@@ -147,12 +165,67 @@ function CtxItem({ icon, label, title, danger, onClick }: {
     <button
       onClick={onClick}
       title={title}
-      className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-[8px] text-[11px] transition-colors cursor-pointer ${danger ? 'text-red-500 hover:bg-red-500/10' : 'text-[var(--text)] hover:bg-[var(--border-sidebar)]/40'}`}
+      className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-[8px] text-[11px] transition-colors cursor-pointer ${danger ? 'text-[var(--danger)] hover:bg-[var(--danger-bg)]' : 'text-[var(--text)] hover:bg-[var(--border-sidebar)]/40'}`}
     >
       <span className={`shrink-0 flex items-center ${danger ? '' : 'text-[var(--text-secondary)]'}`}>{icon}</span>
       <span className="font-sans font-medium truncate flex-1 text-left">{label}</span>
     </button>
   )
+}
+
+async function syncAfterFileDelete(
+  path: string,
+  isActive: boolean,
+  removeFile: (p: string) => void,
+  setContent: (c: string) => void,
+  setCurrentFilePath: (p: string | null) => void,
+  setDiffBaseContent: (d: string | null) => void
+): Promise<void> {
+  try {
+    const filesRes = await fetch(`${API_BASE}/api/workspace/files`, {
+      signal: AbortSignal.timeout(10000),
+    })
+    if (filesRes.ok) {
+      const files: ApiFileItem[] = await filesRes.json()
+      const { setOpenedFiles, openedFiles: existingFiles } = useEditorStore.getState()
+      const promptEntries = existingFiles.filter((f) => f.path.startsWith('prompts/'))
+      const mappedFiles = files.map((f: ApiFileItem) => {
+        const existing = existingFiles.find((ef) => ef.path === f.path)
+        return {
+          name: f.name,
+          path: f.path,
+          content: existing ? existing.content : '',
+          originalContent: existing ? existing.originalContent : '',
+          deleted: Boolean(f.deleted),
+          tracked: f.tracked !== undefined ? Boolean(f.tracked) : true,
+        }
+      })
+      setOpenedFiles([...mappedFiles, ...promptEntries])
+      const remaining = files.find((f: ApiFileItem) => f.path === path)
+      if (!remaining) {
+        removeFile(path)
+        const statusMap = { ...useEditorStore.getState().fileStatusMap }
+        if (path in statusMap) {
+          delete statusMap[path]
+          useEditorStore.getState().setFileStatusMap(statusMap)
+        }
+        if (isActive) {
+          setContent('')
+          setCurrentFilePath(null)
+          setDiffBaseContent(null)
+        }
+      }
+      return
+    }
+  } catch {
+    // fallback below
+  }
+  removeFile(path)
+  if (isActive) {
+    setContent('')
+    setCurrentFilePath(null)
+    setDiffBaseContent(null)
+  }
 }
 
 export function FileSidebar({
@@ -162,17 +235,20 @@ export function FileSidebar({
   aiPanelOpen,
   setAiPanelOpen,
 }: {
-  onSaveCurrentFile?: () => Promise<void>
+  onSaveCurrentFile?: () => Promise<boolean | void>
   filesPanelOpen?: boolean
   setFilesPanelOpen?: (open: boolean) => void
   aiPanelOpen?: boolean
   setAiPanelOpen?: (open: boolean) => void
 }) {
-  const {
-    workspaceDir, setWorkspaceDir,
-    openedFiles, addFile,
-    setContent, clearFiles,
-  } = useEditorStore()
+  const workspaceDir = useEditorStore((s) => s.workspaceDir)
+  const setWorkspaceDir = useEditorStore((s) => s.setWorkspaceDir)
+  const openedFiles = useEditorStore((s) => s.openedFiles)
+  const addFile = useEditorStore((s) => s.addFile)
+  const setContent = useEditorStore((s) => s.setContent)
+  const clearFiles = useEditorStore((s) => s.clearFiles)
+  const isGitWorkspace = useEditorStore((s) => s.isGitWorkspace)
+  const fileStatusMap = useEditorStore((s) => s.fileStatusMap)
 
   const { settings, setShowSettings, setSettingsTab, updateSettings } = useSettingsStore()
 
@@ -211,10 +287,32 @@ export function FileSidebar({
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; folder: string | null; file: string | null } | null>(null)
   const ctxMenuRef = useRef<HTMLDivElement>(null)
 
+  const [fileToDelete, setFileToDelete] = useState<string | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const isCurrentFileDiffModified = useEditorStore((s) =>
+    Boolean(
+      fileToDelete &&
+      s.currentFilePath === fileToDelete &&
+      s.diffBaseContent !== null &&
+      normalizeMarkdownText(s.content || '') !== normalizeMarkdownText(s.diffBaseContent || '')
+    )
+  )
+
+  const [fileToRename, setFileToRename] = useState<string | null>(null)
+  const [isRenaming, setIsRenaming] = useState(false)
+
+  // null = modal closed; string = target folder path ('' for workspace root)
+  const [createTargetFolder, setCreateTargetFolder] = useState<string | null>(null)
+  const [isNewFolderModalOpen, setIsNewFolderModalOpen] = useState(false)
+  const [isCreatingFolder, setIsCreatingFolder] = useState(false)
+  const [isCreatingFile, setIsCreatingFile] = useState(false)
+
   const setCurrentFilePath = useEditorStore((s) => s.setCurrentFilePath)
   const updateFileContent = useEditorStore((s) => s.updateFileContent)
   const removeFile = useEditorStore((s) => s.removeFile)
+  const setDiffBaseContent = useEditorStore((s) => s.setDiffBaseContent)
   const currentFilePath = useEditorStore((s) => s.currentFilePath)
+
 
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
     () => new Set()
@@ -307,14 +405,24 @@ export function FileSidebar({
 
     const fetchWorkspaceFiles = async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/workspace/files`)
+        const res = await fetch(`${API_BASE}/api/workspace/files`, {
+          signal: AbortSignal.timeout(10000),
+        })
         if (!res.ok) throw new Error()
-        const files = await res.json()
+        const files: ApiFileItem[] = await res.json()
         if (!active) return
         setWorkspaceDir(settings?.linked_workspace_dir ? 'custom' : 'sample')
         for (const file of files) {
-          addFile({ name: file.name, path: file.path, content: '', originalContent: '' })
+          addFile({
+            name: file.name,
+            path: file.path,
+            content: '',
+            originalContent: '',
+            deleted: Boolean(file.deleted),
+            tracked: file.tracked !== undefined ? Boolean(file.tracked) : true,
+          })
         }
+        refreshWorkspaceStatus(true)
       } catch {
         // skip
       }
@@ -339,8 +447,17 @@ export function FileSidebar({
       store.setAiPendingEdit(null)
     }
 
-    if (onSaveCurrentFile) {
-      await onSaveCurrentFile()
+    if (onSaveCurrentFile && store.currentFilePath) {
+      const activeFile = store.openedFiles.find((f) => f.path === store.currentFilePath)
+      const currentStatus = store.fileStatusMap[store.currentFilePath]
+      const isDeleted = activeFile?.deleted || currentStatus === 'staged_deleted' || currentStatus === 'unstaged_deleted'
+      if (activeFile && !isDeleted) {
+        const normContent = normalizeMarkdownText(store.content || '')
+        const normOriginal = normalizeMarkdownText(activeFile.originalContent || '')
+        if (normContent !== normOriginal) {
+          await onSaveCurrentFile()
+        }
+      }
     }
     const updatedStore = useEditorStore.getState()
     const { currentFilePath, content } = updatedStore
@@ -348,12 +465,15 @@ export function FileSidebar({
       updateFileContent(currentFilePath, content)
     }
     
-    let file = openedFiles.find((f) => f.path === path)
+    let file = useEditorStore.getState().openedFiles.find((f) => f.path === path)
     if (file) {
-      // Lazy load content if it hasn't been fetched yet
-      if (!file.content && !file.originalContent) {
+      const isManifest = isManifestPath(path)
+      // Lazy load content if it hasn't been fetched yet, or always re-fetch if it's a manifest file
+      if ((!file.content && !file.originalContent) || isManifest) {
         try {
-          const res = await fetch(`${API_BASE}/api/workspace/files/${encodeURIComponent(path)}`)
+          const res = await fetch(`${API_BASE}/api/workspace/files/${encodeURIComponent(path)}`, {
+            signal: AbortSignal.timeout(10000),
+          })
           if (res.ok) {
             const data = await res.json()
             useEditorStore.getState().loadFileContent(path, data.content)
@@ -365,25 +485,38 @@ export function FileSidebar({
         }
       }
 
-      setContent(file.content || '')
-      setCurrentFilePath(path)
+      useEditorStore.setState({
+        content: file.content || '',
+        currentFilePath: path,
+        diffBaseContent: null,
+        hasCommittedVersion: false,
+        aiPendingEdit: null,
+      })
+      refreshWorkspaceStatus(true)
     }
-  }, [openedFiles, setContent, setCurrentFilePath, updateFileContent, onSaveCurrentFile])
+  }, [updateFileContent, onSaveCurrentFile])
 
-  const handleCreateFile = useCallback(async (folder: string) => {
-    const raw = window.prompt(
-      folder ? `New file name (will be saved to ${folder}/):` : 'New file name (will be saved to workspace root):',
-      'new-file.md'
-    )
-    if (!raw) return
-    const trimmed = raw.trim()
+  const handleCreateFile = useCallback((folder: string) => {
+    setCreateTargetFolder(folder)
+  }, [])
+
+  const handleConfirmCreateFile = useCallback(async (rawName: string) => {
+    const folder = createTargetFolder
+    if (folder === null) return
+    const trimmed = rawName.trim()
     if (!trimmed) return
 
+    if (onSaveCurrentFile) {
+      await onSaveCurrentFile()
+    }
+
+    setIsCreatingFile(true)
     try {
       const res = await fetch(`${API_BASE}/api/workspace/files`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ folder, name: trimmed, content: '' })
+        body: JSON.stringify({ folder, name: trimmed, content: '' }),
+        signal: AbortSignal.timeout(10000),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
@@ -391,27 +524,43 @@ export function FileSidebar({
         return
       }
       const data = await res.json()
-      addFile({ name: data.name, path: data.path, content: data.content, originalContent: data.content })
+      addFile({
+        name: data.name,
+        path: data.path,
+        content: data.content,
+        originalContent: data.content,
+        tracked: false,
+      })
       setContent(data.content)
       setCurrentFilePath(data.path)
+      refreshWorkspaceStatus(true)
+      setCreateTargetFolder(null)
     } catch (err) {
       toast.error(`Failed to create file: ${err instanceof Error ? err.message : 'Unknown error'}`)
+    } finally {
+      setIsCreatingFile(false)
     }
-  }, [addFile, setContent, setCurrentFilePath])
+  }, [createTargetFolder, addFile, setContent, setCurrentFilePath, onSaveCurrentFile])
 
-  const handleCreateFolder = useCallback(async (parent?: string | null) => {
-    const raw = window.prompt(parent ? `New folder inside '${parent}':` : "New folder name (e.g. 'world_building'):")
-    if (!raw) return
-    const slug = raw.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '')
+  const [createFolderParent, setCreateFolderParent] = useState<string | null>(null)
+
+  const handleCreateFolder = useCallback((parent?: string | null) => {
+    setCreateFolderParent(parent || null)
+    setIsNewFolderModalOpen(true)
+  }, [])
+
+  const handleConfirmCreateFolder = useCallback(async (rawName: string) => {
+    const slug = rawName.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '')
     if (!slug) return
-    const folder = parent ? `${parent}/${slug}` : slug
-
+    const folder = createFolderParent ? `${createFolderParent}/${slug}` : slug
+    setIsCreatingFolder(true)
     const defaultManifestName = `${slug.toUpperCase()}.md`
     try {
       const res = await fetch(`${API_BASE}/api/workspace/files`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ folder, name: defaultManifestName, content: `# Available ${raw.trim()}\n\n` })
+        body: JSON.stringify({ folder, name: defaultManifestName, content: '' }),
+        signal: AbortSignal.timeout(10000),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
@@ -420,47 +569,71 @@ export function FileSidebar({
       }
       const data = await res.json()
       addFile({ name: data.name, path: data.path, content: data.content, originalContent: data.content })
+      refreshWorkspaceStatus(true)
+      setIsNewFolderModalOpen(false)
+      setCreateFolderParent(null)
     } catch (err) {
       toast.error(`Failed to create folder: ${err instanceof Error ? err.message : 'Unknown error'}`)
+    } finally {
+      setIsCreatingFolder(false)
     }
-  }, [addFile])
+  }, [addFile, createFolderParent])
 
-  const handleDeleteFile = useCallback(async (path: string) => {
+
+  const handleDeleteFile = useCallback((path: string) => {
+    setFileToDelete(path)
+  }, [])
+
+  const handleConfirmDelete = useCallback(async () => {
+    if (!fileToDelete) return
+    const path = fileToDelete
     const isActive = currentFilePath === path
-    const confirmed = window.confirm(`Delete "${path}"? This cannot be undone.`)
-    if (!confirmed) return
+    setIsDeleting(true)
 
     try {
       const res = await fetch(`${API_BASE}/api/workspace/files/${encodeURIComponent(path)}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        signal: AbortSignal.timeout(10000),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
         toast.error(`Failed to delete file: ${err.detail || res.statusText}`)
         return
       }
-      removeFile(path)
-      if (isActive) {
-        setContent('')
-        setCurrentFilePath(null)
+      await syncAfterFileDelete(path, isActive, removeFile, setContent, setCurrentFilePath, setDiffBaseContent)
+      const folder = path.includes('/') ? path.split('/')[0] : ''
+      if (folder) {
+        await syncManifestFile(folder)
       }
+      refreshWorkspaceStatus(true)
+      setFileToDelete(null)
     } catch (err) {
       toast.error(`Failed to delete file: ${err instanceof Error ? err.message : 'Unknown error'}`)
+    } finally {
+      setIsDeleting(false)
     }
-  }, [currentFilePath, removeFile, setContent, setCurrentFilePath])
+  }, [fileToDelete, currentFilePath, removeFile, setContent, setCurrentFilePath, setDiffBaseContent])
 
-  const handleRenameFile = useCallback(async (path: string) => {
-    const oldName = path.split('/').pop() ?? path
-    const raw = window.prompt(`Rename "${oldName}" to:`, oldName)
-    if (!raw) return
-    const newName = raw.trim()
-    if (!newName || newName === oldName) return
+  const handleRenameFile = useCallback((path: string) => {
+    setFileToRename(path)
+  }, [])
+
+  const handleConfirmRename = useCallback(async (newName: string) => {
+    if (!fileToRename) return
+    const path = fileToRename
+
+    if (useEditorStore.getState().currentFilePath === path && onSaveCurrentFile) {
+      await onSaveCurrentFile()
+    }
+
+    setIsRenaming(true)
 
     try {
       const res = await fetch(`${API_BASE}/api/workspace/files/${encodeURIComponent(path)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newName })
+        body: JSON.stringify({ name: newName }),
+        signal: AbortSignal.timeout(10000),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
@@ -471,16 +644,39 @@ export function FileSidebar({
       const store = useEditorStore.getState()
       const existing = store.openedFiles.find((f) => f.path === path)
       if (existing) {
-        removeFile(path)
-        addFile({ ...existing, name: data.name, path: data.path })
+        store.setOpenedFiles(
+          store.openedFiles.map((f) =>
+            f.path === path
+              ? {
+                  ...f,
+                  name: data.name,
+                  path: data.path,
+                  tracked: data.tracked !== undefined ? Boolean(data.tracked) : f.tracked,
+                }
+              : f
+          )
+        )
+        const nextStatusMap = { ...store.fileStatusMap }
+        if (path in nextStatusMap) {
+          delete nextStatusMap[path]
+          store.setFileStatusMap(nextStatusMap)
+        }
         if (store.currentFilePath === path) {
           setCurrentFilePath(data.path)
         }
       }
+      const folder = path.includes('/') ? path.split('/')[0] : ''
+      if (folder) {
+        await syncManifestFile(folder)
+      }
+      refreshWorkspaceStatus(true)
+      setFileToRename(null)
     } catch (err) {
       toast.error(`Failed to rename: ${err instanceof Error ? err.message : 'Unknown error'}`)
+    } finally {
+      setIsRenaming(false)
     }
-  }, [removeFile, addFile, setCurrentFilePath])
+  }, [fileToRename, setCurrentFilePath, onSaveCurrentFile])
 
   const handleRenameFolder = useCallback(async (folder: string) => {
     const oldName = folder.split('/').pop() ?? folder
@@ -595,7 +791,13 @@ export function FileSidebar({
     e.preventDefault()
     // Select first so the active highlight marks the menu's target —
     // same save-then-load path as left-click, no divergent behavior.
-    if (file) void handleFileClick(file)
+    if (file) {
+      const fileEntry = useEditorStore.getState().openedFiles.find((f) => f.path === file)
+      const st = useEditorStore.getState().fileStatusMap[file]
+      const isDel = Boolean(fileEntry?.deleted) || st === 'staged_deleted' || st === 'unstaged_deleted'
+      if (isDel) return
+      void handleFileClick(file)
+    }
     setCtxMenu({
       x: Math.min(e.clientX, window.innerWidth - 180),
       y: Math.min(e.clientY, window.innerHeight - 140),
@@ -610,7 +812,13 @@ export function FileSidebar({
     e.stopPropagation()
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
     const file = 'file' in target ? target.file : null
-    if (file) void handleFileClick(file)
+    if (file) {
+      const fileEntry = useEditorStore.getState().openedFiles.find((f) => f.path === file)
+      const st = useEditorStore.getState().fileStatusMap[file]
+      const isDel = Boolean(fileEntry?.deleted) || st === 'staged_deleted' || st === 'unstaged_deleted'
+      if (isDel) return
+      void handleFileClick(file)
+    }
     setCtxMenu({
       x: Math.min(rect.left, window.innerWidth - 180),
       y: Math.min(rect.bottom + 4, window.innerHeight - 160),
@@ -678,7 +886,7 @@ export function FileSidebar({
           )}
         </div>
         {workspaceDir && (
-          <>
+          <div className="flex items-center gap-1.5 shrink-0">
             <button
               onClick={() => handleCreateFile('')}
               className="flex items-center justify-center w-7 h-7 shrink-0 text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 rounded-[6px] transition-all cursor-pointer active:scale-[0.95]"
@@ -689,11 +897,21 @@ export function FileSidebar({
             <button
               onClick={() => handleCreateFolder(null)}
               className="flex items-center justify-center w-7 h-7 shrink-0 text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 rounded-[6px] transition-all cursor-pointer active:scale-[0.95]"
-              title="New folder"
+              title="New Folder"
             >
               <FolderPlus className="w-3.5 h-3.5" strokeWidth={1.75} />
             </button>
-          </>
+            <button
+              onClick={() => {
+                setSettingsTab('workspaces')
+                setShowSettings(true)
+              }}
+              className="flex items-center justify-center w-7 h-7 text-[var(--text-secondary)] hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 bg-[var(--bg-icon)]/20 rounded-[6px] transition-all cursor-pointer active:scale-[0.95]"
+              title="Switch Workspace / Workspace Settings"
+            >
+              <FolderSync className="w-3.5 h-3.5" strokeWidth={1.75} />
+            </button>
+          </div>
         )}
         <div className="relative shrink-0" ref={dropdownRef}>
           <button
@@ -758,7 +976,15 @@ export function FileSidebar({
           {rootFiles.length > 0 && (
             <div className="flex flex-col gap-0">
               {rootFiles.map((file) => (
-                <FileRow key={file.path} file={file} depth={0} onSelect={handleFileClick} onRowMenu={(e) => openRowMenu(e, { file: file.path })} />
+                <FileRow
+                  key={file.path}
+                  file={file}
+                  depth={0}
+                  onSelect={handleFileClick}
+                  onDelete={handleDeleteFile}
+                  onRename={handleRenameFile}
+                  onRowMenu={(e) => openRowMenu(e, { file: file.path })}
+                />
               ))}
             </div>
           )}
@@ -771,6 +997,9 @@ export function FileSidebar({
               expandedFolders={expandedFolders}
               toggleFolder={toggleFolder}
               handleFileClick={handleFileClick}
+              handleCreateFile={handleCreateFile}
+              handleDeleteFile={handleDeleteFile}
+              handleRenameFile={handleRenameFile}
               onRowMenu={openRowMenu}
               guides={[]}
               isLast={i === treeNodes.length - 1}
@@ -858,6 +1087,75 @@ export function FileSidebar({
         </div>,
         document.body
       )}
+      {fileToDelete && (() => {
+        const fileEntry = openedFiles.find((f) => f.path === fileToDelete)
+        const status = fileStatusMap[fileToDelete] || ''
+        const isTracked = status !== 'untracked' && (fileEntry?.tracked ?? true)
+        const isModified = Boolean(
+          ['unstaged_modified', 'staged_modified', 'staged_renamed_modified'].includes(status) ||
+          isCurrentFileDiffModified ||
+          (fileEntry && normalizeMarkdownText(fileEntry.content || '') !== normalizeMarkdownText(fileEntry.originalContent || '') && Boolean(fileEntry.originalContent))
+        )
+        const isStagedRename = ['staged_renamed', 'staged_renamed_modified'].includes(status)
+
+        return (
+          <DeleteConfirmModal
+            isOpen={Boolean(fileToDelete)}
+            onClose={() => setFileToDelete(null)}
+            onConfirm={handleConfirmDelete}
+            fileName={fileToDelete.split('/').pop() || fileToDelete}
+            isGitWorkspace={isGitWorkspace}
+            isTracked={isTracked}
+            isModified={isModified}
+            isStagedRename={isStagedRename}
+            isDeleting={isDeleting}
+          />
+        )
+      })()}
+
+      {fileToRename && (() => {
+        const fileEntry = openedFiles.find((f) => f.path === fileToRename)
+        const isTracked = fileStatusMap[fileToRename] !== 'untracked' && (fileEntry?.tracked ?? true)
+
+        return (
+          <RenameModal
+            isOpen={Boolean(fileToRename)}
+            onClose={() => setFileToRename(null)}
+            onConfirm={handleConfirmRename}
+            currentName={fileToRename.split('/').pop() || fileToRename}
+            isGitWorkspace={isGitWorkspace}
+            isTracked={isTracked}
+            isRenaming={isRenaming}
+          />
+        )
+      })()}
+
+      {/* New file modal */}
+      {createTargetFolder !== null && (
+        <CreateFileModal
+          isOpen
+          onClose={() => setCreateTargetFolder(null)}
+          onConfirm={handleConfirmCreateFile}
+          folder={createTargetFolder}
+          isFolder={false}
+          isCreating={isCreatingFile}
+        />
+      )}
+
+      {/* New folder modal */}
+      {isNewFolderModalOpen && (
+        <CreateFileModal
+          isOpen
+          onClose={() => {
+            setIsNewFolderModalOpen(false)
+            setCreateFolderParent(null)
+          }}
+          onConfirm={handleConfirmCreateFolder}
+          folder=""
+          isFolder
+          isCreating={isCreatingFolder}
+        />
+      )}
     </div>
   )
 }
@@ -868,7 +1166,9 @@ function FolderRow({
   depth,
   isExpanded,
   hasChildren = false,
+  hasModifiedChildren,
   onToggle,
+  onAddFile,
   onRowMenu,
   guides = [],
   isLast = true,
@@ -878,7 +1178,9 @@ function FolderRow({
   depth: number
   isExpanded: boolean
   hasChildren?: boolean
+  hasModifiedChildren?: boolean
   onToggle: () => void
+  onAddFile?: () => void
   onRowMenu: (e: React.MouseEvent) => void
   guides?: boolean[]
   isLast?: boolean
@@ -909,8 +1211,23 @@ function FolderRow({
           {isExpanded
             ? <FolderOpenIcon className="w-4 h-4 shrink-0 text-[var(--text-secondary)]" />
             : <FolderClosedIcon className="w-4 h-4 shrink-0 text-[var(--text-secondary)]/60" />}
-          <span className="truncate font-sans font-medium">{name}</span>
+          <span className="truncate font-sans font-medium">{name}/</span>
+          {!isExpanded && hasModifiedChildren && (
+            <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent-brown)] shrink-0 ml-1" title="Contains modified files" />
+          )}
         </div>
+        {onAddFile && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onAddFile()
+            }}
+            title={`New file in ${name}`}
+            className="flex items-center justify-center w-4 h-4 text-[var(--text-secondary)]/60 hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 rounded-[4px] transition-all cursor-pointer active:scale-[0.9] opacity-0 group-hover:opacity-100"
+          >
+            <Plus className="w-3 h-3" strokeWidth={2.25} />
+          </button>
+        )}
         <button
           onClick={onRowMenu}
           title="Folder actions"
@@ -929,6 +1246,9 @@ function TreeNodeComponent({
   expandedFolders,
   toggleFolder,
   handleFileClick,
+  handleCreateFile,
+  handleDeleteFile,
+  handleRenameFile,
   onRowMenu,
   guides = [],
   isLast = true,
@@ -938,16 +1258,39 @@ function TreeNodeComponent({
   expandedFolders: Set<string>
   toggleFolder: (path: string) => void
   handleFileClick: (path: string) => void
+  handleCreateFile?: (folder: string) => void
+  handleDeleteFile?: (path: string) => void
+  handleRenameFile?: (path: string) => void
   onRowMenu: (e: React.MouseEvent, target: { folder: string } | { file: string }) => void
   guides?: boolean[]
   isLast?: boolean
 }) {
+  const fileStatusMap = useEditorStore((s) => s.fileStatusMap)
+
+  const hasModifiedChildren = useMemo(() => {
+    if (node.type !== 'folder') return false
+    const prefix = `${node.path}/`
+    return Object.entries(fileStatusMap).some(
+      ([p, status]) =>
+        p.startsWith(prefix) &&
+        (status === 'staged' ||
+          status === 'unstaged_modified' ||
+          status === 'staged_modified' ||
+          status === 'staged_renamed_modified' ||
+          status === 'staged_renamed' ||
+          status === 'staged_deleted' ||
+          status === 'unstaged_deleted')
+    )
+  }, [fileStatusMap, node.type, node.path])
+
   if (node.type === 'file') {
     return (
       <FileRow
         file={node.file}
         depth={depth}
         onSelect={handleFileClick}
+        onDelete={handleDeleteFile}
+        onRename={handleRenameFile}
         onRowMenu={(e) => onRowMenu(e, { file: node.file.path })}
         guides={guides}
         isLast={isLast}
@@ -965,7 +1308,9 @@ function TreeNodeComponent({
         depth={depth}
         isExpanded={isExpanded}
         hasChildren={node.children.length > 0}
+        hasModifiedChildren={hasModifiedChildren}
         onToggle={() => toggleFolder(node.path)}
+        onAddFile={handleCreateFile ? () => handleCreateFile(node.path) : undefined}
         onRowMenu={(e) => onRowMenu(e, { folder: node.path })}
         guides={guides}
         isLast={isLast}
@@ -980,6 +1325,9 @@ function TreeNodeComponent({
               expandedFolders={expandedFolders}
               toggleFolder={toggleFolder}
               handleFileClick={handleFileClick}
+              handleCreateFile={handleCreateFile}
+              handleDeleteFile={handleDeleteFile}
+              handleRenameFile={handleRenameFile}
               onRowMenu={onRowMenu}
               guides={[...guides, i < node.children.length - 1]}
               isLast={i === node.children.length - 1}
@@ -999,10 +1347,76 @@ function TreeNodeComponent({
   )
 }
 
+function FileStatusBadge({ status, isDeleted }: { status: string; isDeleted: boolean }) {
+  if (status === 'unstaged_modified') {
+    return (
+      <span
+        className="px-1 py-[1px] rounded text-[9px] font-mono font-bold bg-[var(--accent-brown)]/10 text-[var(--accent-brown)] border border-[var(--accent-brown)]/30 shrink-0"
+        title="Unstaged changes"
+      >
+        M
+      </span>
+    )
+  }
+  if (status === 'staged') {
+    return (
+      <span
+        className="px-1 py-[1px] rounded text-[9px] font-mono font-bold bg-[var(--accent-green-bg)] text-[var(--accent-green)] border border-[var(--border-chip)] shrink-0"
+        title="Staged changes"
+      >
+        S
+      </span>
+    )
+  }
+  if (status === 'staged_modified') {
+    return (
+      <span
+        className="px-1 py-[1px] rounded text-[9px] font-mono font-bold bg-[var(--accent-brown)]/10 text-[var(--accent-brown)] border border-[var(--accent-brown)]/30 shrink-0"
+        title="Staged and unstaged changes"
+      >
+        <span className="text-[var(--accent-green)]">S</span>/M
+      </span>
+    )
+  }
+  if (status === 'staged_renamed') {
+    return (
+      <span
+        className="px-1 py-[1px] rounded text-[9px] font-mono font-bold bg-[var(--border-sidebar)]/40 text-[var(--text-secondary)] border border-[var(--border-subtle)] shrink-0"
+        title="Renamed in Git"
+      >
+        R
+      </span>
+    )
+  }
+  if (status === 'staged_renamed_modified') {
+    return (
+      <span
+        className="px-1 py-[1px] rounded text-[9px] font-mono font-bold bg-[var(--accent-brown)]/10 text-[var(--accent-brown)] border border-[var(--accent-brown)]/30 shrink-0"
+        title="Renamed and modified"
+      >
+        <span className="text-[var(--text-secondary)]">R</span>/M
+      </span>
+    )
+  }
+  if (isDeleted) {
+    return (
+      <span
+        className="px-1 py-[1px] rounded text-[9px] font-mono font-bold bg-[var(--danger)]/15 text-[var(--danger)] border border-[var(--danger)]/30 shrink-0"
+        title={status === 'staged_deleted' ? 'Deleted in Git (staged)' : 'Deleted (unstaged)'}
+      >
+        D
+      </span>
+    )
+  }
+  return null
+}
+
 function FileRow({
   file,
   depth = 0,
   onSelect,
+  onDelete,
+  onRename,
   onRowMenu,
   guides = [],
   isLast = true,
@@ -1010,6 +1424,8 @@ function FileRow({
   file: FileEntry
   depth?: number
   onSelect: (path: string) => void
+  onDelete?: (path: string) => void
+  onRename?: (path: string) => void
   onRowMenu: (e: React.MouseEvent) => void
   guides?: boolean[]
   isLast?: boolean
@@ -1017,6 +1433,9 @@ function FileRow({
   const isActive = useEditorStore((s) => s.currentFilePath === file.path)
   const hoverInset = depth === 0 ? 0 : (depth - 1) * 12 + TREE_BASE_PADDING + TREE_GUIDE_OFFSET + TREE_HOVER_GAP
   const hoverPadding = depth * 12 + TREE_BASE_PADDING - hoverInset
+  const status = useEditorStore((s) => s.fileStatusMap[file.path])
+  const manifestIssues = useEditorStore((s) => s.manifestIssuesMap[file.path])
+  const isDeleted = Boolean(file.deleted) || status === 'staged_deleted' || status === 'unstaged_deleted'
 
   return (
     <div
@@ -1037,16 +1456,53 @@ function FileRow({
           className="flex items-center gap-1.5 flex-1 min-w-0 text-left"
           title={file.path}
         >
-        <FileIcon className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-[var(--text)]' : 'text-[var(--text-secondary)]/60'}`} />
-        <span className="truncate font-sans font-medium">{file.name}</span>
-      </div>
-      <button
-        onClick={onRowMenu}
-        title="File actions"
-        className="flex items-center justify-center w-4 h-4 text-[var(--text-secondary)]/60 hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 rounded-[4px] transition-all cursor-pointer active:scale-[0.9] opacity-0 group-hover:opacity-100"
-      >
-        <MoreHorizontal className="w-3 h-3" strokeWidth={2.25} />
-        </button>
+          <FileIcon className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-[var(--text)]' : 'text-[var(--text-secondary)]/60'}`} />
+          <span className={`truncate font-sans font-medium ${isDeleted ? 'line-through text-[var(--danger)]/80 opacity-70' : ''}`}>
+            {file.name}
+          </span>
+        </div>
+        {manifestIssues && !manifestIssues.isValid && manifestIssues.totalCount > 0 && (
+          <span
+            className="flex items-center text-[var(--accent-brown)] hover:opacity-80 transition-opacity shrink-0"
+            title={formatManifestTooltip(manifestIssues)}
+          >
+            <AlertTriangle size={12} className="stroke-[2.2]" />
+          </span>
+        )}
+        <FileStatusBadge status={status} isDeleted={isDeleted} />
+        {!isDeleted && onRename && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onRename(file.path)
+            }}
+            title={`Rename ${file.name}`}
+            className="flex items-center justify-center w-5 h-5 text-[var(--text-secondary)]/60 hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 rounded-[4px] transition-all cursor-pointer active:scale-[0.9] opacity-0 group-hover:opacity-100"
+          >
+            <Pencil className="w-3 h-3" strokeWidth={2} />
+          </button>
+        )}
+        {!isDeleted && onDelete && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onDelete(file.path)
+            }}
+            title={`Delete ${file.name}`}
+            className="flex items-center justify-center w-5 h-5 text-[var(--text-secondary)]/60 hover:text-[var(--danger)] hover:bg-[var(--border-sidebar)]/60 rounded-[4px] transition-all cursor-pointer active:scale-[0.9] opacity-0 group-hover:opacity-100"
+          >
+            <Trash2 className="w-3 h-3" strokeWidth={2} />
+          </button>
+        )}
+        {!isDeleted && (
+          <button
+            onClick={onRowMenu}
+            title="File actions"
+            className="flex items-center justify-center w-4 h-4 text-[var(--text-secondary)]/60 hover:text-[var(--text-heading)] hover:bg-[var(--border-sidebar)]/60 rounded-[4px] transition-all cursor-pointer active:scale-[0.9] opacity-0 group-hover:opacity-100"
+          >
+            <MoreHorizontal className="w-3 h-3" strokeWidth={2.25} />
+          </button>
+        )}
       </div>
     </div>
   )

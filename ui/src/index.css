@@ -1329,6 +1329,47 @@ body {
   }
 }
 
+/* ── Deleted file read-only view styling ── */
+.editor-deleted-content {
+  position: relative;
+  user-select: text;
+}
+
+.editor-deleted-content .ProseMirror {
+  opacity: 0.72;
+  cursor: default;
+}
+
+.editor-deleted-content .ProseMirror p,
+.editor-deleted-content .ProseMirror h1,
+.editor-deleted-content .ProseMirror h2,
+.editor-deleted-content .ProseMirror h3,
+.editor-deleted-content .ProseMirror h4,
+.editor-deleted-content .ProseMirror h5,
+.editor-deleted-content .ProseMirror h6,
+.editor-deleted-content .ProseMirror li,
+.editor-deleted-content .ProseMirror blockquote,
+.editor-deleted-content .ProseMirror code,
+.editor-deleted-content .ProseMirror pre {
+  text-decoration: line-through;
+  /* --danger is defined per theme family in both light and dark variants */
+  text-decoration-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  text-decoration-thickness: 1.5px;
+}
+
+/* Embedded images in deleted files */
+.editor-deleted-content .margin-image__img {
+  filter: grayscale(80%) opacity(0.65);
+  border: 1px dashed color-mix(in srgb, var(--danger) 40%, transparent) !important;
+  transition: filter 0.2s ease, border-color 0.2s ease;
+}
+
+.editor-deleted-content .margin-image__caption {
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  opacity: 0.7;
+}
+
 
 
 

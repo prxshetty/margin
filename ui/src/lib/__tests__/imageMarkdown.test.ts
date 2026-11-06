@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseImageMarkdown, serializeImageMarkdown, splitAltDims } from './imageMarkdown'
+import { parseImageMarkdown, serializeImageMarkdown, splitAltDims } from '../imageMarkdown'
 
 describe('parseImageMarkdown', () => {
   it('parses plain images (existing behavior)', () => {

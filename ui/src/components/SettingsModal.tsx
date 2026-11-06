@@ -12,6 +12,7 @@ import { ContextSettings } from './settings/ContextTab'
 import { EndpointsSettings } from './settings/EndpointsTab'
 import { HarnessesSettings } from './settings/HarnessTab'
 import { ImagesSettings } from './settings/ImagineTab'
+
 interface SettingsModalProps {
   onClose: () => void
 }
@@ -26,8 +27,6 @@ const TABS: { id: SettingsTabId; label: string; icon: React.ComponentType<{ size
   { id: 'harnesses', label: 'Harness', icon: SquareTerminal, title: 'Harness', keywords: 'harness terminal executable model context agent' },
 ]
 
-// Forgiving multi-term match: every query token must appear in the haystack.
-
 export function SettingsModal({ onClose }: SettingsModalProps) {
   const { settings, updateSettings, settingsTab, setSettingsTab } = useSettingsStore()
   // Deep-link target from the store (e.g. the panel's "Manage endpoints…"):
@@ -38,7 +37,9 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   const [query, setQuery] = useState('')
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/workspace/files`)
+    fetch(`${API_BASE}/api/workspace/files`, {
+      signal: AbortSignal.timeout(10000),
+    })
       .then(res => res.json())
       .then(data => setAvailableFiles(data))
       .catch(err => {
@@ -53,6 +54,16 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   if (query.trim() && visibleTabs.length > 0 && !visibleTabs.some((t) => t.id === activeTab)) {
     setActiveTab(visibleTabs[0].id)
   }
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
 
   if (!settings) return null
 
@@ -94,6 +105,8 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
           <div className="flex-1 min-w-0 px-6 py-8 overflow-y-auto bg-[var(--bg)] text-[var(--text)] relative">
             <button
               onClick={onClose}
+              title="Close settings"
+              aria-label="Close settings"
               className="absolute top-5 right-6 flex items-center justify-center w-8 h-8 text-[var(--text-muted)] hover:text-[var(--text-heading)] transition-colors cursor-pointer"
             >
               <X size={15} />
