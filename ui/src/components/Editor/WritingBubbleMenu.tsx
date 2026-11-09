@@ -9,7 +9,8 @@ import { useSettingsStore } from '../../stores/settingsStore'
 import { toast } from '../../stores/toastStore'
 import { API_BASE } from '../../lib/api'
 import { streamSSE } from '../../lib/stream-sse'
-import { applyHarnessResult } from '../../lib/applyHarnessResult'
+import { applyHarnessResult, type HarnessApplyResult } from '../../lib/applyHarnessResult'
+import { beginAiRun, endAiRun, isOnRunFile } from '../../lib/aiRunGuard'
 import { generateImage, insertStoredImageAt } from '../../lib/media'
 import { imageStyleOptions } from './imageStyleOptions'
 import { CueIcon, RewriteIcon, ImagineIcon, LinkIcon } from './brandIcons'
@@ -428,12 +429,14 @@ export function WritingBubbleMenu() {
         setIsStreaming(true)
         const { from, to } = selectionRange
         editor.setEditable(false)
+        // The selection positions belong to this file; switches are refused until the run ends.
+        const run = beginAiRun()
 
         try {
             let outputText = ''
             let streamError: string | null = null
             let harnessDone = false
-            let harnessPromise: Promise<{ conflicts: number; deleted: boolean }> | null = null
+            let harnessPromise: Promise<HarnessApplyResult> | null = null
             const baseContent = useEditorStore.getState().content
             await streamSSE(
                 `${API_BASE}/api/assist/simple`,
@@ -450,22 +453,28 @@ export function WritingBubbleMenu() {
                     else if (status === 'applied' && data.output) outputText = data.output as string
                     else if (status === 'harness_done') {
                         harnessDone = true
-                        harnessPromise = applyHarnessResult(baseContent, harness)
+                        harnessPromise = applyHarnessResult(baseContent, harness, run.path)
                     }
                     else if (status === 'error') streamError = (data.detail as string) || 'Server error during rewrite'
                 }
             )
 
-            if (harnessPromise) await harnessPromise
+            if (harnessPromise) {
+                const applied: HarnessApplyResult = await harnessPromise
+                if (applied.skipped) toast.info('Rewrite finished after you switched files. Its changes are saved on disk.')
+            }
             if (streamError) throw new Error(streamError)
 
-            if (outputText && editor && !harnessDone) {
+            if (outputText && editor && !harnessDone && !isOnRunFile(run)) {
+                toast.info('Rewrite discarded: the open file changed while it ran.')
+            } else if (outputText && editor && !harnessDone) {
                 editor.chain().focus().deleteRange({ from, to }).insertContentAt(from, outputText).run()
             }
         } catch (err) {
             console.error('Rewrite failed:', err)
             toast.error(`Rewrite failed: ${err instanceof Error ? err.message : 'Unknown error'}`)
         } finally {
+            endAiRun(run)
             editor.setEditable(true)
             setIsStreaming(false)
             setMode('default')

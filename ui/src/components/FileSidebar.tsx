@@ -18,6 +18,8 @@ import { useEditorStore, type FileEntry, type ApiFileItem } from '../stores/edit
 import { useSettingsStore } from '../stores/settingsStore'
 import { toast } from '../stores/toastStore'
 import { API_BASE } from '../lib/api'
+import { refuseWhileAiBusy } from '../lib/aiRunGuard'
+import { prepareWorkspaceSwitch, detachOpenFile } from '../lib/workspaceSwitch'
 import { refreshWorkspaceStatus, normalizeMarkdownText, syncManifestFile } from '../lib/workspaceStatus'
 import { formatManifestTooltip, isManifestPath } from '../lib/manifestValidator'
 import { DeleteConfirmModal } from './DeleteConfirmModal'
@@ -440,22 +442,32 @@ export function FileSidebar({
 
   const handleFileClick = useCallback(async (path: string) => {
     const store = useEditorStore.getState()
+    // Clicking the open file is not a switch: keep its text and any AI preview.
+    if (path === store.currentFilePath) return
+    if (refuseWhileAiBusy()) return
     if (store.aiPendingEdit && store.currentFilePath) {
-      const previous = store.aiPendingEdit.previousContent
       store.editor?.commands.clearAiHighlight()
-      store.setContent(previous)
+      // Put back the pre-AI text only if the preview belongs to this file; a preview
+      // from another file would otherwise be saved into this one.
+      if (store.aiPendingEdit.filePath === store.currentFilePath) {
+        store.setContent(store.aiPendingEdit.previousContent)
+      }
       store.setAiPendingEdit(null)
     }
 
-    if (onSaveCurrentFile && store.currentFilePath) {
-      const activeFile = store.openedFiles.find((f) => f.path === store.currentFilePath)
-      const currentStatus = store.fileStatusMap[store.currentFilePath]
+    // Read fresh state: the preview revert above replaced `content`.
+    const live = useEditorStore.getState()
+    if (onSaveCurrentFile && live.currentFilePath) {
+      const activeFile = live.openedFiles.find((f) => f.path === live.currentFilePath)
+      const currentStatus = live.fileStatusMap[live.currentFilePath]
       const isDeleted = activeFile?.deleted || currentStatus === 'staged_deleted' || currentStatus === 'unstaged_deleted'
       if (activeFile && !isDeleted) {
-        const normContent = normalizeMarkdownText(store.content || '')
+        const normContent = normalizeMarkdownText(live.content || '')
         const normOriginal = normalizeMarkdownText(activeFile.originalContent || '')
-        if (normContent !== normOriginal) {
-          await onSaveCurrentFile()
+        if (normContent !== normOriginal && (await onSaveCurrentFile()) === false) {
+          // Switching now would leave the unsaved text only in a background cache.
+          toast.error(`Could not save "${activeFile.name}". Staying on it so your edits are not lost.`)
+          return
         }
       }
     }
@@ -501,6 +513,7 @@ export function FileSidebar({
   }, [])
 
   const handleConfirmCreateFile = useCallback(async (rawName: string) => {
+    if (refuseWhileAiBusy()) return
     const folder = createTargetFolder
     if (folder === null) return
     const trimmed = rawName.trim()
@@ -585,6 +598,7 @@ export function FileSidebar({
   }, [])
 
   const handleConfirmDelete = useCallback(async () => {
+    if (refuseWhileAiBusy()) return
     if (!fileToDelete) return
     const path = fileToDelete
     const isActive = currentFilePath === path
@@ -619,6 +633,7 @@ export function FileSidebar({
   }, [])
 
   const handleConfirmRename = useCallback(async (newName: string) => {
+    if (refuseWhileAiBusy()) return
     if (!fileToRename) return
     const path = fileToRename
 
@@ -679,6 +694,7 @@ export function FileSidebar({
   }, [fileToRename, setCurrentFilePath, onSaveCurrentFile])
 
   const handleRenameFolder = useCallback(async (folder: string) => {
+    if (refuseWhileAiBusy()) return
     const oldName = folder.split('/').pop() ?? folder
     const raw = window.prompt(`Rename "${oldName}" to:`, oldName)
     if (!raw) return
@@ -726,6 +742,7 @@ export function FileSidebar({
   }, [removeFile, addFile, setCurrentFilePath])
 
   const handleDeleteFolder = useCallback(async (folder: string) => {
+    if (refuseWhileAiBusy()) return
     const store = useEditorStore.getState()
     const inside = store.openedFiles.filter(
       (f) => f.path === folder || f.path.startsWith(`${folder}/`)
@@ -771,6 +788,10 @@ export function FileSidebar({
 
   const handleSwitchWorkspace = useCallback(async (path: string | null) => {
     setShowSwitcher(false)
+    // Save (and stop on failure) before the backend switches: a save landing after
+    // the switch would resolve the open file's path inside the new workspace.
+    if (!(await prepareWorkspaceSwitch())) return
+    detachOpenFile()
     try {
       await updateSettings({ linked_workspace_dir: path })
       toast.success(path ? 'Workspace switched.' : 'Reset to default fallback workspace.')

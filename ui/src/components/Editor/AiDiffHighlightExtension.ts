@@ -132,7 +132,9 @@ export const AiDiffHighlightExtension = Extension.create<AiDiffHighlightOptions>
                       })
                       return
                     }
-                    const previous = state.aiPendingEdit?.previousContent
+                    const pending = state.aiPendingEdit
+                    // Only restore text that belongs to the open file.
+                    const previous = pending && pending.filePath === state.currentFilePath ? pending.previousContent : undefined
                     state.editor?.commands.clearAiHighlight()
                     if (previous !== undefined) {
                       state.editor?.commands.setContent(previous)

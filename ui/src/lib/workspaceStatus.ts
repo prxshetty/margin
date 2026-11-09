@@ -1,4 +1,5 @@
 import { API_BASE } from './api'
+import { toast } from '../stores/toastStore'
 import { useEditorStore, type FileStatus } from '../stores/editorStore'
 
 export interface WorkspaceStatusResponse {
@@ -47,6 +48,18 @@ export async function refreshDiffBase(path?: string): Promise<void> {
   }
 }
 
+/**
+ * Whether `path` holds text not yet on disk. The open file's text lives in the editor
+ * (`content`); any other file's lives in its cached entry (left there by a failed save).
+ */
+function hasUnsavedText(path: string): boolean {
+  const { content, openedFiles, currentFilePath } = useEditorStore.getState()
+  const file = openedFiles.find((f) => f.path === path)
+  if (!file) return false
+  const text = path === currentFilePath ? content : file.content
+  return normalizeMarkdownText(text || '') !== normalizeMarkdownText(file.originalContent || '')
+}
+
 export async function syncManifestFile(folder: string): Promise<void> {
   if (!folder) return
   const folderName = folder.split('/').pop() || folder
@@ -58,8 +71,18 @@ export async function syncManifestFile(folder: string): Promise<void> {
     if (res.ok) {
       const data = await res.json()
       const store = useEditorStore.getState()
+      const isOpen = store.currentFilePath?.toLowerCase() === manifestRel.toLowerCase()
+      const cachedPath = isOpen && store.currentFilePath ? store.currentFilePath : manifestRel
+      if (hasUnsavedText(cachedPath)) {
+        // Reloading would silently drop edits held in the editor or in the cache.
+        toast.info(
+          `${manifestRel.split('/').pop()} was updated on disk while you had unsaved edits in it. ` +
+          'Your edits are kept; saving will replace the updated version.'
+        )
+        return
+      }
       store.loadFileContent(manifestRel, data.content)
-      if (store.currentFilePath?.toLowerCase() === manifestRel.toLowerCase()) {
+      if (isOpen) {
         store.setContent(data.content)
       }
     }

@@ -33,6 +33,17 @@ export interface ApiFileItem {
   }
 }
 
+export interface AiPendingEdit {
+  /** File the suggestion belongs to; previousContent is that file's text. */
+  filePath: string
+  previousContent: string
+  selectionRange?: { from: number; to: number } | null
+  highlightFrom?: number
+  harness?: string
+  aiContent?: string
+  aiChangedIdx?: number[]
+}
+
 export interface FileEntry {
   name: string
   path: string
@@ -97,8 +108,14 @@ interface EditorState {
   setDiffBaseContent: (diffBaseContent: string | null) => void
   hasCommittedVersion: boolean
   setHasCommittedVersion: (hasCommittedVersion: boolean) => void
-  aiPendingEdit: { previousContent: string; selectionRange?: { from: number; to: number } | null; highlightFrom?: number; harness?: string; aiContent?: string; aiChangedIdx?: number[] } | null
-  setAiPendingEdit: (edit: { previousContent: string; selectionRange?: { from: number; to: number } | null; highlightFrom?: number; harness?: string; aiContent?: string; aiChangedIdx?: number[] } | null) => void
+  aiPendingEdit: AiPendingEdit | null
+  setAiPendingEdit: (edit: AiPendingEdit | null) => void
+  /** Set while an AI edit runs; path is the file it started on (null = untitled). File switches are refused meanwhile. */
+  aiRun: { path: string | null } | null
+  setAiRun: (run: { path: string | null } | null) => void
+  /** Saves the open file if it has unsaved text; registered by SimpleEditor. */
+  saveActiveFile: (() => Promise<boolean>) | null
+  setSaveActiveFile: (save: (() => Promise<boolean>) | null) => void
   activeModel: string | null
   setActiveModel: (model: string | null) => void
 }
@@ -306,6 +323,10 @@ export const useEditorStore = create<EditorState>((set) => ({
   setHasCommittedVersion: (hasCommittedVersion) => set({ hasCommittedVersion }),
   aiPendingEdit: null,
   setAiPendingEdit: (aiPendingEdit) => set({ aiPendingEdit }),
+  aiRun: null,
+  setAiRun: (aiRun) => set({ aiRun }),
+  saveActiveFile: null,
+  setSaveActiveFile: (saveActiveFile) => set({ saveActiveFile }),
   activeModel: null,
   setActiveModel: (activeModel) => set({ activeModel }),
 }))

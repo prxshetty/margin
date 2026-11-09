@@ -10,6 +10,7 @@ import { SettingsModal } from '../components/SettingsModal'
 import { RestoreConfirmModal } from '../components/RestoreConfirmModal'
 import type { RestoreMode } from '../lib/restoreOptions'
 import { API_BASE } from '../lib/api'
+import { refuseWhileAiBusy, savableContent } from '../lib/aiRunGuard'
 import {
   initWorkspaceStatusSync,
   refreshWorkspaceStatus,
@@ -171,8 +172,8 @@ export default function SimpleEditor() {
     const handlePageHide = () => {
       if (!isDirtyRef.current || !activeFilePathRef.current) return
 
-      const store = useEditorStore.getState()
-      const fileContent = store.aiPendingEdit ? store.aiPendingEdit.previousContent : store.content
+      const fileContent = savableContent(activeFilePathRef.current)
+      if (fileContent === null) return
 
       const isPrompt = activeFilePathRef.current.startsWith('prompts/')
       let url = `${API_BASE}/api/workspace/files/${encodeURIComponent(activeFilePathRef.current)}`
@@ -315,8 +316,10 @@ export default function SimpleEditor() {
         explicitContent !== undefined
           ? explicitContent
           : targetPath === store.currentFilePath
-          ? (store.aiPendingEdit ? store.aiPendingEdit.previousContent : store.content)
+          ? savableContent(targetPath)
           : targetFile?.content ?? ''
+      // A pending harness review: disk already holds the agent's version.
+      if (fileContent === null) return true
 
       const currentFile = targetFile
       if (!currentFile || currentFile.deleted) {
@@ -385,6 +388,12 @@ export default function SimpleEditor() {
     [markFileClean]
   )
 
+  // Lets code outside the editor (workspace switching in Settings) flush the open file.
+  useEffect(() => {
+    useEditorStore.getState().setSaveActiveFile(() => handleSave())
+    return () => useEditorStore.getState().setSaveActiveFile(null)
+  }, [handleSave])
+
   const handleStageOrSnapshot = async () => {
     if (!currentFilePath) return
     setIsStaging(true)
@@ -394,8 +403,11 @@ export default function SimpleEditor() {
         console.error("Staging aborted because save operation failed.")
         return
       }
-      const store = useEditorStore.getState()
-      const contentToStage = store.aiPendingEdit ? store.aiPendingEdit.previousContent : store.content
+      const contentToStage = savableContent(currentFilePath)
+      if (contentToStage === null) {
+        toast.info('Accept or reject the AI changes before staging this file.')
+        return
+      }
       const res = await fetch(`${API_BASE}/api/workspace/stage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -428,6 +440,7 @@ export default function SimpleEditor() {
 
   const handleRestoreConfirm = async (mode: RestoreMode = 'committed') => {
     if (!currentFilePath) return
+    if (refuseWhileAiBusy()) return
     setIsRestoring(true)
     try {
       const res = await fetch(`${API_BASE}/api/workspace/restore-diff-base`, {
@@ -483,6 +496,7 @@ export default function SimpleEditor() {
   }
 
   const handleOpenRestore = async () => {
+    if (refuseWhileAiBusy()) return
     if (isDirty) {
       await handleSave()
     }

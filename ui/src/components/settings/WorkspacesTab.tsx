@@ -5,6 +5,7 @@ import { useEditorStore, type ApiFileItem, type FileStatus } from '../../stores/
 import { refreshWorkspaceStatus } from '../../lib/workspaceStatus'
 import { toast } from '../../stores/toastStore'
 import { API_BASE } from '../../lib/api'
+import { prepareWorkspaceSwitch, detachOpenFile } from '../../lib/workspaceSwitch'
 import { FilterSection, SectionCard, SectionLabel, Toggle } from './shared'
 import { workspaceNameError } from './workspaceName'
 
@@ -428,6 +429,7 @@ export function WorkspacesSettings({ settings, updateSettings, query }: { settin
 
   const handleLink = async () => {
     if (!pickedPath) return
+    if (!(await prepareWorkspaceSwitch())) return
     setIsWorking(true)
     try {
       // One atomic call: link + profile record (+ git) persist together,
@@ -444,6 +446,7 @@ export function WorkspacesSettings({ settings, updateSettings, query }: { settin
       })
       const data = await res.json()
       if (res.ok && data.success) {
+        if (data.linked_workspace_dir !== settings.linked_workspace_dir) detachOpenFile()
         updateSettings({
           linked_workspace_dir: data.linked_workspace_dir,
           workspace_profiles: data.profiles,
@@ -481,6 +484,7 @@ export function WorkspacesSettings({ settings, updateSettings, query }: { settin
       return
     }
 
+    if (!(await prepareWorkspaceSwitch())) return
     setIsWorking(true)
     try {
       const res = await fetch(`${API_BASE}/api/workspace/create`, {
@@ -496,6 +500,8 @@ export function WorkspacesSettings({ settings, updateSettings, query }: { settin
       })
       const data = await res.json()
       if (res.ok && data.success) {
+        // Created with set_as_active: the backend now resolves paths in the new workspace.
+        detachOpenFile()
         updateSettings({
           linked_workspace_dir: data.path,
           workspace_profiles: data.profiles || settings.workspace_profiles || [],
@@ -554,6 +560,7 @@ export function WorkspacesSettings({ settings, updateSettings, query }: { settin
       `This cannot be undone.`
     )
     if (!confirmed) return
+    if (isActive && !(await prepareWorkspaceSwitch())) return
     try {
       const res = await fetch(`${API_BASE}/api/workspace/profiles/${p.id}?mode=delete`, {
         method: 'DELETE',
@@ -561,6 +568,7 @@ export function WorkspacesSettings({ settings, updateSettings, query }: { settin
       })
       const data = await res.json()
       if (res.ok && data.success) {
+        if (isActive) detachOpenFile()
         updateSettings({
           workspace_profiles: data.profiles,
           linked_workspace_dir: data.linked_workspace_dir ?? null,
