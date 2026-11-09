@@ -24,10 +24,20 @@ export const RenameModal: React.FC<RenameModalProps> = ({
   const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  useEffect(() => {
+  // Reset the field when the modal opens or targets another file (adjusting
+  // state during render, not in an effect, avoids a render with the old name).
+  const resetKey = `${isOpen}|${currentName}`
+  const [lastResetKey, setLastResetKey] = useState(resetKey)
+  if (resetKey !== lastResetKey) {
+    setLastResetKey(resetKey)
     if (isOpen) {
       setName(currentName)
       setError(null)
+    }
+  }
+
+  useEffect(() => {
+    if (isOpen) {
       const timer = setTimeout(() => {
         if (inputRef.current) {
           inputRef.current.focus()

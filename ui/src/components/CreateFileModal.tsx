@@ -20,14 +20,25 @@ export const CreateFileModal: React.FC<CreateFileModalProps> = ({
   isFolder = false,
   isCreating = false,
 }) => {
-  const [name, setName] = useState('')
+  const defaultName = isFolder ? '' : 'new-file.md'
+  const [name, setName] = useState(defaultName)
   const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
+  // Reset the field each time the modal opens (adjusting state during render,
+  // not in an effect, avoids a second render with the stale name).
+  const resetKey = `${isOpen}|${isFolder}`
+  const [lastResetKey, setLastResetKey] = useState(resetKey)
+  if (resetKey !== lastResetKey) {
+    setLastResetKey(resetKey)
+    if (isOpen) {
+      setName(defaultName)
+      setError(null)
+    }
+  }
+
   useEffect(() => {
     if (isOpen) {
-      setName(isFolder ? '' : 'new-file.md')
-      setError(null)
       const timer = setTimeout(() => {
         if (inputRef.current) {
           inputRef.current.focus()

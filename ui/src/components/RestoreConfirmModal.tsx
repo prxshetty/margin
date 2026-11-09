@@ -40,8 +40,23 @@ export const RestoreConfirmModal: React.FC<RestoreConfirmModalProps> = ({
   hasCommittedVersion = true,
 }) => {
   const confirmRef = useRef<HTMLButtonElement>(null)
-  const userSelectedRef = useRef(false)
-  const [restoreInfo, setRestoreInfo] = useState<RestoreInfo | null>(null)
+  // Server capabilities for `path`, fetched while open. Keyed by path so a stale
+  // answer for another file is never used.
+  const [fetchedInfo, setFetchedInfo] = useState<{ path: string; info: RestoreInfo } | null>(null)
+  // The mode the user picked this time the modal is open; null = use the default.
+  const [userMode, setUserMode] = useState<RestoreMode | null>(null)
+
+  // Forget the pick and the fetched capabilities whenever the modal opens or closes
+  // (adjusting state during render rather than in an effect).
+  const [lastIsOpen, setLastIsOpen] = useState(isOpen)
+  if (isOpen !== lastIsOpen) {
+    setLastIsOpen(isOpen)
+    setUserMode(null)
+    setFetchedInfo(null)
+  }
+
+  const restoreInfo =
+    isOpen && isGitWorkspace && filePath && fetchedInfo?.path === filePath ? fetchedInfo.info : null
 
   // Derive option states using pure helper
   const {
@@ -66,15 +81,16 @@ export const RestoreConfirmModal: React.FC<RestoreConfirmModalProps> = ({
     [isGitWorkspace, restoreInfo, fileStatus, hasUnstagedChanges, isDeleted, hasCommittedVersion]
   )
 
-  const [selectedMode, setSelectedMode] = useState<RestoreMode>(defaultMode)
+  const isModeEnabled = (mode: RestoreMode) =>
+    (mode === 'worktree_only' && canWorktreeOnly) ||
+    (mode === 'staged_and_unstage' && canStagedAndUnstage) ||
+    (mode === 'committed' && canCommitted)
+  // Least destructive enabled option, unless the user picked one that is still enabled.
+  const selectedMode: RestoreMode = userMode && isModeEnabled(userMode) ? userMode : defaultMode
 
   // Fetch precise restore capabilities from the server
   useEffect(() => {
-    userSelectedRef.current = false
-    if (!isOpen || !isGitWorkspace || !filePath) {
-      setRestoreInfo(null)
-      return
-    }
+    if (!isOpen || !isGitWorkspace || !filePath) return
 
     let active = true
     const controller = new AbortController()
@@ -89,7 +105,7 @@ export const RestoreConfirmModal: React.FC<RestoreConfirmModalProps> = ({
       })
       .then((data: RestoreInfo | null) => {
         if (active && data) {
-          setRestoreInfo(data)
+          setFetchedInfo({ path: filePath, info: data })
         }
       })
       .catch(() => {
@@ -107,27 +123,6 @@ export const RestoreConfirmModal: React.FC<RestoreConfirmModalProps> = ({
   }, [isOpen, isGitWorkspace, filePath])
 
   const origName = renamedFrom ? (renamedFrom.split('/').pop() || renamedFrom) : fileName
-
-  // Automatically select the least destructive enabled option upon open or capability refresh
-  useEffect(() => {
-    if (!isOpen) {
-      userSelectedRef.current = false
-      return
-    }
-
-    if (!userSelectedRef.current) {
-      setSelectedMode(defaultMode)
-    } else {
-      // If user selected an option that became disabled, fall back to defaultMode
-      const isSelectedValid =
-        (selectedMode === 'worktree_only' && canWorktreeOnly) ||
-        (selectedMode === 'staged_and_unstage' && canStagedAndUnstage) ||
-        (selectedMode === 'committed' && canCommitted)
-      if (!isSelectedValid) {
-        setSelectedMode(defaultMode)
-      }
-    }
-  }, [isOpen, defaultMode, selectedMode, canWorktreeOnly, canStagedAndUnstage, canCommitted])
 
   useEffect(() => {
     if (!isOpen) return
@@ -160,11 +155,7 @@ export const RestoreConfirmModal: React.FC<RestoreConfirmModalProps> = ({
 
   if (!isOpen) return null
 
-  const isCurrentModeValid = isGitWorkspace
-    ? (selectedMode === 'worktree_only' && canWorktreeOnly) ||
-      (selectedMode === 'staged_and_unstage' && canStagedAndUnstage) ||
-      (selectedMode === 'committed' && canCommitted)
-    : true
+  const isCurrentModeValid = isGitWorkspace ? isModeEnabled(selectedMode) : true
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -235,10 +226,7 @@ export const RestoreConfirmModal: React.FC<RestoreConfirmModalProps> = ({
                       checked={selectedMode === opt.mode}
                       disabled={opt.disabled}
                       onChange={() => {
-                        if (!opt.disabled) {
-                          userSelectedRef.current = true
-                          setSelectedMode(opt.mode)
-                        }
+                        if (!opt.disabled) setUserMode(opt.mode)
                       }}
                       className="mt-0.5 accent-[var(--accent-brown)]"
                     />

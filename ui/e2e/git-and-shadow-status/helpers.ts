@@ -44,7 +44,7 @@ export interface TestWorkspace {
 export const test = base.extend<{ testWorkspace: TestWorkspace }>({
   testWorkspace: [
     // eslint-disable-next-line no-empty-pattern
-    async ({}, use, testInfo) => {
+    async ({}, provideWorkspace, testInfo) => {
       const testTitle = testInfo.title.toLowerCase()
       const fileBase = (testInfo.file.split(/[/\\]/).pop() || '').toLowerCase()
       const isShadow =
@@ -117,7 +117,7 @@ export const test = base.extend<{ testWorkspace: TestWorkspace }>({
         }
 
         // 5. Run test within this isolated workspace
-        await use({ path: actualWsPath || wsPath, isGit: !isShadow })
+        await provideWorkspace({ path: actualWsPath || wsPath, isGit: !isShadow })
       } finally {
         // 6. Cleanup: Restore full original settings & permanently remove temp directory
         try {
