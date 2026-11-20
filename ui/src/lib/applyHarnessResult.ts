@@ -129,6 +129,7 @@ async function putFileContent(path: string, content: string): Promise<void> {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content }),
+    signal: AbortSignal.timeout(10000),
   })
   if (!res.ok) throw new Error(`Failed to save ${path}: ${res.status}`)
   useEditorStore.getState().markFileClean(path)
@@ -160,11 +161,45 @@ export function reapplyHarnessHighlight(editor: Editor): void {
 
 // Called on `harness_done`. Never overwrites the user's newer edits:
 // merges AI disk changes with current editor content (3-way, base = snapshot).
-export async function applyHarnessResult(baseContent: string, harness: string): Promise<{ conflicts: number; deleted: boolean }> {
+export interface HarnessApplyResult {
+  conflicts: number
+  deleted: boolean
+  /** The run's file is no longer open: its changes stay on disk, the editor is untouched. */
+  skipped: boolean
+}
+
+// Drop the cached text of a file changed on disk so opening it re-fetches,
+// unless it holds unsaved text.
+function markUnloaded(path: string | null): void {
+  if (!path) return
+  useEditorStore.setState((state) => ({
+    openedFiles: state.openedFiles.map((f) =>
+      f.path === path && f.content === f.originalContent ? { ...f, content: '', originalContent: '' } : f
+    ),
+  }))
+}
+
+/**
+ * `runPath` is the file the run started on, and `baseContent` that file's text then.
+ * If another file is open by now, merging would mix two files' text and attach the
+ * run's base to the wrong file, so the result is left on disk instead.
+ */
+export async function applyHarnessResult(baseContent: string, harness: string, runPath: string | null): Promise<HarnessApplyResult> {
+  const notApplied = { conflicts: 0, deleted: false, skipped: true }
   const s = useEditorStore.getState()
-  if (!s.currentFilePath) return { conflicts: 0, deleted: false }
-  const deletedPath = s.currentFilePath
-  const res = await fetch(`${API_BASE}/api/workspace/files/${encodeURIComponent(deletedPath)}`)
+  if (!runPath) return { conflicts: 0, deleted: false, skipped: false }
+  if (s.currentFilePath !== runPath) {
+    markUnloaded(runPath)
+    return notApplied
+  }
+  const deletedPath = runPath
+  const res = await fetch(`${API_BASE}/api/workspace/files/${encodeURIComponent(deletedPath)}`, {
+    signal: AbortSignal.timeout(10000),
+  })
+  if (useEditorStore.getState().currentFilePath !== runPath) {
+    markUnloaded(runPath)
+    return notApplied
+  }
   if (res.status === 404) {
     // The agent deleted the open file: drop it from the sidebar, blank the
     // editor, and report back instead of erroring — there is nothing to merge.
@@ -175,18 +210,30 @@ export async function applyHarnessResult(baseContent: string, harness: string): 
     st.setAiPendingEdit(null)
     st.editor?.commands.setContent('')
     st.editor?.commands.clearAiHighlight()
-    return { conflicts: 0, deleted: true }
+    return { conflicts: 0, deleted: true, skipped: false }
   }
   if (!res.ok) throw new Error(`Failed to reload ${deletedPath}: ${res.status}`)
   const { content: aiContent } = await res.json()
+  // Re-read after the awaits: the editor stays editable during a run, so text typed
+  // while the reload was in flight must be in the merge, and the file must still be open.
+  const latest = useEditorStore.getState()
+  if (latest.currentFilePath !== runPath) {
+    markUnloaded(runPath)
+    return notApplied
+  }
 
   const base = splitParas(baseContent)
   const ai = splitParas(aiContent)
-  const current = splitParas(s.content)
+  const current = splitParas(latest.content)
   const { merged, conflicts, aiChangedIdx } = threeWayMerge(base, ai, current)
+  // The merge equals the editor (agent left this file alone, or the user's overlapping
+  // edits won): no review to hold open. Compared as text, since aiChangedIdx does not
+  // record paragraphs the agent deleted.
+  if (merged.join('\n\n') === current.join('\n\n')) return { conflicts, deleted: false, skipped: false }
 
   setEditorContent(merged.join('\n\n'))
   useEditorStore.getState().setAiPendingEdit({
+    filePath: runPath,
     previousContent: baseContent,
     aiContent,
     harness,
@@ -199,7 +246,7 @@ export async function applyHarnessResult(baseContent: string, harness: string): 
   // Highlight AI-owned ranges (single span min→max; limitation documented)
   const editor = useEditorStore.getState().editor
   if (editor) reapplyHarnessHighlight(editor)
-  return { conflicts, deleted: false }
+  return { conflicts, deleted: false, skipped: false }
 }
 
 // Accept / Reject for harness runs. Returns true if handled (harness pending
@@ -208,6 +255,12 @@ export async function resolveHarnessReview(accept: boolean): Promise<boolean> {
   const s = useEditorStore.getState()
   const pending = s.aiPendingEdit
   if (!pending?.harness || !s.currentFilePath) return false
+  if (pending.filePath !== s.currentFilePath) {
+    // Belongs to another file: never write its text here.
+    s.editor?.commands.clearAiHighlight()
+    s.setAiPendingEdit(null)
+    return true
+  }
 
   if (accept) {
     // Merged doc (AI + preserved user edits) is already in the editor;

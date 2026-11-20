@@ -6,6 +6,7 @@ import { toast } from '../stores/toastStore'
 import { API_BASE } from '../lib/api'
 import { streamSSE } from '../lib/stream-sse'
 import { applyHarnessResult } from '../lib/applyHarnessResult'
+import { beginAiRun, endAiRun, isOnRunFile } from '../lib/aiRunGuard'
 import { scheduleFileRefresh } from '../lib/refreshFiles'
 import { HarnessIcon } from './HarnessIcon'
 import { ImageDetailPopup, type ImageLogEntry } from './ImageDetailPopup'
@@ -863,6 +864,8 @@ export function SimpleAssist() {
     // Snapshot for harness three-way reconciliation (editor stays editable)
     harnessBaseRef.current = useEditorStore.getState().content
     setActiveHarness(harness)
+    // Ties the result to this file; file switches are refused until it ends.
+    const run = beginAiRun()
 
     if (inputRef.current) {
       inputRef.current.textContent = ''
@@ -941,6 +944,10 @@ export function SimpleAssist() {
             if (harness !== 'none') {
               // Harness stdout is progress output — display only, never insert
               setStreamingChatText(prev => prev + (data.chunk as string))
+            } else if (!isOnRunFile(run)) {
+              // Open file changed mid-stream: these positions belong to another file.
+              setNoticeText('Stopped: the open file changed during the AI edit.')
+              abortRef.current?.abort()
             } else {
             const chunk = data.chunk as string
             const liveEditor = useEditorStore.getState().editor || activeEditor
@@ -975,9 +982,11 @@ export function SimpleAssist() {
             setIsPlanning(false)
             setIsGenerating(false)
             scheduleFileRefresh(0)
-            applyHarnessResult(harnessBaseRef.current, harness)
-              .then(({ conflicts, deleted }) => {
-                if (deleted) {
+            applyHarnessResult(harnessBaseRef.current, harness, run.path)
+              .then(({ conflicts, deleted, skipped }) => {
+                if (skipped) {
+                  setNoticeText(`${harnessLabel(harness)} finished after you switched files. Its changes are saved on disk; reopen the file to see them.`)
+                } else if (deleted) {
                   setNoticeText(`The open file was deleted by ${harnessLabel(harness)}.`)
                 } else if (conflicts > 0) {
                   setNoticeText(`${conflicts} paragraph${conflicts > 1 ? 's were' : ' was'} changed by both you and ${harnessLabel(harness)} — kept your version.`)
@@ -990,6 +999,11 @@ export function SimpleAssist() {
               useEditorStore.getState().setActiveModel(data.model_used as string)
             }
             const output = data.output as string
+            if (!isOnRunFile(run)) {
+              setNoticeText('The AI edit was discarded: the open file changed while it ran.')
+              setPendingEditSelection(null)
+              return
+            }
 
             const liveEditor = useEditorStore.getState().editor || activeEditor
             if (liveEditor && liveEditor.view && liveEditor.state && !liveEditor.isDestroyed) {
@@ -1013,6 +1027,7 @@ export function SimpleAssist() {
                 const beforeSize = liveEditor.state.doc.content.size
 
                 setAiPendingEdit({
+                  filePath: filePathAtApply,
                   previousContent,
                   selectionRange: localHasSelection && selectionInfo ? { from: selectionInfo.from, to: selectionInfo.to } : null,
                   highlightFrom: startPos
@@ -1054,6 +1069,7 @@ export function SimpleAssist() {
         setErrorText('Error: ' + (err as Error).message)
       }
     } finally {
+      endAiRun(run)
       setIsWorking(false)
       setIsPlanning(false)
       setIsGenerating(false)
@@ -1094,6 +1110,8 @@ export function SimpleAssist() {
     setNoticeText('')
     harnessBaseRef.current = useEditorStore.getState().content
     setActiveHarness(harness)
+    // Only harness chats edit files; tie those to the open file like edit runs.
+    const run = harness !== 'none' ? beginAiRun() : null
 
     if (inputRef.current) {
       inputRef.current.textContent = ''
@@ -1164,9 +1182,11 @@ export function SimpleAssist() {
             setIsPlanning(false)
             setIsGenerating(false)
             scheduleFileRefresh(0)
-            applyHarnessResult(harnessBaseRef.current, harness)
-              .then(({ conflicts, deleted }) => {
-                if (deleted) {
+            applyHarnessResult(harnessBaseRef.current, harness, run ? run.path : null)
+              .then(({ conflicts, deleted, skipped }) => {
+                if (skipped) {
+                  setNoticeText(`${harnessLabel(harness)} finished after you switched files. Its changes are saved on disk; reopen the file to see them.`)
+                } else if (deleted) {
                   setNoticeText(`The open file was deleted by ${harnessLabel(harness)}.`)
                 } else if (conflicts > 0) {
                   setNoticeText(`${conflicts} paragraph${conflicts > 1 ? 's were' : ' was'} changed by both you and ${harnessLabel(harness)} — kept your version.`)
@@ -1187,6 +1207,7 @@ export function SimpleAssist() {
         setErrorText('Error: ' + (err as Error).message)
       }
     } finally {
+      if (run) endAiRun(run)
       setIsWorking(false)
       setIsPlanning(false)
       setIsGenerating(false)
