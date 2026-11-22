@@ -1,7 +1,7 @@
 {
   "clones": {
-    "total": 2271,
-    "unique": 1040
+    "total": 2293,
+    "unique": 1055
   },
   "days": {
     "2026-09-01": {
@@ -327,7 +327,11 @@
     "2026-11-20": {
       "clones": 50,
       "unique_cloners": 27
+    },
+    "2026-11-21": {
+      "clones": 22,
+      "unique_cloners": 15
     }
   },
-  "updated_at": "2026-11-21T18:28:08Z"
+  "updated_at": "2026-11-22T18:51:03Z"
 }
