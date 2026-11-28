@@ -19,6 +19,11 @@ dist-ssr
 .DS_Store
 *.suo
 *.ntvs*
-*.njsproj
 *.sln
 *.sw?
+
+# Playwright test artifacts & reports
+playwright-report/
+test-results/
+blob-report/
+playwright/.cache/
